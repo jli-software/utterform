@@ -40,6 +40,9 @@
     "shortDescription": "Turn speech into useful text.",
     "longDescription": "A lightweight desktop voice-to-text utility with online and offline transcription engines.",
     "copyright": "Copyright © 2026 Jonas",
-    "license": "MIT"
+    "license": "MIT",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   }
 }
