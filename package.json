@@ -1,0 +1,29 @@
+{
+  "name": "utterform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.4.0",
+    "svelte": "^5.57.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/svelte": "^5.3.1",
+    "@types/node": "^24.0.0",
+    "jsdom": "^26.1.0",
+    "svelte-check": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2",
+    "vitest": "^3.2.4"
+  }
+}
