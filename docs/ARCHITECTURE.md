@@ -4,7 +4,9 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 
 ## Boundaries
 
-- `audio.rs` — device discovery, CPAL capture, bounded handoff, temporary WAV lifecycle, Whisper normalization
+- `audio.rs` — device discovery, CPAL capture, bounded handoff, RMS envelope, native cutoff, temporary WAV lifecycle, Whisper normalization
+- `feedback.rs` — best-effort synthesized start/stop clicks through CPAL output
+- `platform.rs` — Omarchy-only native window-decoration policy
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
@@ -28,6 +30,16 @@ The frontend never receives an API key or temporary audio path. Network calls or
 7. Persist the completed text to local history (if enabled), before external delivery.
 8. Deliver to each selected output independently.
 9. Delete the temporary recording when the artifact leaves scope.
+
+## Background capture & feedback
+
+Capture is owned by Rust/CPAL, not the WebView. Focus changes, minimization, and closing the window to tray do not stop a recording. Explicit Stop processes it, Escape discards it, and tray Quit discards active audio before exiting. No microphone capture starts merely by launching the app. Recording shortcuts remain focused-window shortcuts, not global hotkeys.
+
+A native watchdog checks the active session every 250 ms and finalizes capture at ten minutes, even if the WebView is suspended. The completed artifact stays in native state until processing consumes it once. An event starts processing immediately when the WebView is running; status polling catches up after a hidden/suspended window resumes. Session identity prevents an old watchdog from stopping a later recording. The UI reads native elapsed time rather than incrementing a JS timer.
+
+Only a bounded RMS-derived envelope crosses IPC, at most 10 times per second while visible and recording; no raw audio reaches the frontend. The full-window violet/blue ambient field responds to this envelope behind stationary controls. Reduced-motion mode disables field movement. Start/stop cues are generated locally, quiet and short, before capture starts and after the stream stops. Speaker failures do not fail recording; cues can be disabled in Settings.
+
+Omarchy is detected only in a Hyprland desktop session with an Omarchy installation/path. Native decorations are disabled before first showing the window. Other desktops, macOS, and Windows retain their standard decorations. No compositor config or automatic Omarchy theme integration is added.
 
 ## Text history
 

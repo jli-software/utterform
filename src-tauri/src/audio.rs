@@ -3,11 +3,11 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc::{SyncSender, sync_channel},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cpal::{
@@ -15,26 +15,48 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
-use crate::domain::AudioDeviceInfo;
+use crate::{
+    domain::AudioDeviceInfo,
+    feedback::{self, Cue},
+};
+use serde::Serialize;
 
 const CHANNEL_CAPACITY: usize = 64;
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const RECORDING_DIRECTORY: &str = "utterform";
 const STALE_RECORDING_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_RECORDING_DURATION: Duration = Duration::from_secs(10 * 60);
 
+#[derive(Default)]
 pub struct AudioCaptureState {
-    active: Mutex<Option<ActiveRecording>>,
+    inner: Mutex<CaptureInner>,
+    level: Arc<AtomicU32>,
 }
 
-impl Default for AudioCaptureState {
-    fn default() -> Self {
-        Self {
-            active: Mutex::new(None),
-        }
-    }
+#[derive(Default)]
+struct CaptureInner {
+    active: Option<ActiveRecording>,
+    completed: Option<Result<RecordingArtifact, String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStatus {
+    pub recording: bool,
+    pub limit_reached: bool,
+    pub elapsed_seconds: u64,
+    pub level: f32,
+}
+
+pub enum LimitCheck {
+    Waiting,
+    Stopped,
+    Gone,
 }
 
 struct ActiveRecording {
+    started_at: Instant,
+    sound_enabled: bool,
     stream: Stream,
     sender: SyncSender<Vec<f32>>,
     writer: thread::JoinHandle<Result<RecordingArtifact, String>>,
@@ -165,12 +187,13 @@ pub fn cleanup_stale_recordings() -> Result<(), String> {
 pub fn start_recording(
     state: &AudioCaptureState,
     requested_device: Option<&str>,
-) -> Result<(), String> {
+    sound_enabled: bool,
+) -> Result<Instant, String> {
     let mut guard = state
-        .active
+        .inner
         .lock()
         .map_err(|_| "Audio state is unavailable".to_string())?;
-    if guard.is_some() {
+    if guard.active.is_some() || guard.completed.is_some() {
         return Err("A recording is already active".into());
     }
 
@@ -234,35 +257,96 @@ pub fn start_recording(
         sender.clone(),
         overrun.clone(),
         stream_error.clone(),
+        state.level.clone(),
     )?;
+    // Never include the start cue in the captured audio.
+    if sound_enabled {
+        feedback::play(Cue::Start);
+    }
+    state.level.store(0, Ordering::Relaxed);
     stream
         .play()
         .map_err(|error| format!("Could not start the microphone: {error}"))?;
 
-    *guard = Some(ActiveRecording {
+    let started_at = Instant::now();
+    guard.active = Some(ActiveRecording {
+        started_at,
+        sound_enabled,
         stream,
         sender,
         writer,
         overrun,
         stream_error,
     });
-    Ok(())
+    Ok(started_at)
 }
 
 fn recording_directory() -> PathBuf {
     std::env::temp_dir().join(RECORDING_DIRECTORY)
 }
 
-pub fn stop_recording(state: &AudioCaptureState) -> Result<RecordingArtifact, String> {
-    let active = state
-        .active
+pub fn status(state: &AudioCaptureState) -> Result<RecordingStatus, String> {
+    let guard = state
+        .inner
         .lock()
-        .map_err(|_| "Audio state is unavailable".to_string())?
-        .take()
-        .ok_or_else(|| "No recording is active".to_string())?;
+        .map_err(|_| "Audio state is unavailable")?;
+    Ok(RecordingStatus {
+        recording: guard.active.is_some(),
+        limit_reached: guard.completed.is_some(),
+        elapsed_seconds: guard.active.as_ref().map_or(
+            if guard.completed.is_some() {
+                MAX_RECORDING_DURATION.as_secs()
+            } else {
+                0
+            },
+            |active| active.started_at.elapsed().as_secs(),
+        ),
+        level: if guard.active.is_some() {
+            f32::from_bits(state.level.load(Ordering::Relaxed))
+        } else {
+            0.0
+        },
+    })
+}
 
+// Runs on a native watchdog, not a WebView timer (which can be throttled when hidden).
+pub fn check_limit(state: &AudioCaptureState, session: Instant) -> Result<LimitCheck, String> {
+    let mut guard = state
+        .inner
+        .lock()
+        .map_err(|_| "Audio state is unavailable")?;
+    match guard.active.as_ref() {
+        Some(active) if active.started_at == session => {
+            if active.started_at.elapsed() < MAX_RECORDING_DURATION {
+                return Ok(LimitCheck::Waiting);
+            }
+        }
+        _ => return Ok(LimitCheck::Gone),
+    }
+    if let Some(active) = guard.active.take() {
+        guard.completed = Some(finalize(active));
+    }
+    Ok(LimitCheck::Stopped)
+}
+
+pub fn stop_recording(state: &AudioCaptureState) -> Result<RecordingArtifact, String> {
+    let mut guard = state
+        .inner
+        .lock()
+        .map_err(|_| "Audio state is unavailable")?;
+    if let Some(completed) = guard.completed.take() {
+        return completed;
+    }
+    let active = guard.active.take().ok_or("No recording is active")?;
+    finalize(active)
+}
+
+fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
     drop(active.stream);
     drop(active.sender);
+    if active.sound_enabled {
+        feedback::play(Cue::Stop);
+    }
     let artifact = active
         .writer
         .join()
@@ -286,17 +370,13 @@ pub fn stop_recording(state: &AudioCaptureState) -> Result<RecordingArtifact, St
 }
 
 pub fn cancel_recording(state: &AudioCaptureState) -> Result<(), String> {
-    let active = state
-        .active
+    let mut guard = state
+        .inner
         .lock()
-        .map_err(|_| "Audio state is unavailable".to_string())?
-        .take();
-    if let Some(active) = active {
-        drop(active.stream);
-        drop(active.sender);
-        if let Ok(Ok(artifact)) = active.writer.join() {
-            drop(artifact);
-        }
+        .map_err(|_| "Audio state is unavailable")?;
+    guard.completed = None;
+    if let Some(active) = guard.active.take() {
+        let _ = finalize(active);
     }
     Ok(())
 }
@@ -323,6 +403,7 @@ fn build_input_stream(
     sender: SyncSender<Vec<f32>>,
     overrun: Arc<AtomicBool>,
     stream_error: Arc<Mutex<Option<String>>>,
+    level: Arc<AtomicU32>,
 ) -> Result<Stream, String> {
     macro_rules! stream {
         ($sample:ty, $convert:expr) => {{
@@ -332,6 +413,7 @@ fn build_input_stream(
                 *config,
                 move |data: &[$sample], _| {
                     let chunk = data.iter().copied().map($convert).collect::<Vec<f32>>();
+                    level.store(visual_level(&chunk).to_bits(), Ordering::Relaxed);
                     if sender.try_send(chunk).is_err() {
                         overrun.store(true, Ordering::Relaxed);
                     }
@@ -359,6 +441,16 @@ fn build_input_stream(
     result.map_err(|error| format!("Could not open the microphone: {error}"))
 }
 
+fn visual_level(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let rms =
+        (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32).sqrt();
+    // Compress speech dynamics into a restrained, useful visual range.
+    (rms * 5.0).sqrt().clamp(0.0, 1.0)
+}
+
 fn resample_linear(input: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
     if input.is_empty() || source_rate == 0 || target_rate == 0 {
         return Vec::new();
@@ -384,6 +476,48 @@ fn resample_linear(input: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metering_is_bounded_and_silence_is_quiet() {
+        assert_eq!(visual_level(&[]), 0.0);
+        assert_eq!(visual_level(&[0.0; 100]), 0.0);
+        assert_eq!(visual_level(&[1.0; 100]), 1.0);
+        assert!(visual_level(&[0.02; 100]) > visual_level(&[0.001; 100]));
+    }
+
+    #[test]
+    fn inactive_watchdog_does_not_touch_another_session() {
+        let state = AudioCaptureState::default();
+        assert!(matches!(
+            check_limit(&state, Instant::now()).unwrap(),
+            LimitCheck::Gone
+        ));
+        assert!(!status(&state).unwrap().recording);
+        assert!(!status(&state).unwrap().limit_reached);
+        assert!(stop_recording(&state).is_err());
+        assert!(cancel_recording(&state).is_ok());
+    }
+
+    #[test]
+    fn auto_stopped_audio_is_consumed_exactly_once() {
+        let state = AudioCaptureState::default();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("recording.wav");
+        std::fs::write(&path, []).unwrap();
+        state.inner.lock().unwrap().completed = Some(Ok(RecordingArtifact {
+            path: path.clone(),
+            sample_rate: 16000,
+            channels: 1,
+            sample_count: 16000,
+        }));
+        assert!(status(&state).unwrap().limit_reached);
+        let artifact = stop_recording(&state).unwrap();
+        assert_eq!(artifact.duration_ms(), 1000);
+        assert!(!status(&state).unwrap().limit_reached);
+        assert!(stop_recording(&state).is_err());
+        drop(artifact);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn resampling_preserves_duration() {

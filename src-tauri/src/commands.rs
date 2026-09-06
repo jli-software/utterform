@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::{
@@ -48,7 +48,33 @@ pub fn start_recording(
             ));
         }
     }
-    audio::start_recording(&state, input_device.as_deref())
+    let current_settings = settings::load(&app)?;
+    let session = audio::start_recording(
+        &state,
+        input_device.as_deref(),
+        current_settings.sound_enabled,
+    )?;
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            match audio::check_limit(&app.state::<AudioCaptureState>(), session) {
+                Ok(audio::LimitCheck::Waiting) => {}
+                Ok(audio::LimitCheck::Stopped) => {
+                    let _ = app.emit("recording-limit-reached", ());
+                    break;
+                }
+                _ => break,
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_recording_status(
+    state: State<'_, AudioCaptureState>,
+) -> Result<audio::RecordingStatus, String> {
+    audio::status(&state)
 }
 
 #[tauri::command]

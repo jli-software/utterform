@@ -13,6 +13,7 @@ vi.mock("./lib/api", () => ({ api: {
   getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
+  getRecordingStatus: vi.fn(async () => ({ recording: true, limitReached: false, elapsedSeconds: 1, level: 0.3 })),
   copyText: vi.fn(), clearHistory: vi.fn(),
 } }));
 
@@ -49,7 +50,7 @@ describe("transcript history", () => {
     await fireEvent.blur(window);
     expect(api.cancelRecording).not.toHaveBeenCalled();
     expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(latest.text);
-    await fireEvent.keyDown(window, { key: "Escape" });
+    await fireEvent.keyDown(view.getByRole("button", { name: "Stop recording" }), { key: "Escape" });
     await waitFor(() => expect(api.cancelRecording).toHaveBeenCalledOnce());
     expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(latest.text);
   });

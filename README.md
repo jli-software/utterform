@@ -33,6 +33,9 @@ The build is currently limited to Linux x86_64. Windows and macOS test builds wi
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
 - Focused-window shortcuts and a compact system tray presence
+- Background recording across app switches and close-to-tray, with a native ten-minute cutoff
+- Microphone-responsive violet/blue ambient motion and optional start/stop clicks
+- Borderless window on Omarchy; standard window controls elsewhere
 - Automatic processing when a recording reaches 10 minutes
 - Light, dark, and system themes
 - API keys stored in the operating system credential store
@@ -51,7 +54,7 @@ Shortcuts work while the Utterform window is focused.
 | `F` | Toggle file output |
 | `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |
 
-Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors.
+Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors. **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to stop it, or let the ten-minute limit stop capture. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
 
 ## Privacy model
 

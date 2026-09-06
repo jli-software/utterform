@@ -1,9 +1,11 @@
 mod audio;
 mod commands;
 mod domain;
+mod feedback;
 mod history;
 mod models;
 mod output;
+mod platform;
 mod secrets;
 mod settings;
 mod transcription;
@@ -22,6 +24,12 @@ pub fn run() {
         .manage(history::HistoryState::default())
         .setup(|app| {
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
+            if let Some(window) = app.get_webview_window("main") {
+                if platform::use_borderless_window() {
+                    window.set_decorations(false)?;
+                }
+                window.show()?;
+            }
             let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -51,8 +59,8 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let state = window.state::<audio::AudioCaptureState>();
-                let _ = audio::cancel_recording(&state);
+                // Close means hide to tray, not discard audio. Capture is native and
+                // continues across focus changes, minimization and Super+W on Omarchy.
                 let _ = window.hide();
             }
         })
@@ -61,6 +69,7 @@ pub fn run() {
             commands::save_settings,
             commands::list_input_devices,
             commands::start_recording,
+            commands::get_recording_status,
             commands::cancel_recording,
             commands::finish_recording,
             commands::list_history,

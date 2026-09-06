@@ -56,6 +56,13 @@ export interface ProcessResult {
   engine: Engine;
 }
 
+export interface RecordingStatus {
+  recording: boolean;
+  limitReached: boolean;
+  elapsedSeconds: number;
+  level: number;
+}
+
 export interface DownloadProgress {
   modelId: string;
   downloadedBytes: number;

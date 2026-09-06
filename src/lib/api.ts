@@ -7,6 +7,7 @@ import type {
   LocalModel,
   OutputFormat,
   ProcessResult,
+  RecordingStatus,
 } from "./types";
 
 export const api = {
@@ -23,6 +24,7 @@ export const api = {
     action: string,
   ) => invoke<void>("start_recording", { inputDevice, engine, localModelId, action }),
   cancelRecording: () => invoke<void>("cancel_recording"),
+  getRecordingStatus: () => invoke<RecordingStatus>("get_recording_status"),
   finishRecording: (request: {
     action: string;
     customPrompt: string | null;
