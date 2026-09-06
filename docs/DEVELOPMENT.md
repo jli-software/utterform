@@ -3,26 +3,21 @@
 ## Shared workflow
 
 - Canonical repository: https://github.com/jli-software/utterform
-- Work directly on `main`. Pull before starting; commit and push each completed, validated change immediately. Never force-push over another contributor's work.
-- **Always release completed work:** Jonas explicitly wants every completed, successfully validated set of Utterform changes published as a new GitHub version with all platform binaries, not left as source-only changes. Unless a version is specified, choose the next appropriate SemVer (patch for fixes/polish, minor for features); use normal `vX.Y.Z` releases unless a prerelease is requested. Synchronize versions/installer/docs, run checks, tag, wait for every platform and publishing job, and verify the downloaded assets before calling the work released. No additional release confirmation is needed. Never move a published tag or publish failing/partial work; fix blockers first.
+- Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
+- **Always release completed work:** Jonas explicitly wants every completed, successfully validated set of Utterform changes published as a new GitHub version with all platform binaries, not left as source-only changes. Unless a version is specified, increment the patch by default (0.3.0 → 0.3.1); increment the minor only when Jonas asks, respecting any explicit version; use normal `vX.Y.Z` releases unless a prerelease is requested. Synchronize versions/installer/docs, run checks, tag, wait for every platform and publishing job, and verify the downloaded assets before calling the work released. No additional release confirmation is needed. Never move a published tag or publish failing/partial work; fix blockers first.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.3.0
+## Current handoff — 0.3.1
 
-**Published and verified:** [Utterform 0.3.0](https://github.com/jli-software/utterform/releases/tag/v0.3.0) is the normal Latest release. The [release run](https://github.com/jli-software/utterform/actions/runs/34038549482) passed on all four targets and published all eight assets plus checksums. Downloaded SHA-256 checks, isolated Linux installation, binary architectures/Windows GUI subsystem, macOS version metadata and shared icon payloads all passed. Release source: `2c67667`. The first attempt was blocked by Windows CRLF handling in the new metadata guard; the fix has a regression test, and Jonas explicitly approved replacing the blocked tag before any 0.3.0 release had been published. The now-published tag is immutable.
+Compact recorder and delivery feedback implemented on `feat/compact-recorder-0.3.1`. See [release notes](releases/v0.3.1.md) and [testing](TESTING.md) for validation/publication status. The tray popup remains a [discussion proposal](TRAY-POPUP.md), not part of this release.
 
-The name **Utterform** is intentionally retained. Implemented user feedback:
+Latest text is a collapsed disclosure by default, leaving the copy button visible. The native result includes `copiedToClipboard` from actual delivery, never inferred from requested settings. Automatic and manual copying show a short checkmark confirmation; stale asynchronous copy replies cannot label a different history entry as copied. Manual Copy stays visible but is disabled while recording/processing; an outstanding manual write drains before a new recording starts. A native two-note Done cue follows successful transform and all requested outputs; history-only failure does not suppress delivery success. All cues follow the existing sound preference.
 
-- One refined violet/blue microphone mark for the app, Settings and all desktop icon formats; regenerate from `src-tauri/icons/app-icon.svg` with `npm run icons`.
-- Themed Settings/model cards, custom microphone/model selectors, a sliders symbol, subtle opening motion and keyboard-safe modal focus.
-- European history dates, local 24-hour times and live elapsed minutes today; existing history IDs provide a backwards-compatible timestamp fallback.
-- Native pause/resume via button or P. Space finishes and Escape discards, also while paused. Pauses neither deliver text nor add silence; the ten-minute limit counts active recording only. CPAL remains open while callbacks discard paused samples.
+The floating-window minimum is now 360 × 400. Stop and Pause share a control group; short/narrow layouts reduce secondary hints while preserving recording controls, output and copy. Expanded history/settings can scroll. Ambient recording motion and reduced-motion preferences remain intact.
 
-The audio-reactive ambient field, app identifiers and storage locations are unchanged. Version 0.3.0 packages this work as a normal release (`v0.3.0`); older published tags remain untouched. Signing and auto-update remain out of scope. The installed app must be updated separately; do not interrupt a user's active recording.
-
-Local validation: 23 frontend/release-metadata tests (including Windows CRLF checkouts), 20 Rust tests, 5 production Chromium tests, Svelte/TypeScript, Rustfmt and Clippy. Settings/model/pause/history screenshots checked in light/dark and compact/reduced-motion modes. Tests use synthetic IPC/audio, not the user's microphone, API key, clipboard or history. Desktop icons regenerate byte-identically; ICNS PNG payloads match the corresponding standalone assets. Interactive pause/resume still needs a real desktop microphone check on each platform.
+The 0.3.0 ARM macOS artifact was tested on a real Mac and failed strict signature verification: its executable had only a linker signature and the app resources were unsealed. New macOS builds explicitly ad-hoc sign the assembled bundle before packaging, then verify signatures in the app, mounted DMG and extracted ZIP. This fixes a verified packaging defect, **not** Apple trust/notarization. Intel builds are removed; Apple Silicon requires macOS 11+.
 
 ## 0.2.0 Beta scope
 
@@ -48,9 +43,9 @@ On the initial Linux development machine CMake was missing. An official, SHA-256
 
 ## Release workflow
 
-Version 0.3.0 is synchronized across npm, Cargo (including lockfiles), Tauri, and the Settings header. Tag `v0.3.0` names **Utterform 0.3.0**. The package version remains numeric for desktop installers; alpha/beta/rc suffixes may be used on tags only when explicitly intended.
+Versions are synchronized across npm, Cargo (including lockfiles), Tauri, the installer and docs. Settings reads the package version automatically.
 
-CI builds and uploads Linux x86_64 system packages, Windows x86_64 standalone/NSIS executables, and macOS Apple Silicon/Intel DMG/app archives. The `Release` workflow (historical filename `linux-release.yml`) first checks tag/version/installer/docs consistency, then reuses the same four-target CI, verifies all eight required assets, generates one combined checksum manifest, and publishes only after every target passes. Normal `vX.Y.Z` releases are marked Latest; `-alpha.N`, `-beta.N` and `-rc.N` tags become prereleases without replacing Latest.
+Push/PR `CI` runs frontend checks, production UI tests and native Linux fmt/Clippy/tests, without release-profile compilation or packaging. `Desktop builds` is manually runnable for Linux, Windows, macOS or all; it produces artifacts but never publishes. Manual dispatch becomes available only after the workflow reaches the default branch; tag releases already call it directly from their tagged source. The tag-triggered `Release` workflow validates metadata and calls `Desktop builds` once for all three supported targets. It requires all six binary/installer assets plus a combined checksum manifest before publication. Normal `vX.Y.Z` is Latest; explicit prerelease tags do not replace Latest. Stable download filenames are retained.
 
 For each completed change set, update package.json/package-lock.json, Cargo.toml/the Utterform Cargo.lock entry, tauri.conf.json, the Linux installer's default tag, README, changelog and `docs/releases/<tag>.md`. Run `npm run release:check -- <tag>` and the normal test suite, commit/push, then create and push the new tag. Wait for the Release workflow and verify its downloadable checksums/asset set. Never move a published tag; use a new version for later corrections. Validation-only follow-up documentation for an already verified release does not need an otherwise identical new application release.
 

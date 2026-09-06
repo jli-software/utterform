@@ -1,5 +1,16 @@
 # Validation
 
+## 0.3.1 compact recording and completion
+
+Local validation: Svelte/TypeScript, production Vite build, release metadata guard, 28 frontend/metadata tests, Rustfmt, Clippy with warnings denied, and 22 native Rust tests. Eight production Chromium scenarios cover recording/pause, settings focus, history, reduced motion, and floating layouts at 360 × 400, 480 × 480 and 920 × 400. Screenshots are inspected in light/dark themes. A review-found clipboard race is covered with deferred IPC: an in-flight copy drains before recording starts, and manual copy is unavailable throughout recording/processing so it cannot overwrite final delivery.
+
+Native output tests exercise all requested/successful output combinations; waveform tests check the two-note Done signal at 44.1/48/96 kHz. Clipboard confirmation uses the native `copiedToClipboard` result even when history/file warnings exist. Tests do not access personal audio, history, clipboard or paid APIs.
+
+On the real `macmini-build` Apple-Silicon host, the downloaded 0.3.0 app failed strict codesign verification (unsealed resources/linker-only signature). Re-signing the isolated test copy and running the new packaging script passed app, mounted DMG and extracted ZIP checks; original and deliberately altered test bundles were rejected. This verifies the packaging correction, not Gatekeeper approval or notarization.
+
+0.3.1 platform release builds/publication are pending at this source checkpoint; final outcome is recorded below after downloading the published assets. Windows/macOS interactive speech capture and actual speaker playback still need user testing. The tray-popup concept is not implemented.
+
+
 ## 0.3.0 UI polish and pause
 
 [Release run 34038549482](https://github.com/jli-software/utterform/actions/runs/34038549482) passed all four platform builds and publication. [v0.3.0](https://github.com/jli-software/utterform/releases/tag/v0.3.0) is published as a normal Latest release from `2c67667`. All eight downloaded assets match `SHA256SUMS.txt`. The downloaded Linux installer matches the source and passed isolated installation/replacement and system-library checks. Direct artifact inspection verified Linux x86_64 ELF, Windows x86_64 GUI subsystem and embedded new icon, both macOS Mach-O architectures, macOS version 0.3.0 and unchanged bundle identifier, and exact shared PNG/ICNS payloads in the Linux/macOS packages. No installed app was replaced or launched for these checks.

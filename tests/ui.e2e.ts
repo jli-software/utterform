@@ -49,7 +49,7 @@ test.beforeEach(async ({ page }) => {
               return recordingStatus();
             case "cancel_recording": started = 0; pausedAt = 0; return;
             case "get_recording_status": return recordingStatus();
-            case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, deliveryWarnings: [] };
+            case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
             case "plugin:event|listen": return ++counter;
             case "plugin:event|unlisten": return;
             default: throw new Error(`Unexpected IPC command: ${command}`);
@@ -64,6 +64,7 @@ test("production UI records, restores history, and keeps themed menus usable", a
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
+  await page.getByRole("button", { name: /Latest text/ }).click();
   await expect(page.getByRole("region", { name: "Transcript", exact: true })).toContainText("A focused tool");
   await page.getByRole("combobox", { name: "Action", exact: true }).click();
   await page.waitForTimeout(200); // Let the menu's entry transition settle for the visual artifact.
@@ -166,6 +167,7 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
 
 test("history shows local European dates in both the result and menu", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /Latest text/ }).click();
   await expect(page.locator(".result-date")).toHaveText(/Today · \d{2}:\d{2} · 5 min ago/);
   await page.getByRole("combobox", { name: "Recent texts" }).click();
   await expect(page.getByRole("option", { name: /Ideas for the next release/ })).toContainText("02.01.2026");
@@ -190,3 +192,46 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
   await page.locator(".local-models").scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("models-compact-reduced-motion.png") });
 });
+
+
+for (const viewport of [{ width: 360, height: 400 }, { width: 480, height: 480 }, { width: 920, height: 400 }]) {
+  test(`floating recorder stays in view at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    const disclosure = page.getByRole("button", { name: /Latest text/ });
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("region", { name: "Transcript", exact: true })).toHaveCount(0);
+    const inView = async (selector: string) => {
+      const box = await page.locator(selector).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    };
+    await inView(".copy-button");
+    await page.getByRole("button", { name: "Start recording", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pause recording" })).toBeVisible();
+    for (const selector of [".mic-button", ".pause-button", ".copy-button", ".output-bar"]) await inView(selector);
+    const action = await page.locator(".controls").boundingBox();
+    const mic = await page.locator(".mic-button").boundingBox();
+    expect(mic!.y - action!.y - action!.height).toBeGreaterThanOrEqual(14);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("floating-recording-dark.png") });
+    await page.getByRole("button", { name: "Pause recording" }).click();
+    await inView(".pause-button");
+    await page.getByRole("button", { name: "Stop recording", exact: true }).click();
+    await expect(page.locator(".copy-button")).toContainText("Copied");
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await page.evaluate(() => document.documentElement.dataset.theme = "light");
+    await page.waitForTimeout(350); // Capture the settled light theme, not its transition.
+    await page.screenshot({ path: testInfo.outputPath("floating-copied-light.png") });
+    await disclosure.click();
+    await expect(page.getByRole("region", { name: "Transcript", exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Recent texts" }).click();
+    await expect(page.getByRole("option", { name: /Ideas for the next release/ })).toBeVisible();
+    await page.getByRole("option", { name: /Ideas for the next release/ }).click();
+    await page.keyboard.press("Control+Shift+C");
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "__copiedText"))).toContain("A previous thought");
+  });
+}

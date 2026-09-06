@@ -5,7 +5,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 ## Boundaries
 
 - `audio.rs` — device discovery, CPAL capture, bounded handoff, RMS envelope, native cutoff, temporary WAV lifecycle, Whisper normalization
-- `feedback.rs` — best-effort synthesized start/stop clicks through CPAL output
+- `feedback.rs` — best-effort synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
