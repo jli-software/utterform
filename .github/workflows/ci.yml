@@ -94,6 +94,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $binary = [System.IO.File]::ReadAllBytes("$PWD/src-tauri/target/release/utterform.exe")
+          $pe = [BitConverter]::ToInt32($binary, 0x3c)
+          if ([BitConverter]::ToUInt16($binary, $pe + 4) -ne 0x8664) { throw "Expected an x86_64 executable" }
+          if ([BitConverter]::ToUInt16($binary, $pe + 24 + 68) -ne 2) { throw "Release binary must use the Windows GUI subsystem (no console window)" }
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item src-tauri/target/release/utterform.exe release/utterform-windows-x86_64.exe
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release/utterform-windows-x86_64-setup.exe

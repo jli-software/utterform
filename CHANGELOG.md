@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.2.0 Beta — v0.2.0-beta.1
+## 0.2.0 Beta 2 — v0.2.0-beta.2
+
+- Fix the Windows release executable to use the GUI subsystem instead of opening an extra console window.
+- Verify Windows PE architecture/subsystem in CI before publishing.
+- Supersede Beta 1 without moving or replacing its published tag. App version remains 0.2.0.
+
+See [Beta 2 release notes](docs/releases/v0.2.0-beta.2.md).
+
+## 0.2.0 Beta 1 — v0.2.0-beta.1
 
 - Add persistent device-local history for the latest 100 texts, short local titles, copy-again button and Ctrl/Cmd+Shift+C.
 - Keep the previous text visible while recording or processing; add history privacy controls and confirmed clearing.
