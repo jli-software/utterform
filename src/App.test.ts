@@ -22,6 +22,7 @@ const older: HistoryEntry = { ...latest, createdAtMs: new Date(2026, 8, 4, 9, 15
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
   let paused = false;
@@ -31,9 +32,16 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+async function renderExpanded() {
+  const view = render(App);
+  await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+  await fireEvent.click(view.getByRole("button", { name: /Latest text/ }));
+  return view;
+}
+
 describe("recording pause", () => {
   async function start() {
-    const view = render(App);
+    const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
     await waitFor(() => expect(view.queryByRole("button", { name: "Pause recording" })).not.toBeNull());
@@ -57,7 +65,7 @@ describe("recording pause", () => {
   });
 
   it("finishes paused audio with Space, and ignores key repeat", async () => {
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 12000, engine: "open_ai", savedPath: null, deliveryWarnings: [] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 12000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: [] });
     const view = await start();
     await fireEvent.keyDown(window, { code: "KeyP", repeat: true });
     expect(api.setRecordingPaused).not.toHaveBeenCalled();
@@ -91,7 +99,7 @@ describe("recording pause", () => {
   it("serializes repeated pause requests and handles the watchdog winning the race", async () => {
     let resolve!: (status: Awaited<ReturnType<typeof api.getRecordingStatus>>) => void;
     vi.mocked(api.setRecordingPaused).mockImplementationOnce(() => new Promise((done) => resolve = done));
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 600000, engine: "open_ai", savedPath: null, deliveryWarnings: [] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 600000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: [] });
     const view = await start();
     await fireEvent.keyDown(window, { code: "KeyP" });
     await fireEvent.keyDown(window, { code: "KeyP" });
@@ -106,7 +114,7 @@ describe("recording pause", () => {
 
 describe("transcript history", () => {
   it("restores the latest text on mount and copies selected history with the shortcut", async () => {
-    const view = render(App);
+    const view = await renderExpanded();
     await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(latest.text));
     await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
     expect(api.copyText).toHaveBeenLastCalledWith(latest.text);
@@ -115,12 +123,12 @@ describe("transcript history", () => {
     await fireEvent.keyDown(window, { code: "KeyC", ctrlKey: true, shiftKey: true });
     expect(api.copyText).toHaveBeenLastCalledWith(older.text);
     view.unmount();
-    const reopened = render(App);
+    const reopened = await renderExpanded();
     await waitFor(() => expect(reopened.getByRole("region", { name: "Transcript" }).textContent).toBe(latest.text));
   });
 
   it("keeps the previous text while recording, on focus loss and after cancellation", async () => {
-    const view = render(App);
+    const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
@@ -133,8 +141,8 @@ describe("transcript history", () => {
   });
 
   it("shows a new result even when history persistence failed", async () => {
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Unsaved but recoverable", durationMs: 1000, engine: "open_ai", savedPath: null, deliveryWarnings: ["History was not saved"] });
-    const view = render(App);
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Unsaved but recoverable", durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: ["History was not saved"] });
+    const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
@@ -147,7 +155,7 @@ describe("transcript history", () => {
   it("shows European history dates and updates relative minutes while open", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(new Date(2026, 8, 6, 14, 35));
-    const view = render(App);
+    const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText("Today · 14:30 · 5 min ago")).not.toBeNull());
     await vi.advanceTimersByTimeAsync(60_000);
     await waitFor(() => expect(view.queryByText("Today · 14:30 · 6 min ago")).not.toBeNull());
@@ -158,7 +166,7 @@ describe("transcript history", () => {
   });
 
   it("requires confirmation before clearing history", async () => {
-    const view = render(App);
+    const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
     await fireEvent.click(view.getByRole("button", { name: "Clear saved history" }));
@@ -167,4 +175,76 @@ describe("transcript history", () => {
     expect(api.clearHistory).toHaveBeenCalledOnce();
     await waitFor(() => expect(view.queryByText(latest.text)).toBeNull());
   });
+});
+
+
+describe("compact result feedback", () => {
+  it("starts collapsed and copies without exposing the transcript, also after remount", async () => {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    expect(view.queryByRole("region", { name: "Transcript" })).toBeNull();
+    expect(view.getByRole("button", { name: /Latest text/ }).getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+    expect(api.copyText).toHaveBeenLastCalledWith(latest.text);
+    expect(view.queryByRole("region", { name: "Transcript" })).toBeNull();
+    await waitFor(() => expect(view.queryByText("Copied")).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: /Latest text/ }));
+    expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(latest.text);
+    view.unmount();
+    const reopened = render(App);
+    await waitFor(() => expect(reopened.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    expect(reopened.queryByRole("region", { name: "Transcript" })).toBeNull();
+  });
+
+  it.each([true, false])("reports actual automatic clipboard outcome (%s), not the requested setting", async (copiedToClipboard) => {
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard, deliveryWarnings: copiedToClipboard ? ["History was not saved"] : ["Clipboard unavailable"] });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(view.queryByText(copiedToClipboard ? "History was not saved" : "Clipboard unavailable")).not.toBeNull());
+    expect(view.queryByText("Copied") !== null).toBe(copiedToClipboard);
+    expect(view.queryByRole("region", { name: "Transcript" })).toBeNull();
+  });
+
+  it("does not show success before copy resolves, after failure, or on a different history entry", async () => {
+    let resolve!: () => void;
+    vi.mocked(api.copyText).mockImplementationOnce(() => new Promise<void>((done) => resolve = done));
+    const view = await renderExpanded();
+    await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+    expect(view.queryByText("Copied")).toBeNull();
+    await fireEvent.click(view.getByRole("combobox", { name: "Recent texts" }));
+    await fireEvent.click(view.getByRole("option", { name: new RegExp(older.title) }));
+    resolve();
+    await waitFor(() => expect(view.getByRole("button", { name: /Copy/ }).hasAttribute("disabled")).toBe(false));
+    expect(view.queryByText("Copied")).toBeNull();
+    vi.mocked(api.copyText).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+    await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+    await waitFor(() => expect(view.queryByText(/Could not copy:.*Clipboard unavailable/)).not.toBeNull());
+    expect(view.queryByText("Copied")).toBeNull();
+  });
+});
+
+
+it("drains an outstanding manual copy before recording and blocks copies until processing ends", async () => {
+  let completeCopy!: () => void;
+  let completeProcessing!: (value: Awaited<ReturnType<typeof api.finishRecording>>) => void;
+  vi.mocked(api.copyText).mockImplementationOnce(() => new Promise<void>((done) => completeCopy = done));
+  vi.mocked(api.finishRecording).mockImplementationOnce(() => new Promise((done) => completeProcessing = done));
+  const view = render(App);
+  await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+  await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+  await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+  expect(api.startRecording).not.toHaveBeenCalled();
+  completeCopy();
+  await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+  await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+  await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+  expect(view.getByRole("button", { name: /Copy/ }).hasAttribute("disabled")).toBe(true);
+  await fireEvent.keyDown(window, { code: "KeyC", ctrlKey: true, shiftKey: true });
+  expect(api.copyText).toHaveBeenCalledOnce();
+  completeProcessing({ text: "New text", historyEntry: null, savedPath: null, copiedToClipboard: true, durationMs: 1000, engine: "open_ai", deliveryWarnings: [] });
+  await waitFor(() => expect(view.queryByText("Copied")).not.toBeNull());
+  expect(view.getByRole("button", { name: /Copied/ }).hasAttribute("disabled")).toBe(false);
 });

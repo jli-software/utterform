@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — v0.3.1
+
+- Collapse Latest text by default while keeping Copy visible, with truthful clipboard-success feedback.
+- Adapt the recorder to 360 × 400 floating windows and group Stop/Pause controls.
+- Add a distinct native completion chime after successful transformation and delivery.
+- Correct macOS bundle signing and verify packaged DMG/ZIP contents; support Apple Silicon only.
+- Separate Linux validation from manual/platform release builds to shorten debugging cycles.
+- Document the tray-popup proposal without changing existing tray behavior.
+
+See [0.3.1 release notes](docs/releases/v0.3.1.md).
+
 ## 0.3.0 — v0.3.0
 
 - Keep the Utterform name; unify the in-app mark and Linux/Windows/macOS icons around one refined violet/blue microphone SVG.

@@ -21,7 +21,7 @@ jobs:
 
   build:
     needs: validate
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/desktop-builds.yml
 
   publish:
     name: Publish verified desktop binaries
@@ -41,7 +41,7 @@ jobs:
           merge-multiple: true
       - name: Verify asset set and create combined checksums
         run: |
-          for asset in utterform-linux-x86_64-system.tar.gz install-linux.sh utterform-windows-x86_64.exe utterform-windows-x86_64-setup.exe utterform-macos-aarch64.dmg utterform-macos-aarch64.app.zip utterform-macos-x86_64.dmg utterform-macos-x86_64.app.zip; do
+          for asset in utterform-linux-x86_64-system.tar.gz install-linux.sh utterform-windows-x86_64.exe utterform-windows-x86_64-setup.exe utterform-macos-aarch64.dmg utterform-macos-aarch64.app.zip; do
             test -s "release/$asset" || { echo "Missing asset: $asset"; exit 1; }
           done
           node scripts/checksums.mjs release

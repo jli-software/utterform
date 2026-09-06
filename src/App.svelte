@@ -43,7 +43,10 @@
   let result: ProcessResult | null = null;
   let history: HistoryEntry[] = [];
   let selectedHistoryId = "";
+  let resultExpanded = false;
   let copyState = "Copy";
+  let copyRevision = 0;
+  let copyPending: Promise<void> | null = null;
   let copyReset: ReturnType<typeof setTimeout> | null = null;
   let confirmClear = false;
   let historyMessage = "";
@@ -219,9 +222,12 @@
       return;
     }
     try {
+      resetCopyFeedback();
       phase = "starting";
       message = "Preparing the microphone…";
       await api.saveSettings(settings);
+      // Drain a preceding manual copy before a new session can deliver its result.
+      await copyPending?.catch(() => {});
       await api.startRecording(
         settings.input_device,
         settings.engine,
@@ -285,7 +291,8 @@
       } else {
         selectedHistoryId = "";
       }
-      copyState = "Copy";
+      resetCopyFeedback();
+      if (result.copiedToClipboard) showCopyFeedback();
       phase = "done";
       message = completionMessage(result);
     } catch (error) {
@@ -322,20 +329,36 @@
 
   function completionMessage(value: ProcessResult) {
     if (value.deliveryWarnings.length) return value.deliveryWarnings.join(" · ");
-    if (value.savedPath && settings.copy_to_clipboard) return "Copied and saved";
+    if (value.savedPath && value.copiedToClipboard) return "Copied and saved";
     if (value.savedPath) return "File saved";
-    return "Copied to clipboard";
+    return value.copiedToClipboard ? "Copied to clipboard" : "Text ready";
+  }
+
+  function resetCopyFeedback() {
+    copyRevision++;
+    if (copyReset) clearTimeout(copyReset);
+    copyReset = null;
+    copyState = "Copy";
+  }
+
+  function showCopyFeedback() {
+    resetCopyFeedback();
+    copyState = "Copied";
+    copyReset = setTimeout(() => { copyState = "Copy"; copyReset = null; }, 2400);
   }
 
   async function copyDisplayedText() {
-    if (!displayedText) return;
+    if (!displayedText || controlsLocked || copyPending) return;
+    resetCopyFeedback();
+    const revision = copyRevision;
     try {
-      await api.copyText(displayedText);
-      copyState = "Copied";
-      if (copyReset) clearTimeout(copyReset);
-      copyReset = setTimeout(() => copyState = "Copy", 1800);
+      copyPending = api.copyText(displayedText);
+      await copyPending;
+      if (revision === copyRevision) showCopyFeedback();
     } catch (error) {
-      historyMessage = String(error);
+      if (revision === copyRevision) historyMessage = `Could not copy: ${String(error)}`;
+    } finally {
+      copyPending = null;
     }
   }
 
@@ -343,6 +366,7 @@
     if (!confirmClear) { confirmClear = true; return; }
     try {
       await api.clearHistory();
+      resetCopyFeedback();
       history = [];
       selectedHistoryId = "";
       result = null;
@@ -489,7 +513,7 @@
   </section>
 
   <section class="recorder" aria-live="polite">
-    <div class="recording-controls">
+    <div class="recording-controls" class:capturing={recordingActive}>
     <button
       class="mic-button"
       class:active={recordingActive}
@@ -537,13 +561,17 @@
   {#if displayedText}
     <section class="result-card" aria-label="Saved text">
       <div class="result-heading">
-        <div class="result-title"><span>{selectedHistoryId && selectedHistoryId !== history[0]?.id ? "Previous text" : "Latest text"}</span>
-          <small>{Math.max(1, Math.round((selectedHistory?.durationMs ?? result?.durationMs ?? 0) / 1000))}s audio</small></div>
-        <button class="copy-button" onclick={copyDisplayedText} title={`Copy displayed text (${copyShortcut})`} aria-keyshortcuts="Control+Shift+C Meta+Shift+C">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V3h13v13h-5v5H3V8h5Zm2 0h6v6h3V5h-9v3ZM5 10v9h9v-9H5Z" /></svg>
+        <button class="result-toggle" aria-expanded={resultExpanded} aria-controls="result-details" onclick={() => resultExpanded = !resultExpanded}>
+          <svg viewBox="0 0 20 20" aria-hidden="true" class:expanded={resultExpanded}><path d="m7 4 6 6-6 6" /></svg>
+          <span class="result-title"><span>{selectedHistoryId && selectedHistoryId !== history[0]?.id ? "Previous text" : "Latest text"}</span>
+          <small>{Math.max(1, Math.round((selectedHistory?.durationMs ?? result?.durationMs ?? 0) / 1000))}s audio</small></span>
+        </button>
+        <button class="copy-button" class:copied={copyState === "Copied"} disabled={controlsLocked || !!copyPending} onclick={copyDisplayedText} title={`Copy displayed text (${copyShortcut})`} aria-keyshortcuts="Control+Shift+C Meta+Shift+C">
+          <svg viewBox="0 0 24 24" aria-hidden="true">{#if copyState === "Copied"}<path d="m9 16.2-4.2-4.2L3.4 13.4 9 19 21 7l-1.4-1.4Z" />{:else}<path d="M8 8V3h13v13h-5v5H3V8h5Zm2 0h6v6h3V5h-9v3ZM5 10v9h9v-9H5Z" />{/if}</svg>
           <span aria-live="polite">{copyState}</span><kbd>{copyShortcut}</kbd>
         </button>
       </div>
+      <div id="result-details" hidden={!resultExpanded}>
       <div class="result-date" title={fullHistoryDate(displayedTimestamp)}>
         {#if displayedTimestamp !== null}<time datetime={new Date(displayedTimestamp).toISOString()}>{formatHistoryTime(displayedTimestamp, now)}</time>{:else}<span>Date unavailable</span>{/if}
       </div>
@@ -552,10 +580,11 @@
       <div class="transcript" role="region" tabindex="0" aria-label="Transcript">{displayedText}</div>
       {#if history.length}
         <div class="history-row"><span>Recent · {history.length}</span>
-          <SelectMenu id="history" label="Recent texts" bind:value={selectedHistoryId} options={historyOptions} compact upwards onchange={() => copyState = "Copy"} />
+          <SelectMenu id="history" label="Recent texts" bind:value={selectedHistoryId} options={historyOptions} compact upwards onchange={resetCopyFeedback} />
         </div>
       {/if}
       {#if result?.savedPath && (!selectedHistoryId || selectedHistoryId === result.historyEntry?.id)}<small class="path">{result.savedPath}</small>{/if}
+      </div>
     </section>
   {/if}
   {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
@@ -603,7 +632,7 @@
         </div>
 
         <div class="setting-group"><h3>Recording feedback</h3>
-          <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play a soft click when starting and stopping</span></label>
+          <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play start/stop clicks and a chime when the text is ready</span></label>
         </div>
 
         <div class="setting-group"><h3>Recent texts</h3>

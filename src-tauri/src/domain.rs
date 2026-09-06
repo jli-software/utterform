@@ -103,6 +103,7 @@ pub struct ProcessResult {
     pub history_entry: Option<crate::history::HistoryEntry>,
     pub text: String,
     pub saved_path: Option<String>,
+    pub copied_to_clipboard: bool,
     pub delivery_warnings: Vec<String>,
     pub duration_ms: u64,
     pub engine: TranscriptionEngine,

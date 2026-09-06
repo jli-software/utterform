@@ -1,0 +1,115 @@
+name: Desktop builds
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build and verify (does not publish a release)
+        type: choice
+        default: all
+        options: [all, linux, windows, macos]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-builds-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'linux' && '[{"os":"ubuntu-22.04","platform":"linux-x86_64"}]' || inputs.platform == 'windows' && '[{"os":"windows-latest","platform":"windows-x86_64"}]' || inputs.platform == 'macos' && '[{"os":"macos-15","platform":"macos-aarch64"}]' || '[{"os":"ubuntu-22.04","platform":"linux-x86_64"},{"os":"windows-latest","platform":"windows-x86_64"},{"os":"macos-15","platform":"macos-aarch64"}]') }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.platform }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake libasound2-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Test production GUI
+        if: runner.os == 'Linux'
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: desktop-ui-test-results
+          path: test-results/
+          retention-days: 14
+
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Linux application with system libraries
+        if: runner.os == 'Linux'
+        run: npm run tauri build -- --no-bundle
+      - name: Package and verify Linux build
+        if: runner.os == 'Linux'
+        run: |
+          scripts/package-linux-system.sh
+          install -m 755 scripts/install-linux.sh release/install-linux.sh
+          node scripts/checksums.mjs release
+          scripts/test-linux-system-package.sh release
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npm run tauri build -- --bundles nsis
+      - name: Package Windows binaries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = [System.IO.File]::ReadAllBytes("$PWD/src-tauri/target/release/utterform.exe")
+          $pe = [BitConverter]::ToInt32($binary, 0x3c)
+          if ([BitConverter]::ToUInt16($binary, $pe + 4) -ne 0x8664) { throw "Expected an x86_64 executable" }
+          if ([BitConverter]::ToUInt16($binary, $pe + 24 + 68) -ne 2) { throw "Release binary must use the Windows GUI subsystem (no console window)" }
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item src-tauri/target/release/utterform.exe release/utterform-windows-x86_64.exe
+          Copy-Item src-tauri/target/release/bundle/nsis/*.exe release/utterform-windows-x86_64-setup.exe
+
+      - name: Build signed macOS ARM app
+        if: runner.os == 'macOS'
+        run: >-
+          npm run tauri build -- --bundles app
+          --config '{"bundle":{"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
+      - name: Verify signed app and package macOS disk image
+        if: runner.os == 'macOS'
+        run: scripts/package-macos.sh
+
+      - name: Checksum binaries
+        run: node scripts/checksums.mjs release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: utterform-binaries-${{ matrix.platform }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 30

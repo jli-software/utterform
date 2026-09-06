@@ -11,6 +11,7 @@ use cpal::{
 pub enum Cue {
     Start,
     Stop,
+    Done,
 }
 
 pub fn play(cue: Cue) {
@@ -19,12 +20,27 @@ pub fn play(cue: Cue) {
 
 fn sample(cue: Cue, position: usize, sample_rate: u32) -> f32 {
     let t = position as f32 / sample_rate as f32;
+    if matches!(cue, Cue::Done) {
+        // A quiet ascending pair, intentionally unlike the single mechanical Stop click.
+        let (start, frequency) = if t < 0.09 {
+            (0.0, 1100.0)
+        } else {
+            (0.09, 1650.0)
+        };
+        let local = t - start;
+        if local >= 0.065 {
+            return 0.0;
+        }
+        let envelope = (local / 0.004).min(1.0) * ((0.065 - local) / 0.025).min(1.0);
+        return (std::f32::consts::TAU * frequency * local).sin() * envelope * 0.08;
+    }
     if t >= 0.045 {
         return 0.0;
     }
     let frequency = match cue {
         Cue::Start => 1450.0,
         Cue::Stop => 820.0,
+        Cue::Done => unreachable!(),
     };
     let attack = (t / 0.0015).min(1.0);
     let release = ((0.045 - t) / 0.008).min(1.0);
@@ -44,6 +60,8 @@ fn try_play(cue: Cue) -> Result<(), String> {
     let rate = config.sample_rate;
     let (done, received) = mpsc::sync_channel(1);
     let mut position = 0;
+    let playback_seconds = if matches!(cue, Cue::Done) { 0.22 } else { 0.1 };
+    let playback_samples = (rate as f32 * playback_seconds) as usize;
     macro_rules! output {
         ($sample:ty, $convert:expr) => {
             device.build_output_stream(
@@ -55,7 +73,7 @@ fn try_play(cue: Cue) -> Result<(), String> {
                         position += 1;
                     }
                     // Include a silent tail so the cue can leave the device buffer.
-                    if position >= (rate / 10) as usize {
+                    if position >= playback_samples {
                         let _ = done.try_send(());
                     }
                 },
@@ -72,13 +90,30 @@ fn try_play(cue: Cue) -> Result<(), String> {
     }
     .map_err(|e| e.to_string())?;
     stream.play().map_err(|e| e.to_string())?;
-    let _ = received.recv_timeout(Duration::from_millis(350));
+    let _ = received.recv_timeout(Duration::from_millis(500));
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completion_has_two_quiet_pulses_and_a_silent_tail() {
+        for rate in [44100, 48000, 96000] {
+            let at = |seconds: f32| (seconds * rate as f32) as usize;
+            let peak = |start, end| {
+                (at(start)..at(end))
+                    .map(|i| sample(Cue::Done, i, rate).abs())
+                    .fold(0.0_f32, f32::max)
+            };
+            assert!(peak(0.005, 0.06) > 0.07);
+            assert_eq!(peak(0.07, 0.085), 0.0);
+            assert!(peak(0.095, 0.15) > 0.07);
+            assert_eq!(peak(0.16, 0.3), 0.0);
+            assert!(peak(0.0, 0.3) <= 0.08);
+        }
+    }
 
     #[test]
     fn cues_are_short_quiet_and_distinct() {
