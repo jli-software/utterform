@@ -2,6 +2,8 @@
 
 ## 0.3.0 UI polish and pause
 
+[Release run 34038549482](https://github.com/jli-software/utterform/actions/runs/34038549482) passed all four platform builds and publication. [v0.3.0](https://github.com/jli-software/utterform/releases/tag/v0.3.0) is published as a normal Latest release from `2c67667`. All eight downloaded assets match `SHA256SUMS.txt`. The downloaded Linux installer matches the source and passed isolated installation/replacement and system-library checks. Direct artifact inspection verified Linux x86_64 ELF, Windows x86_64 GUI subsystem and embedded new icon, both macOS Mach-O architectures, macOS version 0.3.0 and unchanged bundle identifier, and exact shared PNG/ICNS payloads in the Linux/macOS packages. No installed app was replaced or launched for these checks.
+
 - Svelte/TypeScript: no errors or warnings; production Vite bundle builds.
 - 23 frontend/release-metadata tests: release consistency, Windows CRLF checkouts and invalid/mismatched-tag guards; existing coverage plus pause/resume/finish/discard, repeat/busy guards, pause failure recovery and watchdog race; legacy timestamps, European dates, midnight/year boundaries, future/unknown dates and live relative-time updates.
 - 20 Rust tests: existing coverage plus paused sample exclusion (no conversion/no inserted silence), repeated pause intervals and active-time limit, pause-vs-watchdog completion and nondestructive legacy history timestamp recovery.

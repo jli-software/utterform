@@ -11,6 +11,8 @@
 
 ## Current handoff — 0.3.0
 
+**Published and verified:** [Utterform 0.3.0](https://github.com/jli-software/utterform/releases/tag/v0.3.0) is the normal Latest release. The [release run](https://github.com/jli-software/utterform/actions/runs/34038549482) passed on all four targets and published all eight assets plus checksums. Downloaded SHA-256 checks, isolated Linux installation, binary architectures/Windows GUI subsystem, macOS version metadata and shared icon payloads all passed. Release source: `2c67667`. The first attempt was blocked by Windows CRLF handling in the new metadata guard; the fix has a regression test, and Jonas explicitly approved replacing the blocked tag before any 0.3.0 release had been published. The now-published tag is immutable.
+
 The name **Utterform** is intentionally retained. Implemented user feedback:
 
 - One refined violet/blue microphone mark for the app, Settings and all desktop icon formats; regenerate from `src-tauri/icons/app-icon.svg` with `npm run icons`.
