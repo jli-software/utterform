@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const read = (path) => readFileSync(resolve(root, path), "utf8");
+// Windows checkouts may use CRLF; metadata checks must not depend on Git's EOL policy.
+const read = (path) => readFileSync(resolve(root, path), "utf8").replace(/\r\n/g, "\n");
 const json = (path) => JSON.parse(read(path));
 const pkg = json("package.json");
 const tag = process.argv[2] ?? `v${pkg.version}`;

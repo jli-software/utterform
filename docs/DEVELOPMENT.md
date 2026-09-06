@@ -20,7 +20,7 @@ The name **Utterform** is intentionally retained. Implemented user feedback:
 
 The audio-reactive ambient field, app identifiers and storage locations are unchanged. Version 0.3.0 packages this work as a normal release (`v0.3.0`); older published tags remain untouched. Signing and auto-update remain out of scope. The installed app must be updated separately; do not interrupt a user's active recording.
 
-Local validation: 22 frontend/release-metadata tests, 20 Rust tests, 5 production Chromium tests, Svelte/TypeScript, Rustfmt and Clippy. Settings/model/pause/history screenshots checked in light/dark and compact/reduced-motion modes. Tests use synthetic IPC/audio, not the user's microphone, API key, clipboard or history. Desktop icons regenerate byte-identically; ICNS PNG payloads match the corresponding standalone assets. Interactive pause/resume still needs a real desktop microphone check on each platform.
+Local validation: 23 frontend/release-metadata tests (including Windows CRLF checkouts), 20 Rust tests, 5 production Chromium tests, Svelte/TypeScript, Rustfmt and Clippy. Settings/model/pause/history screenshots checked in light/dark and compact/reduced-motion modes. Tests use synthetic IPC/audio, not the user's microphone, API key, clipboard or history. Desktop icons regenerate byte-identically; ICNS PNG payloads match the corresponding standalone assets. Interactive pause/resume still needs a real desktop microphone check on each platform.
 
 ## 0.2.0 Beta scope
 

@@ -3,7 +3,7 @@
 ## 0.3.0 UI polish and pause
 
 - Svelte/TypeScript: no errors or warnings; production Vite bundle builds.
-- 22 frontend/release-metadata tests: release consistency and invalid/mismatched-tag guards; existing coverage plus pause/resume/finish/discard, repeat/busy guards, pause failure recovery and watchdog race; legacy timestamps, European dates, midnight/year boundaries, future/unknown dates and live relative-time updates.
+- 23 frontend/release-metadata tests: release consistency, Windows CRLF checkouts and invalid/mismatched-tag guards; existing coverage plus pause/resume/finish/discard, repeat/busy guards, pause failure recovery and watchdog race; legacy timestamps, European dates, midnight/year boundaries, future/unknown dates and live relative-time updates.
 - 20 Rust tests: existing coverage plus paused sample exclusion (no conversion/no inserted silence), repeated pause intervals and active-time limit, pause-vs-watchdog completion and nondestructive legacy history timestamp recovery.
 - 5 production Chromium tests with synthetic IPC: themed Settings/model selection and download-state updates, modal focus trapping/restoration and layered Escape, pause timer freeze/resume/Space completion, European history dates, plus the existing responsive audio field and history/copy tests.
 - Screenshots inspected in light/dark, 920×720 and compact 720×620/reduced-motion layouts. Model menus remain inside the scroll viewport; Settings animations are disabled with reduced motion.
