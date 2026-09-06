@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AudioDevice,
   Engine,
+  HistoryEntry,
   LocalModel,
   OutputFormat,
   ProcessResult,
@@ -10,6 +11,9 @@ import type {
 
 export const api = {
   getSettings: () => invoke<AppSettings>("get_settings"),
+  listHistory: () => invoke<HistoryEntry[]>("list_history"),
+  clearHistory: () => invoke<void>("clear_history"),
+  copyText: (text: string) => invoke<void>("copy_text", { text }),
   saveSettings: (value: AppSettings) => invoke<void>("save_settings", { value }),
   listInputDevices: () => invoke<AudioDevice[]>("list_input_devices"),
   startRecording: (

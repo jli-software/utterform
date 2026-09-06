@@ -36,7 +36,7 @@ The build is currently limited to Linux x86_64. Windows and macOS test builds wi
 - Automatic processing when a recording reaches 10 minutes
 - Light, dark, and system themes
 - API keys stored in the operating system credential store
-- No transcription history by default
+- Last 100 texts kept locally across restarts, with short titles and copy-again controls (can be disabled)
 
 ## Keyboard shortcuts
 
@@ -49,6 +49,7 @@ Shortcuts work while the Utterform window is focused.
 | `1`–`5` | Select Plain, Clean, Polish, Summarize, or Prompt |
 | `C` | Toggle clipboard output |
 | `F` | Toggle file output |
+| `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |
 
 Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors.
 
@@ -59,6 +60,8 @@ Global shortcuts are intentionally deferred, primarily because support differs a
 - **Local Whisper + transformed action:** audio stays local; transcribed text is sent to OpenAI.
 - Temporary recordings are deleted after processing or cancellation.
 - The OpenAI API key is never written to `settings.json`; it is stored through the native OS keyring.
+- The last 100 completed texts are stored unencrypted on this device in `history.json`, including clipboard-only output. Titles are generated locally, without an AI call. Disable future storage or clear existing history in Settings; exported files and clipboard contents are not cleared.
+- Text history paths: Linux `~/.local/share/software.jli.utterform/history.json` (or `$XDG_DATA_HOME`), macOS `~/Library/Application Support/software.jli.utterform/history.json`, Windows `%LOCALAPPDATA%\\software.jli.utterform\\history.json`.
 
 ## Development
 
@@ -106,7 +109,7 @@ Microphone → temporary WAV → TranscriptionProvider
                            → Clipboard / TXT / Markdown
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for boundaries and design decisions.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for boundaries and design decisions and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the shared development workflow and handoff.
 
 ## License
 

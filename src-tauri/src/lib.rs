@@ -1,6 +1,7 @@
 mod audio;
 mod commands;
 mod domain;
+mod history;
 mod models;
 mod output;
 mod secrets;
@@ -18,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
+        .manage(history::HistoryState::default())
         .setup(|app| {
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
             let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
@@ -61,6 +63,9 @@ pub fn run() {
             commands::start_recording,
             commands::cancel_recording,
             commands::finish_recording,
+            commands::list_history,
+            commands::clear_history,
+            commands::copy_text,
             commands::has_openai_api_key,
             commands::set_openai_api_key,
             commands::delete_openai_api_key,

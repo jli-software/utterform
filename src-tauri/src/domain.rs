@@ -48,6 +48,8 @@ pub struct AppSettings {
     pub text_model: String,
     pub theme: Theme,
     pub custom_actions: Vec<CustomAction>,
+    pub history_enabled: bool,
+    pub sound_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +73,8 @@ impl Default for AppSettings {
             text_model: "gpt-5-mini".into(),
             theme: Theme::System,
             custom_actions: Vec::new(),
+            history_enabled: true,
+            sound_enabled: true,
         }
     }
 }
@@ -96,6 +100,7 @@ pub struct ProcessRequest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessResult {
+    pub history_entry: Option<crate::history::HistoryEntry>,
     pub text: String,
     pub saved_path: Option<String>,
     pub delivery_warnings: Vec<String>,

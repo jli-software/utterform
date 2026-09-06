@@ -15,6 +15,8 @@ export interface AppSettings {
   text_model: string;
   theme: Theme;
   custom_actions: CustomAction[];
+  history_enabled: boolean;
+  sound_enabled: boolean;
 }
 
 export interface CustomAction {
@@ -37,7 +39,16 @@ export interface LocalModel {
   downloaded: boolean;
 }
 
+export interface HistoryEntry {
+  id: string;
+  title: string;
+  text: string;
+  durationMs: number;
+  engine: Engine;
+}
+
 export interface ProcessResult {
+  historyEntry: HistoryEntry | null;
   text: string;
   savedPath: string | null;
   deliveryWarnings: string[];
@@ -63,6 +74,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   text_model: "gpt-5-mini",
   theme: "system",
   custom_actions: [],
+  history_enabled: true,
+  sound_enabled: true,
 };
 
 export const ACTIONS: Array<{ id: ActionId; label: string; hint: string; key: string }> = [

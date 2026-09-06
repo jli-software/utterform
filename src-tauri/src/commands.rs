@@ -1,4 +1,5 @@
 use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::{
     audio::{self, AudioCaptureState},
@@ -6,6 +7,7 @@ use crate::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
         TranscriptionEngine,
     },
+    history::{self, HistoryEntry},
     models, output, secrets, settings, transcription,
 };
 
@@ -82,16 +84,47 @@ pub async fn finish_recording(
         }
         Err(error) => return Err(error),
     };
+    // Persist before external delivery, so clipboard/file failures cannot lose the text.
+    let history_entry = if current_settings.history_enabled {
+        let entry = HistoryEntry::new(&text, duration_ms, current_settings.engine.clone());
+        match history::append(&app, entry.clone()) {
+            Ok(()) => Some(entry),
+            Err(error) => {
+                warnings.push(format!("History was not saved: {error}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     let delivery = output::deliver(&app, &text, &request, &current_settings)?;
     warnings.extend(delivery.warnings);
 
     Ok(ProcessResult {
+        history_entry,
         text,
         saved_path: delivery.saved_path,
         delivery_warnings: warnings,
         duration_ms,
         engine: current_settings.engine,
     })
+}
+
+#[tauri::command]
+pub fn list_history(app: AppHandle) -> Result<Vec<HistoryEntry>, String> {
+    history::list(&app)
+}
+
+#[tauri::command]
+pub fn clear_history(app: AppHandle) -> Result<(), String> {
+    history::clear(&app)
+}
+
+#[tauri::command]
+pub fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| format!("Could not copy text: {error}"))
 }
 
 #[tauri::command]

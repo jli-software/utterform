@@ -8,11 +8,13 @@
     AppSettings,
     AudioDevice,
     DownloadProgress,
+    HistoryEntry,
     LocalModel,
     ProcessResult,
     Theme,
   } from "./lib/types";
   import { api } from "./lib/api";
+  import SelectMenu from "./lib/SelectMenu.svelte";
 
   type Phase = "idle" | "starting" | "recording" | "processing" | "done" | "error";
   const MAX_RECORDING_SECONDS = 10 * 60;
@@ -29,11 +31,25 @@
   let elapsedSeconds = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
   let result: ProcessResult | null = null;
+  let history: HistoryEntry[] = [];
+  let selectedHistoryId = "";
+  let copyState = "Copy";
+  let copyReset: ReturnType<typeof setTimeout> | null = null;
+  let confirmClear = false;
+  let historyMessage = "";
+  const copyShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧C" : "Ctrl+Shift+C";
   let message = "Ready when you are";
   let downloadProgress: Record<string, number> = {};
   let busyModel: string | null = null;
   let unlistenProgress: UnlistenFn | null = null;
 
+  $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
+  $: displayedText = selectedHistory?.text ?? result?.text ?? "";
+  $: actionOptions = [
+    ...ACTIONS.map((action) => ({ value: action.id, label: action.label, hint: action.hint, key: action.key })),
+    ...settings.custom_actions.map((action) => ({ value: `custom:${action.id}`, label: action.name, hint: "Custom action" })),
+  ];
+  $: historyOptions = history.map((entry, index) => ({ value: entry.id, label: entry.title, hint: index === 0 ? "Latest text" : undefined }));
   $: canRecord = settings.copy_to_clipboard || settings.save_to_file;
   $: controlsLocked = phase === "starting" || phase === "recording" || phase === "processing";
 
@@ -52,6 +68,13 @@
         api.hasOpenAiApiKey(),
       ]);
       applyTheme(settings.theme);
+      // Load independently: a damaged history must not disable microphone/settings setup.
+      try {
+        history = await api.listHistory();
+        selectedHistoryId = history[0]?.id ?? "";
+      } catch (error) {
+        historyMessage = String(error);
+      }
     } catch (error) {
       setError(error);
     }
@@ -66,6 +89,7 @@
 
   onDestroy(() => {
     stopTimer();
+    if (copyReset) clearTimeout(copyReset);
     unlistenProgress?.();
     window.removeEventListener("keydown", handleKeyDown);
   });
@@ -82,6 +106,11 @@
   }
 
   function handleKeyDown(event: KeyboardEvent) {
+    if (!showSettings && (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.code === "KeyC") {
+      event.preventDefault();
+      if (!event.repeat) void copyDisplayedText();
+      return;
+    }
     if (showSettings || isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
       return;
     }
@@ -140,7 +169,6 @@
       return;
     }
     try {
-      result = null;
       phase = "starting";
       message = "Preparing the microphone…";
       await api.saveSettings(settings);
@@ -178,6 +206,13 @@
         saveToFile: settings.save_to_file,
         outputFormat: settings.output_format,
       });
+      if (result.historyEntry) {
+        history = [result.historyEntry, ...history.filter((entry) => entry.id !== result?.historyEntry?.id)].slice(0, 100);
+        selectedHistoryId = result.historyEntry.id;
+      } else {
+        selectedHistoryId = "";
+      }
+      copyState = "Copy";
       phase = "done";
       message = completionMessage(result);
     } catch (error) {
@@ -213,6 +248,32 @@
     if (value.savedPath && settings.copy_to_clipboard) return "Copied and saved";
     if (value.savedPath) return "File saved";
     return "Copied to clipboard";
+  }
+
+  async function copyDisplayedText() {
+    if (!displayedText) return;
+    try {
+      await api.copyText(displayedText);
+      copyState = "Copied";
+      if (copyReset) clearTimeout(copyReset);
+      copyReset = setTimeout(() => copyState = "Copy", 1800);
+    } catch (error) {
+      historyMessage = String(error);
+    }
+  }
+
+  async function clearHistory() {
+    if (!confirmClear) { confirmClear = true; return; }
+    try {
+      await api.clearHistory();
+      history = [];
+      selectedHistoryId = "";
+      result = null;
+      historyMessage = "History cleared. Clipboard and exported files are unchanged.";
+      confirmClear = false;
+    } catch (error) {
+      historyMessage = String(error);
+    }
   }
 
   function formatTime(total: number) {
@@ -284,6 +345,7 @@
 
   function openSettings() {
     settingsSnapshot = structuredClone(settings);
+    confirmClear = false;
     showSettings = true;
   }
 
@@ -334,17 +396,10 @@
   </header>
 
   <section class="controls" aria-label="Transcription settings">
-    <label>
-      <span>Action</span>
-      <select bind:value={selectedAction} disabled={controlsLocked}>
-        {#each ACTIONS as action}
-          <option value={action.id}>{action.label} — {action.hint}</option>
-        {/each}
-        {#if settings.custom_actions.length}<optgroup label="Custom actions">
-          {#each settings.custom_actions as action}<option value={`custom:${action.id}`}>{action.name}</option>{/each}
-        </optgroup>{/if}
-      </select>
-    </label>
+    <div class="action-control">
+      <span class="control-label">Action</span>
+      <SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />
+    </div>
     <div class="engine-chip" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}>
       <span class:local={settings.engine === "local_whisper"}></span>
       {settings.engine === "open_ai" ? "GPT Transcribe" : "Local Whisper"}
@@ -384,18 +439,34 @@
       <svg viewBox="0 0 24 24"><path d="M4 2h12l4 4v16H4V2Zm2 2v16h12V7h-3V4H6Zm2 9h8v5H8v-5Zm1-8h4v4H9V5Z"/></svg>
       File <kbd>F</kbd>
     </button>
-    <select aria-label="File format" bind:value={settings.output_format} disabled={!settings.save_to_file || controlsLocked}>
-      <option value="txt">TXT</option><option value="md">Markdown</option>
-    </select>
+    <SelectMenu id="format" label="File format" value={settings.output_format}
+      onchange={(value) => settings = { ...settings, output_format: value as AppSettings["output_format"] }}
+      options={[{ value: "txt", label: "TXT", hint: "Plain text" }, { value: "md", label: "Markdown", hint: "Formatted text" }]}
+      disabled={!settings.save_to_file || controlsLocked} compact upwards />
   </section>
 
-  {#if result}
-    <section class="result-card">
-      <div><span>Latest result</span><small>{Math.max(1, Math.round(result.durationMs / 1000))}s audio</small></div>
-      <p>{result.text}</p>
-      {#if result.savedPath}<small class="path">{result.savedPath}</small>{/if}
+  {#if displayedText}
+    <section class="result-card" aria-label="Saved text">
+      <div class="result-heading">
+        <div class="result-title"><span>{selectedHistoryId && selectedHistoryId !== history[0]?.id ? "Previous text" : "Latest text"}</span>
+          <small>{Math.max(1, Math.round((selectedHistory?.durationMs ?? result?.durationMs ?? 0) / 1000))}s audio</small></div>
+        <button class="copy-button" onclick={copyDisplayedText} title={`Copy displayed text (${copyShortcut})`} aria-keyshortcuts="Control+Shift+C Meta+Shift+C">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8V3h13v13h-5v5H3V8h5Zm2 0h6v6h3V5h-9v3ZM5 10v9h9v-9H5Z" /></svg>
+          <span aria-live="polite">{copyState}</span><kbd>{copyShortcut}</kbd>
+        </button>
+      </div>
+      <!-- Keyboard users need focus here to scroll long transcripts. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div class="transcript" role="region" tabindex="0" aria-label="Transcript">{displayedText}</div>
+      {#if history.length}
+        <div class="history-row"><span>Recent · {history.length}</span>
+          <SelectMenu id="history" label="Recent texts" bind:value={selectedHistoryId} options={historyOptions} compact upwards onchange={() => copyState = "Copy"} />
+        </div>
+      {/if}
+      {#if result?.savedPath && (!selectedHistoryId || selectedHistoryId === result.historyEntry?.id)}<small class="path">{result.savedPath}</small>{/if}
     </section>
   {/if}
+  {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
 
   <footer><span>1–5 select an action</span><span>Esc discards a recording</span></footer>
 </main>
@@ -429,6 +500,14 @@
 
         <div class="setting-group"><h3>Local Whisper models</h3><div class="model-list">{#each models as model}<div class="model-row"><div><strong>{model.name}</strong><span>{model.description} · {formatBytes(model.sizeBytes)}</span>{#if busyModel === model.id && !model.downloaded}<progress max="1" value={downloadProgress[model.id] ?? 0}></progress>{/if}</div><button class:downloaded={model.downloaded} disabled={busyModel !== null} onclick={() => toggleModel(model)}>{busyModel === model.id ? "Working…" : model.downloaded ? "Remove" : "Download"}</button></div>{/each}</div>
         <label class="field"><span>Selected local model</span><select bind:value={settings.local_model_id}>{#each models as model}<option value={model.id}>{model.name}{model.downloaded ? " · ready" : ""}</option>{/each}</select></label></div>
+
+        <div class="setting-group"><h3>Recent texts</h3>
+          <label class="toggle-field"><input type="checkbox" bind:checked={settings.history_enabled} /><span>Remember the last 100 texts on this device</span></label>
+          <p class="privacy-note">Stored locally, unencrypted, including clipboard-only results. Titles are made from the text without an AI request. Turning this off keeps existing history until you clear it.</p>
+          <button class="clear-history" onclick={clearHistory}>{confirmClear ? "Confirm: delete all saved texts" : "Clear saved history"}</button>
+          {#if confirmClear}<button class="clear-history" onclick={() => confirmClear = false}>Keep history</button>{/if}
+          {#if historyMessage}<p class="privacy-note" role="status">{historyMessage}</p>{/if}
+        </div>
 
         <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>
       </div>
