@@ -2,7 +2,7 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v0.2.0-beta.2}"
+version="${UTTERFORM_VERSION:-v0.3.0}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
 asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
@@ -21,7 +21,7 @@ fail() {
 
 case "$(uname -m)" in
   x86_64|amd64) ;;
-  *) fail "this test build supports x86_64 only" ;;
+  *) fail "this Linux build supports x86_64 only" ;;
 esac
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"

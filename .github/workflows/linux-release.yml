@@ -3,14 +3,24 @@ name: Release
 on:
   push:
     tags:
-      - "v*-alpha.*"
-      - "v*-beta.*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: read
 
 jobs:
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/check-release.mjs "$GITHUB_REF_NAME"
+
   build:
+    needs: validate
     uses: ./.github/workflows/ci.yml
 
   publish:
@@ -37,7 +47,7 @@ jobs:
           node scripts/checksums.mjs release
           cd release
           sha256sum -c SHA256SUMS.txt
-      - name: Publish prerelease after every platform passed
+      - name: Publish release after every platform passed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -45,8 +55,14 @@ jobs:
           test -f "$notes"
           read -r title < "$notes"
           title="${title#\# }"
+          flags=()
+          latest=true
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+            latest=false
+          fi
           gh release create "$GITHUB_REF_NAME" release/* \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --draft --prerelease \
+            --verify-tag --draft "${flags[@]}" \
             --title "$title" --notes-file "$notes"
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"

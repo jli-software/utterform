@@ -4,14 +4,14 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.2.0 Beta** is an unsigned early-access release. See the [release notes](docs/releases/v0.2.0-beta.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.2.0-beta.2).
+> Utterform is under active development. **0.3.0** is available as an unsigned release. See the [release notes](docs/releases/v0.3.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.3.0).
 
 ## Install on Omarchy / Arch Linux
 
-An unsigned x86_64 beta build is available for early testing. It installs for the current user and does not require `sudo`:
+An unsigned x86_64 build is available. It installs for the current user and does not require `sudo`:
 
 ```bash
-curl -fsSL https://github.com/jli-software/utterform/releases/download/v0.2.0-beta.2/install-linux.sh | sh
+curl -fsSL https://github.com/jli-software/utterform/releases/download/v0.3.0/install-linux.sh | sh
 ```
 
 Then launch **Utterform** from the app menu or run `utterform`. The installer verifies SHA-256, installs the executable below `~/.local/share/utterform`, and creates a launcher in `~/.local/bin`. The application deliberately uses Omarchy's system GTK, WebKitGTK, and graphics libraries instead of mixing them with an Ubuntu AppImage runtime. Quit the old running app, then re-run the command to update or repair the installation; settings, models and history are preserved.
@@ -24,7 +24,7 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 
 ## Windows and macOS
 
-Download the [0.2.0 Beta assets](https://github.com/jli-software/utterform/releases/tag/v0.2.0-beta.2):
+Download the [0.3.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.3.0):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -32,11 +32,9 @@ Download the [0.2.0 Beta assets](https://github.com/jli-software/utterform/relea
 
 On macOS drag Utterform into Applications. These builds are unsigned and not notarized, so Gatekeeper/SmartScreen may require explicit approval. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
-Every branch CI build also uploads binaries under [Actions → CI → Artifacts](https://github.com/jli-software/utterform/actions/workflows/ci.yml). Tagged prereleases are published only once tests and packaging succeed on all four targets.
+Every branch CI build also uploads binaries under [Actions → CI → Artifacts](https://github.com/jli-software/utterform/actions/workflows/ci.yml). Tagged releases are published only once tests and packaging succeed on all four targets.
 
 ## Features
-
-The latest source on `main` also includes the unified logo/Settings refresh, dated history and recording pause described below. These additions are not yet part of the published Beta 2 downloads.
 
 - Batch transcription with `gpt-transcribe` — no realtime session required
 - Offline transcription through `whisper.cpp`

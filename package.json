@@ -1,7 +1,7 @@
 {
   "name": "utterform",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
     "tauri": "tauri",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "release:check": "node scripts/check-release.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
