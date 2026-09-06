@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.3.1** is the release target (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.3.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.3.1).
+> Utterform is under active development. **0.3.1** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.3.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.3.1).
 
 ## Install on Omarchy / Arch Linux
 

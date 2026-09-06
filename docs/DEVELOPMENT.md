@@ -11,7 +11,7 @@
 
 ## Current handoff — 0.3.1
 
-Compact recorder and delivery feedback implemented on `feat/compact-recorder-0.3.1`. See [release notes](releases/v0.3.1.md) and [testing](TESTING.md) for validation/publication status. The tray popup remains a [discussion proposal](TRAY-POPUP.md), not part of this release.
+**Published and verified:** [Utterform 0.3.1](https://github.com/jli-software/utterform/releases/tag/v0.3.1) is Latest, source `368bdc7`, branch `feat/compact-recorder-0.3.1` (not merged into `main`). The [release run](https://github.com/jli-software/utterform/actions/runs/34040148263) passed all three platforms and published all six assets plus checksums. Independently downloaded assets, isolated Linux installation, Windows GUI subsystem and real-Mac DMG/ZIP strict signatures passed. See [release notes](releases/v0.3.1.md) and [testing](TESTING.md) for validation/publication status. The tray popup remains a [discussion proposal](TRAY-POPUP.md), not part of this release.
 
 Latest text is a collapsed disclosure by default, leaving the copy button visible. The native result includes `copiedToClipboard` from actual delivery, never inferred from requested settings. Automatic and manual copying show a short checkmark confirmation; stale asynchronous copy replies cannot label a different history entry as copied. Manual Copy stays visible but is disabled while recording/processing; an outstanding manual write drains before a new recording starts. A native two-note Done cue follows successful transform and all requested outputs; history-only failure does not suppress delivery success. All cues follow the existing sound preference.
 
