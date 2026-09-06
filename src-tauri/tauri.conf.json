@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Utterform",
+  "version": "0.1.0",
+  "identifier": "software.jli.utterform",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Utterform",
+        "width": 920,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Turn speech into useful text.",
+    "longDescription": "A lightweight desktop voice-to-text utility with online and offline transcription engines.",
+    "copyright": "Copyright © 2026 Jonas",
+    "license": "MIT",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake libasound2-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build Tauri application
+        run: npm run tauri build -- --no-bundle
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+
+      - name: Package Linux test build
+        if: runner.os == 'Linux'
+        run: |
+          scripts/package-linux-system.sh
+          install -m 755 scripts/install-linux.sh release/install-linux.sh
+          cd release
+          sha256sum utterform-linux-x86_64-system.tar.gz install-linux.sh > SHA256SUMS.txt
+
+      - name: Verify Linux test installer
+        if: runner.os == 'Linux'
+        run: scripts/test-linux-system-package.sh release
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: utterform-linux-x86_64-system
+          path: release/
+          if-no-files-found: error
+          retention-days: 14

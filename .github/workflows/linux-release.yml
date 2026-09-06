@@ -1,0 +1,59 @@
+name: Linux test release
+
+on:
+  push:
+    tags:
+      - "v*-alpha.*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Linux x86_64 system package
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake libasound2-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev
+
+      - run: npm ci
+
+      - name: Build application
+        run: npm run tauri build -- --no-bundle
+
+      - name: Prepare release assets
+        run: |
+          scripts/package-linux-system.sh
+          install -m 755 scripts/install-linux.sh release/install-linux.sh
+          cd release
+          sha256sum utterform-linux-x86_64-system.tar.gz install-linux.sh > SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: utterform-linux-x86_64
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "Utterform 0.1.0 Alpha 2" \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
