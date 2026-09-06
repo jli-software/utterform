@@ -8,6 +8,19 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — unreleased UI polish and pause
+
+The name **Utterform** is intentionally retained. Implemented user feedback:
+
+- One refined violet/blue microphone mark for the app, Settings and all desktop icon formats; regenerate from `src-tauri/icons/app-icon.svg` with `npm run icons`.
+- Themed Settings/model cards, custom microphone/model selectors, a sliders symbol, subtle opening motion and keyboard-safe modal focus.
+- European history dates, local 24-hour times and live elapsed minutes today; existing history IDs provide a backwards-compatible timestamp fallback.
+- Native pause/resume via button or P. Space finishes and Escape discards, also while paused. Pauses neither deliver text nor add silence; the ten-minute limit counts active recording only. CPAL remains open while callbacks discard paused samples.
+
+The audio-reactive ambient field, app identifiers, storage locations and release tags are unchanged. This work is on `main`, not a new published release or an update of the installed app. Beta 2 remains the latest tagged download until a new release is explicitly prepared.
+
+Local validation: 19 frontend tests, 20 Rust tests, 5 production Chromium tests, Svelte/TypeScript, Rustfmt and Clippy. Settings/model/pause/history screenshots checked in light/dark and compact/reduced-motion modes. Tests use synthetic IPC/audio, not the user's microphone, API key, clipboard or history. Desktop icons regenerate byte-identically; ICNS PNG payloads match the corresponding standalone assets. Interactive pause/resume still needs a real desktop microphone check on each platform.
+
 ## 0.2.0 Beta scope
 
 - Remove native window decorations on Omarchy only; preserve other platforms' window controls.

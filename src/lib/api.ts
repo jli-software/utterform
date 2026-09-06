@@ -23,6 +23,7 @@ export const api = {
     localModelId: string | null,
     action: string,
   ) => invoke<void>("start_recording", { inputDevice, engine, localModelId, action }),
+  setRecordingPaused: (paused: boolean) => invoke<RecordingStatus>("set_recording_paused", { paused }),
   cancelRecording: () => invoke<void>("cancel_recording"),
   getRecordingStatus: () => invoke<RecordingStatus>("get_recording_status"),
   finishRecording: (request: {

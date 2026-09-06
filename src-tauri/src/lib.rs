@@ -70,6 +70,7 @@ pub fn run() {
             commands::list_input_devices,
             commands::start_recording,
             commands::get_recording_status,
+            commands::set_recording_paused,
             commands::cancel_recording,
             commands::finish_recording,
             commands::list_history,

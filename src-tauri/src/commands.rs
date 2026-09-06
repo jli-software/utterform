@@ -78,6 +78,14 @@ pub fn get_recording_status(
 }
 
 #[tauri::command]
+pub fn set_recording_paused(
+    state: State<'_, AudioCaptureState>,
+    paused: bool,
+) -> Result<audio::RecordingStatus, String> {
+    audio::set_paused(&state, paused)
+}
+
+#[tauri::command]
 pub fn cancel_recording(state: State<'_, AudioCaptureState>) -> Result<(), String> {
     audio::cancel_recording(&state)
 }

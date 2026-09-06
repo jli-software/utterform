@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Keep the Utterform name; unify the in-app mark and Linux/Windows/macOS icons around one refined violet/blue microphone SVG.
+- Add reproducible desktop icon generation with `npm run icons`.
+- Refine Settings with a clean sliders icon, subtle opening motion, themed section/model cards, and custom microphone/model selectors. Respect reduced motion and trap/restore keyboard focus.
+- Show European history dates: today with 24-hour time and elapsed minutes; older entries with DD.MM.YYYY and full date/time on hover. Recover timestamps from existing history IDs without destructive migration.
+- Pause/resume recording with a button or P, without transcribing, delivering, or inserting silence. Space still finishes, Escape still discards, including while paused. Paused time does not count toward the native ten-minute limit.
+- Preserve microphone-responsive ambient motion, close-to-tray/background behavior, app identifiers, settings and existing history.
+
 ## 0.2.0 Beta 2 — v0.2.0-beta.2
 
 - Fix the Windows release executable to use the GUI subsystem instead of opening an extra console window.

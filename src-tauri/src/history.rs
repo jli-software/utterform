@@ -21,6 +21,8 @@ pub struct HistoryState(Mutex<()>);
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: String,
+    #[serde(default)]
+    pub created_at_ms: Option<u64>,
     pub title: String,
     pub text: String,
     pub duration_ms: u64,
@@ -29,12 +31,12 @@ pub struct HistoryEntry {
 
 impl HistoryEntry {
     pub fn new(text: &str, duration_ms: u64, engine: TranscriptionEngine) -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
         Self {
-            id: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-                .to_string(),
+            id: timestamp.as_nanos().to_string(),
+            created_at_ms: Some(timestamp.as_millis() as u64),
             title: title_from_text(text),
             text: text.to_string(),
             duration_ms,
@@ -89,6 +91,17 @@ fn read_entries(path: &Path) -> Result<Vec<HistoryEntry>, String> {
             let mut entries: Vec<HistoryEntry> = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("History is invalid (file left untouched): {error}"))?;
             entries.truncate(HISTORY_LIMIT);
+            for entry in &mut entries {
+                if entry.created_at_ms.is_none() {
+                    // Beta 1/2 IDs are Unix nanoseconds. Recover dates without
+                    // rewriting the original history merely by opening the app.
+                    entry.created_at_ms = entry
+                        .id
+                        .parse::<u128>()
+                        .ok()
+                        .and_then(|nanos| u64::try_from(nanos / 1_000_000).ok());
+                }
+            }
             Ok(entries)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
@@ -160,6 +173,26 @@ mod tests {
         assert_eq!(restored[0].duration_ms, 1234);
         write_entries(&path, &[]).unwrap();
         assert!(read_entries(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn legacy_history_recovers_dates_without_rewriting_the_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.json");
+        let original = r#"[{"id":"1788705000123456789","title":"Old idea","text":"Old idea","durationMs":1000,"engine":"open_ai"}]"#;
+        fs::write(&path, original).unwrap();
+        let restored = read_entries(&path).unwrap();
+        assert_eq!(restored[0].created_at_ms, Some(1_788_705_000_123));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        let fresh = entry("New idea");
+        assert_eq!(
+            fresh.created_at_ms.unwrap() as u128,
+            fresh.id.parse::<u128>().unwrap() / 1_000_000
+        );
+        append_at(&path, fresh.clone()).unwrap();
+        let reopened = read_entries(&path).unwrap();
+        assert_eq!(reopened[0].created_at_ms, fresh.created_at_ms);
+        assert_eq!(reopened[1].created_at_ms, restored[0].created_at_ms);
     }
 
     #[test]

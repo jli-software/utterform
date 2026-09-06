@@ -16,8 +16,11 @@
   import { api } from "./lib/api";
   import SelectMenu from "./lib/SelectMenu.svelte";
   import { version } from "../package.json";
+  import brandIcon from "../src-tauri/icons/app-icon.svg";
+  import { formatHistoryTime, fullHistoryDate, historyTimestamp } from "./lib/history-time";
+  import { modalFocus } from "./lib/modal-focus";
 
-  type Phase = "idle" | "starting" | "recording" | "processing" | "done" | "error";
+  type Phase = "idle" | "starting" | "recording" | "paused" | "processing" | "done" | "error";
 
   let phase: Phase = "idle";
   let settings: AppSettings = structuredClone(DEFAULT_SETTINGS);
@@ -31,6 +34,11 @@
   let elapsedSeconds = 0;
   let audioLevel = 0;
   let polling = false;
+  let changingPause = false;
+  let recordingRevision = 0;
+  let now = Date.now();
+  let resultTimestamp: number | null = null;
+  let historyTimer: ReturnType<typeof setInterval> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let result: ProcessResult | null = null;
   let history: HistoryEntry[] = [];
@@ -52,12 +60,17 @@
     ...ACTIONS.map((action) => ({ value: action.id, label: action.label, hint: action.hint, key: action.key })),
     ...settings.custom_actions.map((action) => ({ value: `custom:${action.id}`, label: action.name, hint: "Custom action" })),
   ];
-  $: historyOptions = history.map((entry, index) => ({ value: entry.id, label: entry.title, hint: index === 0 ? "Latest text" : undefined }));
+  $: historyOptions = history.map((entry) => ({ value: entry.id, label: entry.title, hint: formatHistoryTime(historyTimestamp(entry), now) }));
+  $: displayedTimestamp = selectedHistory ? historyTimestamp(selectedHistory) : resultTimestamp;
+  $: recordingActive = phase === "recording" || phase === "paused";
+  $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
+  $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
   $: canRecord = settings.copy_to_clipboard || settings.save_to_file;
-  $: controlsLocked = phase === "starting" || phase === "recording" || phase === "processing";
+  $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
 
   onMount(async () => {
     applyTheme(settings.theme);
+    historyTimer = setInterval(() => now = Date.now(), 15_000);
     if (!isTauri()) {
       message = "UI preview — launch the desktop app to record";
       window.addEventListener("keydown", handleKeyDown);
@@ -88,7 +101,7 @@
       downloadProgress = { ...downloadProgress, [event.payload.modelId]: value };
     });
     unlistenLimit = await listen("recording-limit-reached", () => {
-      if (phase === "recording") void finishRecording();
+      if (recordingActive && !changingPause) void finishRecording();
     });
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("keydown", handleKeyDown);
@@ -96,6 +109,7 @@
 
   onDestroy(() => {
     stopTimer();
+    if (historyTimer) clearInterval(historyTimer);
     if (copyReset) clearTimeout(copyReset);
     unlistenProgress?.();
     unlistenLimit?.();
@@ -123,15 +137,21 @@
       return;
     }
     if (event.code === "Space") {
-      // Focused buttons already activate through their native Space handling.
-      if ((event.target as HTMLElement | null)?.tagName === "BUTTON") return;
+      // While capturing, Space always finishes (even if Pause owns focus).
+      // Otherwise preserve native button activation and menu keyboard handling.
+      if (!recordingActive && (event.target as HTMLElement | null)?.tagName === "BUTTON") return;
       event.preventDefault();
-      if (!event.repeat && (phase === "recording" || phase === "idle" || phase === "done" || phase === "error")) {
+      if (!event.repeat && (recordingActive || phase === "idle" || phase === "done" || phase === "error")) {
         void toggleRecording();
       }
       return;
     }
-    if (phase === "recording" && event.key === "Escape") {
+    if (recordingActive && event.code === "KeyP") {
+      event.preventDefault();
+      if (!event.repeat) void togglePause();
+      return;
+    }
+    if (recordingActive && event.key === "Escape") {
       event.preventDefault();
       void cancelRecording();
       return;
@@ -149,11 +169,31 @@
   }
 
   async function toggleRecording() {
-    if (phase === "starting" || phase === "processing") return;
-    if (phase === "recording") {
+    if (phase === "starting" || phase === "processing" || changingPause) return;
+    if (recordingActive) {
       await finishRecording();
     } else {
       await startRecording();
+    }
+  }
+
+  async function togglePause() {
+    if (!recordingActive || changingPause) return;
+    changingPause = true;
+    recordingRevision++;
+    try {
+      const status = await api.setRecordingPaused(phase !== "paused");
+      elapsedSeconds = status.elapsedSeconds;
+      audioLevel = 0;
+      phase = status.paused ? "paused" : "recording";
+      message = status.paused ? "Paused — continue when you’re ready" : "Listening…";
+      changingPause = false;
+      if (status.limitReached) await finishRecording();
+    } catch (error) {
+      // A failed pause must not abandon a still-active native recording.
+      message = `Could not change pause: ${String(error)}`;
+    } finally {
+      changingPause = false;
     }
   }
 
@@ -204,13 +244,15 @@
   }
 
   async function pollRecording() {
-    if (phase !== "recording" || polling || document.hidden) return;
+    if (!recordingActive || changingPause || polling || document.hidden) return;
     polling = true;
+    const revision = recordingRevision;
     try {
       const status = await api.getRecordingStatus();
-      if (phase !== "recording") return;
+      if (!recordingActive || changingPause || revision !== recordingRevision) return;
       elapsedSeconds = status.elapsedSeconds;
-      audioLevel = Math.max(0, Math.min(1, status.level));
+      phase = status.paused ? "paused" : "recording";
+      audioLevel = status.paused ? 0 : Math.max(0, Math.min(1, status.level));
       if (status.limitReached) await finishRecording();
     } catch {
       // Metering is non-critical. Keep capture running and Stop available.
@@ -221,7 +263,7 @@
   }
 
   async function finishRecording() {
-    if (phase !== "recording") return;
+    if ((phase !== "recording" && phase !== "paused") || changingPause) return;
     stopTimer();
     phase = "processing";
     message = settings.engine === "open_ai" ? "Transcribing with GPT Transcribe…" : "Transcribing locally…";
@@ -235,6 +277,8 @@
         saveToFile: settings.save_to_file,
         outputFormat: settings.output_format,
       });
+      now = Date.now();
+      resultTimestamp = now;
       if (result.historyEntry) {
         history = [result.historyEntry, ...history.filter((entry) => entry.id !== result?.historyEntry?.id)].slice(0, 100);
         selectedHistoryId = result.historyEntry.id;
@@ -250,7 +294,9 @@
   }
 
   async function cancelRecording() {
+    if ((phase !== "recording" && phase !== "paused") || changingPause) return;
     stopTimer();
+    phase = "starting";
     try {
       await api.cancelRecording();
       phase = "idle";
@@ -262,6 +308,7 @@
   }
 
   function stopTimer() {
+    recordingRevision++;
     if (timer) clearInterval(timer);
     timer = null;
     audioLevel = 0;
@@ -414,7 +461,7 @@
 
 <svelte:head><meta name="theme-color" content="#f5f5f8" /></svelte:head>
 
-<main class:has-result={!!displayedText} class:recording={phase === "recording"} class:processing={phase === "processing"} style={`--energy: ${audioLevel}`}>
+<main inert={showSettings} class:has-result={!!displayedText} class:paused={phase === "paused"} class:recording={phase === "recording"} class:processing={phase === "processing"} style={`--energy: ${audioLevel}`}>
   <div class="ambience" aria-hidden="true">
     <div class="ambient-field"><div class="aurora aurora-one"></div><div class="aurora aurora-two"></div><div class="aurora aurora-three"></div>
       <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
@@ -422,11 +469,11 @@
   </div>
   <header>
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true"><span></span></div>
+      <img class="brand-mark" src={brandIcon} alt="" aria-hidden="true" />
       <div><strong>Utterform</strong><small>Speak once. Shape the text.</small></div>
     </div>
-    <button class="icon-button" aria-label="Open settings" title="Settings" disabled={controlsLocked} onclick={openSettings}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Zm8.4-2.2 1.4 1.1-2 3.5-1.8-.7a8 8 0 0 1-2.1 1.2l-.3 1.9h-4l-.3-1.9a8 8 0 0 1-2.1-1.2l-1.8.7-2-3.5 1.4-1.1a8 8 0 0 1 0-2.6L5.4 9.6l2-3.5 1.8.7a8 8 0 0 1 2.1-1.2l.3-1.9h4l.3 1.9A8 8 0 0 1 18 6.8l1.8-.7 2 3.5-1.4 1.1a8 8 0 0 1 0 2.6Z"/></svg>
+    <button class="icon-button settings-trigger" aria-label="Open settings" title="Settings" disabled={controlsLocked} onclick={openSettings}>
+      <svg class="settings-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m6 0h5M4 17h9m6 0h1"/><circle cx="12" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg>
     </button>
   </header>
 
@@ -442,26 +489,33 @@
   </section>
 
   <section class="recorder" aria-live="polite">
-
+    <div class="recording-controls">
     <button
       class="mic-button"
-      class:active={phase === "recording"}
+      class:active={recordingActive}
       class:working={phase === "starting" || phase === "processing"}
-      aria-label={phase === "recording" ? "Stop recording" : "Start recording"}
-      disabled={phase === "starting" || phase === "processing"}
+      aria-label={recordingActive ? "Stop recording" : "Start recording"}
+      disabled={phase === "starting" || phase === "processing" || changingPause}
       onclick={toggleRecording}
     >
       {#if phase === "starting" || phase === "processing"}
         <span class="spinner"></span>
-      {:else if phase === "recording"}
+      {:else if recordingActive}
         <span class="stop-icon"></span>
       {:else}
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5a3.5 3.5 0 1 0-7 0v6a3.5 3.5 0 0 0 3.5 3.5Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.09A6 6 0 0 0 18 11Z"/></svg>
       {/if}
     </button>
-    <div class="timer" class:visible={phase === "recording"}><span class="record-dot" aria-hidden="true"></span>{formatTime(elapsedSeconds)}</div>
+    {#if recordingActive}
+      <button class="pause-button" aria-label={phase === "paused" ? "Resume recording" : "Pause recording"} aria-keyshortcuts="P" disabled={changingPause} onclick={togglePause}>
+        <svg viewBox="0 0 20 20" aria-hidden="true">{#if phase === "paused"}<path d="m7 4 9 6-9 6Z"/>{:else}<path d="M5 4h3v12H5zM12 4h3v12h-3z"/>{/if}</svg>
+        {phase === "paused" ? "Resume" : "Pause"}<kbd>P</kbd>
+      </button>
+    {/if}
+    </div>
+    <div class="timer" class:visible={recordingActive}><span class="record-dot" aria-hidden="true"></span>{formatTime(elapsedSeconds)}</div>
     <p class:error={phase === "error"}>{message}</p>
-    <div class="shortcut"><kbd>Space</kbd><span>{phase === "recording" ? "Stop" : "Start"}</span></div>
+    <div class="shortcut"><kbd>Space</kbd><span>{recordingActive ? "Finish" : "Start"}</span></div>
   </section>
 
   <section class="output-bar" aria-label="Output selection">
@@ -490,6 +544,9 @@
           <span aria-live="polite">{copyState}</span><kbd>{copyShortcut}</kbd>
         </button>
       </div>
+      <div class="result-date" title={fullHistoryDate(displayedTimestamp)}>
+        {#if displayedTimestamp !== null}<time datetime={new Date(displayedTimestamp).toISOString()}>{formatHistoryTime(displayedTimestamp, now)}</time>{:else}<span>Date unavailable</span>{/if}
+      </div>
       <!-- Keyboard users need focus here to scroll long transcripts. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="transcript" role="region" tabindex="0" aria-label="Transcript">{displayedText}</div>
@@ -503,13 +560,13 @@
   {/if}
   {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
 
-  <footer><span>1–5 select an action</span><span>{phase === "recording" ? "Keeps recording in other apps · Esc discards" : "Esc discards a recording"}</span></footer>
+  <footer><span>1–5 select an action</span><span>{phase === "paused" ? "Paused · P resumes · Esc discards" : phase === "recording" ? "Keeps recording in other apps · Esc discards" : "Esc discards a recording"}</span></footer>
 </main>
 
 {#if showSettings}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelSettings()}>
-    <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="modal-header"><div><small>UTTERFORM · {version} BETA</small><h2 id="settings-title">Settings</h2></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}>×</button></div>
+    <div class="settings-modal" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="settings-title" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSettings(); } }}>
+      <div class="modal-header"><div class="settings-brand"><img src={brandIcon} alt="" /><div><small>UTTERFORM · {version} BETA</small><h2 id="settings-title">Settings</h2><p>Make room for your way of working.</p></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
 
       <div class="settings-scroll">
         <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
@@ -522,7 +579,7 @@
           <button class:active={settings.engine === "open_ai"} onclick={() => (settings = { ...settings, engine: "open_ai" })}>GPT Transcribe</button>
           <button class:active={settings.engine === "local_whisper"} onclick={() => (settings = { ...settings, engine: "local_whisper" })}>Local Whisper</button>
         </div>
-        <label class="field"><span>Microphone</span><select bind:value={settings.input_device}><option value={null}>System default</option>{#each devices as device}<option value={device.id}>{device.name}{device.isDefault ? " · default" : ""}</option>{/each}</select></label>
+        <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
         <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label></div>
 
         <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
@@ -533,8 +590,17 @@
           <div class="custom-actions">{#each settings.custom_actions as action}<div class="custom-action"><div class="inline-field"><input aria-label="Action name" value={action.name} oninput={(event) => updateCustomAction(action.id, "name", event.currentTarget.value)} /><button class="danger-text" onclick={() => removeCustomAction(action.id)}>Remove</button></div><textarea aria-label="Action instructions" placeholder="Describe exactly how the transcript should be transformed…" value={action.prompt} oninput={(event) => updateCustomAction(action.id, "prompt", event.currentTarget.value)}></textarea></div>{/each}</div>
         </div>
 
-        <div class="setting-group"><h3>Local Whisper models</h3><div class="model-list">{#each models as model}<div class="model-row"><div><strong>{model.name}</strong><span>{model.description} · {formatBytes(model.sizeBytes)}</span>{#if busyModel === model.id && !model.downloaded}<progress max="1" value={downloadProgress[model.id] ?? 0}></progress>{/if}</div><button class:downloaded={model.downloaded} disabled={busyModel !== null} onclick={() => toggleModel(model)}>{busyModel === model.id ? "Working…" : model.downloaded ? "Remove" : "Download"}</button></div>{/each}</div>
-        <label class="field"><span>Selected local model</span><select bind:value={settings.local_model_id}>{#each models as model}<option value={model.id}>{model.name}{model.downloaded ? " · ready" : ""}</option>{/each}</select></label></div>
+        <div class="setting-group local-models"><div class="group-heading"><h3>Local Whisper models</h3><span class="section-badge">On-device audio</span></div>
+          <p class="section-description">Your voice stays here. Choose the balance of speed and accuracy that suits you.</p>
+          <div class="model-list">{#each models as model}<div class="model-row" class:selected={model.downloaded && settings.local_model_id === model.id}>
+            <div class="model-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/></svg></div>
+            <div class="model-info"><strong>{model.name}<span class="model-state">{model.downloaded ? settings.local_model_id === model.id ? "Selected" : "Ready" : formatBytes(model.sizeBytes)}</span></strong><span class="model-description">{model.description}</span>
+              {#if busyModel === model.id && !model.downloaded}<progress aria-label={`Downloading ${model.name}`} max="1" value={downloadProgress[model.id] ?? 0}></progress>{/if}
+            </div>
+            <button class:downloaded={model.downloaded} disabled={busyModel !== null} aria-label={`${model.downloaded ? "Remove" : "Download"} ${model.name}`} onclick={() => toggleModel(model)}>{busyModel === model.id ? "Working…" : model.downloaded ? "Remove" : "Download"}</button>
+          </div>{/each}</div>
+          <div class="field"><span>Selected local model</span><SelectMenu id="local-model" label="Selected local model" value={settings.local_model_id ?? ""} options={modelOptions} onchange={(value) => settings = { ...settings, local_model_id: value }} upwards /></div>
+        </div>
 
         <div class="setting-group"><h3>Recording feedback</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play a soft click when starting and stopping</span></label>

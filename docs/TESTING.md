@@ -1,4 +1,18 @@
-# 0.2.0 Beta validation
+# Validation
+
+## Unreleased UI polish and pause
+
+- Svelte/TypeScript: no errors or warnings; production Vite bundle builds.
+- 19 frontend tests: existing coverage plus pause/resume/finish/discard, repeat/busy guards, pause failure recovery and watchdog race; legacy timestamps, European dates, midnight/year boundaries, future/unknown dates and live relative-time updates.
+- 20 Rust tests: existing coverage plus paused sample exclusion (no conversion/no inserted silence), repeated pause intervals and active-time limit, pause-vs-watchdog completion and nondestructive legacy history timestamp recovery.
+- 5 production Chromium tests with synthetic IPC: themed Settings/model selection and download-state updates, modal focus trapping/restoration and layered Escape, pause timer freeze/resume/Space completion, European history dates, plus the existing responsive audio field and history/copy tests.
+- Screenshots inspected in light/dark, 920×720 and compact 720×620/reduced-motion layouts. Model menus remain inside the scroll viewport; Settings animations are disabled with reduced motion.
+- Rustfmt, Clippy with warnings denied, and `git diff --check`.
+- Two `npm run icons` passes produce identical hashes for every desktop icon. ICNS container/image payloads verified against standalone PNGs; ICO image sizes decoded with ImageMagick. This is not an interactive macOS/Windows shell-icon test.
+
+No real microphone capture, paid API request, clipboard replacement or personal history modification was used. A manual follow-up should record speech A, pause and speak B, resume with C, then finish: only A/C should be transcribed, elapsed time should exclude B, and hiding/reopening the app must preserve the paused state. Repeat with Escape/tray Quit and the active ten-minute limit. The installed app and published Beta 2 assets are not replaced by these source changes.
+
+## Published 0.2.0 Beta validation
 
 ## Automated checks
 

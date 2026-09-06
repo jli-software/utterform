@@ -43,6 +43,8 @@
   function keydown(event: KeyboardEvent) {
     // App copy-again shortcuts also work while the selector owns focus.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
+    // A closed selector lets Escape reach the containing dialog.
+    if (event.key === "Escape" && !expanded) return;
     // Menu navigation must not also trigger recording/action shortcuts.
     event.stopPropagation();
     if (event.key === "Tab") { expanded = false; return; }

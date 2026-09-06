@@ -41,6 +41,7 @@ export interface LocalModel {
 
 export interface HistoryEntry {
   id: string;
+  createdAtMs?: number | null;
   title: string;
   text: string;
   durationMs: number;
@@ -58,6 +59,7 @@ export interface ProcessResult {
 
 export interface RecordingStatus {
   recording: boolean;
+  paused: boolean;
   limitReached: boolean;
   elapsedSeconds: number;
   level: number;

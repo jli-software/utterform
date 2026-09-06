@@ -36,6 +36,8 @@ Every branch CI build also uploads binaries under [Actions → CI → Artifacts]
 
 ## Features
 
+The latest source on `main` also includes the unified logo/Settings refresh, dated history and recording pause described below. These additions are not yet part of the published Beta 2 downloads.
+
 - Batch transcription with `gpt-transcribe` — no realtime session required
 - Offline transcription through `whisper.cpp`
 - One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
@@ -46,10 +48,10 @@ Every branch CI build also uploads binaries under [Actions → CI → Artifacts]
 - Background recording across app switches and close-to-tray, with a native ten-minute cutoff
 - Microphone-responsive violet/blue ambient motion and optional start/stop clicks
 - Borderless window on Omarchy; standard window controls elsewhere
-- Automatic processing when a recording reaches 10 minutes
+- Pause/resume without finishing or adding silence; automatic processing after 10 minutes of active recording
 - Light, dark, and system themes
 - API keys stored in the operating system credential store
-- Last 100 texts kept locally across restarts, with short titles and copy-again controls (can be disabled)
+- Last 100 texts kept locally across restarts, with short titles, European dates/24-hour times, elapsed minutes today, and copy-again controls (can be disabled)
 
 ## Keyboard shortcuts
 
@@ -57,14 +59,15 @@ Shortcuts work while the Utterform window is focused.
 
 | Key | Action |
 | --- | --- |
-| `Space` | Start or stop recording |
-| `Escape` | Discard the active recording |
+| `Space` | Start or finish recording (also while paused) |
+| `P` | Pause or resume the current recording without processing it |
+| `Escape` | Discard the active or paused recording |
 | `1`–`5` | Select Plain, Clean, Polish, Summarize, or Prompt |
 | `C` | Toggle clipboard output |
 | `F` | Toggle file output |
 | `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |
 
-Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors. **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to stop it, or let the ten-minute limit stop capture. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
+Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors. **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to pause or finish it, or let the ten-minute active-recording limit stop capture. A paused recording remains paused across app switches and close-to-tray. Paused audio is discarded, not stored or sent; the microphone device stays open so resuming works consistently across platforms. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
 
 ## Privacy model
 
