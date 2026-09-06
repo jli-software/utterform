@@ -11,10 +11,10 @@ Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and
 An unsigned x86_64 build is available. It installs for the current user and does not require `sudo`:
 
 ```bash
-curl -fsSL https://github.com/jli-software/utterform/releases/download/v0.3.1/install-linux.sh | sh
+curl -fsSL https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh | sh
 ```
 
-Then launch **Utterform** from the app menu or run `utterform`. The installer verifies SHA-256, installs the executable below `~/.local/share/utterform`, and creates a launcher in `~/.local/bin`. The application deliberately uses Omarchy's system GTK, WebKitGTK, and graphics libraries instead of mixing them with an Ubuntu AppImage runtime. Quit the old running app, then re-run the command to update or repair the installation; settings, models and history are preserved.
+The `releases/latest` URL always selects the newest stable GitHub release. Then launch **Utterform** from the app menu or run `utterform`. The installer verifies SHA-256, installs the executable below `~/.local/share/utterform`, and creates a launcher in `~/.local/bin`. The application deliberately uses Omarchy's system GTK, WebKitGTK, and graphics libraries instead of mixing them with an Ubuntu AppImage runtime. Quit the old running app, then re-run the command to update or repair the installation; settings, models and history are preserved.
 
 Required Omarchy/Arch runtime packages:
 
