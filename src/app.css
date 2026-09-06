@@ -34,6 +34,7 @@ select:focus, input:focus, textarea:focus { border-color:var(--accent); box-shad
 .engine-chip { height:44px; padding:0 15px; border:1px solid var(--line); background:var(--surface); border-radius:13px; display:flex; align-items:center; gap:8px; font-size:12px; font-weight:650; white-space:nowrap; }
 .engine-chip > span { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }.engine-chip > span.local { background:#29b87e; box-shadow:0 0 0 4px rgba(41,184,126,.13); }
 .recorder { min-height:322px; flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; position:relative; }
+.has-result .recorder { min-height:220px; }
 .mic-button { z-index:2; width:128px; height:128px; border:0; border-radius:50%; color:#fff; background:linear-gradient(145deg,var(--accent),var(--accent-two)); display:grid; place-items:center; box-shadow:0 20px 48px rgba(91,85,234,.3), inset 0 1px 0 rgba(255,255,255,.28); transition:transform .2s ease, box-shadow .2s ease; }
 .mic-button:hover:not(:disabled) { transform:translateY(-3px) scale(1.02); box-shadow:0 25px 54px rgba(91,85,234,.36), inset 0 1px 0 rgba(255,255,255,.28); }
 .mic-button:active:not(:disabled) { transform:scale(.98); }
@@ -119,4 +120,5 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .mic-button:hover:not(:disabled) { transform:none; }
   .spinner { animation-duration:2s; }
 }
+@media (max-height:760px) { .has-result .controls { margin-top:22px; }.has-result .recorder { min-height:190px; }.result-card .transcript { max-height:92px; } }
 @media (max-width:700px) { main { padding:22px 20px 18px; }.controls { margin-top:26px; grid-template-columns:1fr; }.engine-chip { justify-self:start; }.recorder { min-height:285px; }.output-bar { flex-wrap:wrap; }.output-label { width:100%; }.output-bar > .select-menu { margin-left:0; }.mic-button { width:112px;height:112px; }.settings-modal { max-height:calc(100vh - 24px); }.modal-backdrop { padding:12px; } }

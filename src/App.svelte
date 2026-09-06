@@ -413,7 +413,7 @@
 
 <svelte:head><meta name="theme-color" content="#f5f5f8" /></svelte:head>
 
-<main class:recording={phase === "recording"} class:processing={phase === "processing"} style={`--energy: ${audioLevel}`}>
+<main class:has-result={!!displayedText} class:recording={phase === "recording"} class:processing={phase === "processing"} style={`--energy: ${audioLevel}`}>
   <div class="ambience" aria-hidden="true">
     <div class="ambient-field"><div class="aurora aurora-one"></div><div class="aurora aurora-two"></div><div class="aurora aurora-three"></div>
       <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
