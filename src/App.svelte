@@ -15,6 +15,7 @@
   } from "./lib/types";
   import { api } from "./lib/api";
   import SelectMenu from "./lib/SelectMenu.svelte";
+  import { version } from "../package.json";
 
   type Phase = "idle" | "starting" | "recording" | "processing" | "done" | "error";
 
@@ -508,7 +509,7 @@
 {#if showSettings}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelSettings()}>
     <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <div class="modal-header"><div><small>UTTERFORM</small><h2 id="settings-title">Settings</h2></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}>×</button></div>
+      <div class="modal-header"><div><small>UTTERFORM · {version} BETA</small><h2 id="settings-title">Settings</h2></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}>×</button></div>
 
       <div class="settings-scroll">
         <div class="setting-group"><h3>Appearance</h3><div class="segmented three">

@@ -1,0 +1,24 @@
+# Changelog
+
+## 0.2.0 Beta — v0.2.0-beta.1
+
+- Add persistent device-local history for the latest 100 texts, short local titles, copy-again button and Ctrl/Cmd+Shift+C.
+- Keep the previous text visible while recording or processing; add history privacy controls and confirmed clearing.
+- Replace action/file/history native popup menus with themed, keyboard-accessible selectors.
+- Add large-area, audio-responsive violet/blue recording motion with reduced-motion support.
+- Add optional, synthesized native start/stop cues outside the recording interval.
+- Remove native decorations in Omarchy/Hyprland only.
+- Preserve native microphone capture across focus changes, minimization and close-to-tray; add a native ten-minute cutoff and native elapsed-time reporting.
+- Build unsigned Linux, Windows and macOS (Apple Silicon/Intel) downloads via a shared CI/release pipeline; publish only after all targets pass.
+- Add history durability/privacy tests, audio-envelope/cue/session tests, component tests and production-browser GUI tests.
+
+See [release notes](docs/releases/v0.2.0-beta.1.md) for downloads, privacy changes and platform caveats.
+
+## 0.1.0 Alpha 2 — v0.1.0-alpha.2
+
+- Use Linux system libraries rather than a bundled AppImage runtime on Omarchy.
+- Add a checksum-verifying per-user Linux installer and package validation.
+
+## 0.1.0 Alpha 1 — v0.1.0-alpha.1
+
+- Initial Tauri/Svelte desktop MVP with OpenAI and local Whisper transcription, text actions, clipboard/file delivery, model downloads, settings and tray.

@@ -30,4 +30,12 @@ Browser validation: `npx playwright install chromium`, then `npm run test:e2e`. 
 
 On the initial Linux development machine CMake was missing. An official, SHA-256-verified portable CMake was extracted into ignored `.tools/cmake-4.4.3-linux-x86_64`; prepend its `bin` directory to PATH for native builds. No system configuration was changed.
 
-Remaining before release: version/release documentation, cross-platform binary publishing, and verification of the GitHub Actions run. Native interactive microphone/speaker and macOS/Windows desktop tests must be distinguished from mocked browser tests and cross-platform compilation.
+## Release workflow
+
+Version 0.2.0 is synchronized across npm, Cargo (including lockfiles), Tauri, and the Settings header. Tag `v0.2.0-beta.1` names **Utterform 0.2.0 Beta**; the package version intentionally remains numeric for desktop installers.
+
+CI builds and uploads Linux x86_64 system packages, Windows x86_64 standalone/NSIS executables, and macOS Apple Silicon/Intel DMG/app archives. The `Release` workflow (historical filename `linux-release.yml`) reuses the exact same checks and builds for alpha/beta tags, verifies all eight required assets, generates one combined checksum manifest, and only then publishes the prerelease. Update version files, `scripts/install-linux.sh`, release notes and changelog before tagging. Never move a published tag; use a new beta tag for later corrections.
+
+Before starting work on another device/assistant, pull `main`, read this file, `CHANGELOG.md`, and `docs/ARCHITECTURE.md`, and inspect the latest Actions result. Project-wide decisions stay here; machine-specific setup and user data stay outside Git.
+
+Remaining before release: verify the four-target Actions run, tag and check the published asset set. Native interactive microphone/speaker and macOS/Windows desktop tests must be distinguished from mocked browser tests and cross-platform compilation.
