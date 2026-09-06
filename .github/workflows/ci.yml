@@ -45,3 +45,23 @@ jobs:
         run: npm run tauri build -- --no-bundle
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
+
+      - name: Package Linux test build
+        if: runner.os == 'Linux'
+        run: |
+          scripts/package-linux-system.sh
+          install -m 755 scripts/install-linux.sh release/install-linux.sh
+          cd release
+          sha256sum utterform-linux-x86_64-system.tar.gz install-linux.sh > SHA256SUMS.txt
+
+      - name: Verify Linux test installer
+        if: runner.os == 'Linux'
+        run: scripts/test-linux-system-package.sh release
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: utterform-linux-x86_64-system
+          path: release/
+          if-no-files-found: error
+          retention-days: 14

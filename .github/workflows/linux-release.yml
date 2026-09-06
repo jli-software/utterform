@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   package:
-    name: Linux x86_64 AppImage
+    name: Linux x86_64 system package
     runs-on: ubuntu-22.04
 
     steps:
@@ -30,16 +30,15 @@ jobs:
 
       - run: npm ci
 
-      - name: Build AppImage
-        run: npm run tauri build -- --bundles appimage
+      - name: Build application
+        run: npm run tauri build -- --no-bundle
 
       - name: Prepare release assets
         run: |
-          mkdir release
-          install -m 755 src-tauri/target/release/bundle/appimage/Utterform_0.1.0_amd64.AppImage release/utterform-linux-x86_64.AppImage
+          scripts/package-linux-system.sh
           install -m 755 scripts/install-linux.sh release/install-linux.sh
           cd release
-          sha256sum utterform-linux-x86_64.AppImage install-linux.sh > SHA256SUMS.txt
+          sha256sum utterform-linux-x86_64-system.tar.gz install-linux.sh > SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -56,5 +55,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --prerelease \
-            --title "Utterform 0.1.0 Alpha 1" \
+            --title "Utterform 0.1.0 Alpha 2" \
             --notes-file "docs/releases/${GITHUB_REF_NAME}.md"

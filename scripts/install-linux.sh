@@ -2,9 +2,9 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v0.1.0-alpha.1}"
+version="${UTTERFORM_VERSION:-v0.1.0-alpha.2}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
-asset="utterform-linux-x86_64.AppImage"
+asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
 install_root="${prefix}/share/utterform"
 bin_dir="${prefix}/bin"
@@ -26,11 +26,12 @@ esac
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
+command -v tar >/dev/null 2>&1 || fail "tar is required"
+command -v ldd >/dev/null 2>&1 || fail "ldd is required"
 
 download_dir="$(mktemp -d)"
-extract_dir="$(mktemp -d)"
 cleanup() {
-  rm -rf "$download_dir" "$extract_dir"
+  rm -rf "$download_dir"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -43,17 +44,22 @@ expected="$(sed -n "s/  ${asset}\$//p" "${download_dir}/SHA256SUMS.txt")"
 actual="$(sha256sum "${download_dir}/${asset}" | cut -d ' ' -f 1)"
 [ "$actual" = "$expected" ] || fail "SHA-256 verification failed"
 
-chmod +x "${download_dir}/${asset}"
-(
-  cd "$extract_dir"
-  "${download_dir}/${asset}" --appimage-extract >/dev/null
-)
-[ -x "${extract_dir}/squashfs-root/AppRun" ] || fail "the AppImage could not be extracted"
+tar -xzf "${download_dir}/${asset}" -C "$download_dir"
+package_root="${download_dir}/utterform-linux-x86_64-system"
+[ -x "${package_root}/bin/utterform" ] || fail "the application package is invalid"
+
+missing_libraries="$(unset LD_LIBRARY_PATH; ldd "${package_root}/bin/utterform" 2>/dev/null | sed -n 's/^[[:space:]]*\([^[:space:]]*\)[[:space:]]*=>[[:space:]]*not found.*$/\1/p')"
+if [ -n "$missing_libraries" ]; then
+  printf 'Utterform installer: missing system libraries:\n%s\n' "$missing_libraries" >&2
+  printf '%s\n' 'On Omarchy/Arch, install the required runtime packages with:' >&2
+  printf '%s\n' '  sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator' >&2
+  exit 1
+fi
 
 mkdir -p "$prefix/share" "$bin_dir" "$applications_dir" "$icons_dir"
 next_root="${prefix}/share/.utterform-next-$$"
 previous_root="${prefix}/share/.utterform-previous-$$"
-mv "${extract_dir}/squashfs-root" "$next_root"
+mv "$package_root" "$next_root"
 
 if [ -e "$install_root" ]; then
   mv "$install_root" "$previous_root"
@@ -67,11 +73,16 @@ fi
 rm -rf "$previous_root"
 
 launcher_tmp="${launcher}.tmp.$$"
-printf '%s\n' '#!/bin/sh' "exec \"${install_root}/AppRun\" \"\$@\"" > "$launcher_tmp"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'unset LD_LIBRARY_PATH'
+  printf '%s\n' 'export GDK_BACKEND="${GDK_BACKEND:-x11}"'
+  printf 'exec "%s/bin/utterform" "$@"\n' "$install_root"
+} > "$launcher_tmp"
 chmod +x "$launcher_tmp"
 mv "$launcher_tmp" "$launcher"
 
-icon_source="${install_root}/Utterform.png"
+icon_source="${install_root}/share/utterform.png"
 if [ -f "$icon_source" ]; then
   cp "$icon_source" "${icons_dir}/utterform.png"
 fi
