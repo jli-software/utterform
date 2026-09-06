@@ -52,6 +52,7 @@ export interface ProcessResult {
   historyEntry: HistoryEntry | null;
   text: string;
   savedPath: string | null;
+  copiedToClipboard: boolean;
   deliveryWarnings: string[];
   durationMs: number;
   engine: Engine;

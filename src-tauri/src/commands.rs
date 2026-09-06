@@ -7,6 +7,7 @@ use crate::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
         TranscriptionEngine,
     },
+    feedback::{self, Cue},
     history::{self, HistoryEntry},
     models, output, secrets, settings, transcription,
 };
@@ -101,6 +102,7 @@ pub async fn finish_recording(
     let duration_ms = artifact.duration_ms();
     let transcript = transcription::transcribe(&app, &artifact, &current_settings).await?;
     let mut warnings = Vec::new();
+    let mut transformation_succeeded = true;
     let text = match transcription::transform(
         &transcript,
         &request.action,
@@ -111,6 +113,7 @@ pub async fn finish_recording(
     {
         Ok(text) => text,
         Err(error) if request.action != "plain" => {
+            transformation_succeeded = false;
             warnings.push(format!(
                 "Transformation failed; the plain transcript was used: {error}"
             ));
@@ -132,12 +135,22 @@ pub async fn finish_recording(
         None
     };
     let delivery = output::deliver(&app, &text, &request, &current_settings)?;
+    // Stop only confirms capture ended. Done confirms the requested transformation and
+    // every output completed, even when the window is hidden. History is best-effort.
+    if current_settings.sound_enabled
+        && transformation_succeeded
+        && delivery.all_requested_outputs_succeeded(&request)
+    {
+        // Do not block the async executor while the native output buffer drains.
+        let _ = tauri::async_runtime::spawn_blocking(|| feedback::play(Cue::Done)).await;
+    }
     warnings.extend(delivery.warnings);
 
     Ok(ProcessResult {
         history_entry,
         text,
         saved_path: delivery.saved_path,
+        copied_to_clipboard: delivery.copied_to_clipboard,
         delivery_warnings: warnings,
         duration_ms,
         engine: current_settings.engine,
