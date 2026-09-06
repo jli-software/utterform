@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-The four-target [CI run for the release implementation](https://github.com/jli-software/utterform/actions/runs/34027520241) passed on Linux x86_64, Windows x86_64, macOS Apple Silicon, and macOS Intel, including native packaging. The tagged release repeats the same checks before publishing.
+The four-target [CI run for the release implementation](https://github.com/jli-software/utterform/actions/runs/34027520241) passed on Linux x86_64, Windows x86_64, macOS Apple Silicon, and macOS Intel, including native packaging. The [Beta 2 release run](https://github.com/jli-software/utterform/actions/runs/34028732467) repeated all checks successfully and published [v0.2.0-beta.2](https://github.com/jli-software/utterform/releases/tag/v0.2.0-beta.2). All eight downloaded release assets passed their SHA-256 checks; the published Linux installer passed another isolated install test. Direct binary inspection confirmed Windows x86_64 **GUI** subsystem and the correct ARM64/x86_64 Mach-O architecture of each macOS app. Beta 1 had a console-subsystem Windows executable and is superseded, not retagged.
 
 - Svelte/TypeScript: no errors or warnings.
 - Frontend: 9 unit/component tests (history restore/copy/clear, focus loss/cancel, persistence failure, keyboard/pointer menus).
