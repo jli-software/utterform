@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
         invoke: async (command: string, args: Record<string, unknown>) => {
           switch (command) {
             case "take_startup_intent": return null;
-            case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "" };
+            case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
             case "get_settings": return settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;

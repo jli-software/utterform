@@ -56,20 +56,25 @@ pub fn run() {
         .manage(audio::AudioCaptureState::default())
         .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
+        .manage(hotkey::Failure::default())
         .setup(|app| {
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
             app.state::<StartupIntent>()
                 .set(cli::intent_from(std::env::args()));
             // Best-effort on purpose: a session that will not grant a global
             // shortcut, or a key another application already holds, must cost
-            // the dictation key and not the application. Settings reports the
-            // real state when the user next looks.
+            // the dictation key and not the application. The reason is kept so
+            // Settings can report it when the user next looks.
             let handle = app.handle().clone();
             if hotkey::install(&handle).is_ok() {
                 let configured = settings::load(&handle)
-                    .map(|settings| settings.global_hotkey)
-                    .unwrap_or_else(|_| Some(hotkey::DEFAULT.to_string()));
-                let _ = hotkey::apply(&handle, configured.as_deref());
+                    .ok()
+                    .and_then(|settings| settings.global_hotkey);
+                // On its own thread: registering asks the event loop and waits
+                // for the answer, and the loop only starts once setup returns.
+                std::thread::spawn(move || {
+                    let _ = hotkey::apply(&handle, configured.as_deref());
+                });
             }
             if let Some(window) = app.get_webview_window("main") {
                 if platform::use_borderless_window() {

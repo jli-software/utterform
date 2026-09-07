@@ -34,6 +34,11 @@ tempfile = "3.23.0"
 whisper-rs = "0.16.0"
 tauri-plugin-global-shortcut = "2"
 
+[dev-dependencies]
+# Only the mock runtime, and only for tests: the hotkey state is reachable
+# solely through an AppHandle, so asserting on it needs a real one.
+tauri = { version = "2.11.5", features = ["test"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Tauri's tray uses libayatana-appindicator, which exposes no Activate method,
 # so a left click on the tray icon can never reach the app. Serve the

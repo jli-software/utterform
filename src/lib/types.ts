@@ -33,6 +33,9 @@ export interface HotkeySupport {
   supported: boolean;
   default: string;
   explanation: string;
+  /// Why the stored key is not in effect — startup registration has no one to
+  /// report to, so the reason waits here until Settings is opened.
+  failure: string | null;
 }
 
 export interface CustomAction {

@@ -35,7 +35,7 @@
   let apiKeyInput = "";
   // Until the backend answers, assume the session grants nothing: a field that
   // appears and then turns out to be dead is worse than one that arrives late.
-  let hotkeySupport: HotkeySupport = { supported: false, default: "Ctrl+Alt+D", explanation: "" };
+  let hotkeySupport: HotkeySupport = { supported: false, default: "Ctrl+Alt+D", explanation: "", failure: null };
   let hotkeyError = "";
   let elapsedSeconds = 0;
   let audioLevel = 0;
@@ -77,6 +77,10 @@
   $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
   $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
   $: canRecord = settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
+  // A key that could not be reserved at startup had nowhere to report; the
+  // field it belongs to is where the user finds out. Derived rather than read
+  // once, so a Settings dialog opened before the backend answered still shows it.
+  $: hotkeyMessage = hotkeyError || hotkeySupport.failure || "";
   $: typingNote = settings.typing_method === "paste"
     ? "The whole text moves at once, so nothing can be dropped or reordered on the way — terminals included. It is left on the clipboard."
     : "The text is typed one character at a time. Windows that receive it faster than a person could type may drop letters; raise the delay if characters go missing.";
@@ -458,13 +462,17 @@
       }
       applyTheme(settings.theme);
       hotkeyError = "";
-      if (hotkeySupport.supported && settings.global_hotkey !== previousHotkey) {
+      // Also retried when the key is unchanged but never took effect, so
+      // saving is the way to try again once the other application is gone.
+      if (hotkeySupport.supported && (settings.global_hotkey !== previousHotkey || hotkeySupport.failure)) {
         try {
           await api.applyGlobalHotkey(settings.global_hotkey);
+          hotkeySupport = { ...hotkeySupport, failure: null };
         } catch (error) {
           // Everything else is saved; only the key needs another attempt, so
           // the dialog stays open where the shortcut was entered.
           hotkeyError = String(error);
+          hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
           return;
         }
       }
@@ -718,7 +726,7 @@
             {#if settings.global_hotkey !== null}
               <label class="field"><span>Shortcut <small>modifiers first, for example {hotkeySupport.default}</small></span><input value={settings.global_hotkey} oninput={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.value })} placeholder={hotkeySupport.default} /></label>
             {/if}
-            {#if hotkeyError}<p class="setting-error" role="alert">{hotkeyError}</p>{/if}
+            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
             <p class="privacy-note">The key is reserved for Utterform while it runs. Press it once to start and again to finish; the sounds are the confirmation, since the window never comes forward.</p>
           {:else}
             <p class="privacy-note">{hotkeySupport.explanation}</p>

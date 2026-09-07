@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
-  globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "" })),
+  globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
@@ -350,9 +350,18 @@ describe("dictation key settings", () => {
     await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith(null));
   });
 
+  it("reports a key that could not be reserved at startup, when Settings is first opened", async () => {
+    vi.mocked(api.globalHotkeySupport).mockResolvedValue({
+      supported: true, default: "Ctrl+Alt+D", explanation: "",
+      failure: "Ctrl+Alt+D is not available — another application may already hold it",
+    });
+    const view = await openSettings();
+    expect(view.getByRole("alert").textContent).toContain("not available");
+  });
+
   it("offers a Wayland session the command line instead of a dead field", async () => {
     vi.mocked(api.globalHotkeySupport).mockResolvedValue({
-      supported: false, default: "Ctrl+Alt+D",
+      supported: false, default: "Ctrl+Alt+D", failure: null,
       explanation: "Wayland gives no application a global shortcut. Bind `utterform --toggle` in your compositor instead.",
     });
     const view = await openSettings();

@@ -21,16 +21,20 @@ pub fn take_startup_intent(state: State<'_, crate::StartupIntent>) -> Option<cra
 /// Whether this session hands global shortcuts to applications at all, so
 /// Settings can explain a Wayland session instead of showing a dead field.
 #[tauri::command]
-pub fn global_hotkey_support() -> crate::hotkey::Support {
-    crate::hotkey::support()
+pub fn global_hotkey_support(app: AppHandle) -> crate::hotkey::Support {
+    crate::hotkey::support(&app)
 }
 
 /// Put a changed dictation key into effect. Separate from saving settings so
 /// the shortcut is only re-registered when the user actually changed it, and
 /// so a key another application holds is reported where it was entered.
 #[tauri::command]
-pub fn apply_global_hotkey(app: AppHandle, shortcut: Option<String>) -> Result<(), String> {
-    crate::hotkey::apply(&app, shortcut.as_deref())
+pub async fn apply_global_hotkey(app: AppHandle, shortcut: Option<String>) -> Result<(), String> {
+    // Off the main thread on purpose: registering asks the event loop to do it
+    // and waits for the answer, which the main thread cannot give itself.
+    tauri::async_runtime::spawn_blocking(move || crate::hotkey::apply(&app, shortcut.as_deref()))
+        .await
+        .map_err(|error| format!("Could not reach the shortcut manager: {error}"))?
 }
 
 #[tauri::command]
