@@ -88,10 +88,15 @@ The decision: do not buy a certificate at current download volumes. Revisit if
 users report abandoning the install because of the warning.
 
 Instead, distribute through **winget**, which is free and needs no certificate.
-Manifests for 0.4.2 are prepared and validated in `packaging/winget/`; see that
-directory's README for the submission command and what is still open. The
-package is **not submitted yet**, so the README must not advertise
-`winget install` until the pull request is merged.
+The 0.4.2 manifests in `packaging/winget/` were validated and installed on a
+Windows 11 VM, including a Start menu launch and a real transition into the
+recording state. The per-user uninstall registry confirmed `Utterform` as the
+ARP `ProductCode`; the manifest now carries it and `winget upgrade --manifest`
+correlates the installed 0.4.2 package. The first upstream submission is
+[microsoft/winget-pkgs#431040](https://github.com/microsoft/winget-pkgs/pull/431040),
+opened on 2026-09-07. The package is not available from the public source until
+that pull request is merged, so the project README must not advertise
+`winget install` before then.
 
 ### Then
 
