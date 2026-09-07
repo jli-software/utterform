@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.1** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.1).
+> Utterform is under active development. **0.4.2** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.2).
 
 ## Install on Omarchy / Arch Linux
 
@@ -67,15 +67,33 @@ On Windows nothing needs installing; Utterform uses `SendInput` directly, sendin
 
 Typing at the cursor is not implemented on **macOS** yet.
 
+## Prompts you can rewrite
+
+Utterform ships six actions. **Plain** delivers what you said, word for word, and never reaches a text model. **Clean**, **Polish**, **Summarize**, **Prompt** and **Email** each run a written instruction, and every one of them is yours to change under **Settings → Prompts**.
+
+Pick an action on the left, rewrite its name or its instructions on the right. *View the original* shows the text Utterform ships before you write over it, and *Reset* brings it back. A dot marks the ones you have changed. **Add prompt** creates one of your own, which appears in the action menu beside the others.
+
+Only what differs from the shipped text is stored, so a prompt you left alone still improves when Utterform does — and an instruction you cleared falls back to the shipped one rather than costing you the recording.
+
+Under **Text model** on the same tab: the model that runs these prompts (`gpt-5-mini` by default) and its **thinking effort** — Auto, Minimal, Low, Medium or High. Auto leaves the model its own default; lower is faster and cheaper. Not every model offers every level, and one that does not know the level you chose refuses the request, in which case the plain transcript is delivered and the reason is shown.
+
+## Vocabulary
+
+Names, products and spellings a model would otherwise guess at go under **Settings → Voice → Vocabulary**, one per line. Write *Careum* there and it stops coming back as *Kareum*.
+
+GPT Transcribe receives them as `keywords`, the parameter it offers for exactly this; local Whisper receives them as the text it starts from, which is Whisper's own way of biasing a spelling. They are hints either way — the model still transcribes what it hears. **Recording context** beside it is free-form ("a standup about the billing rewrite") and reaches GPT Transcribe only.
+
+A term containing `<` or `>` is refused by the transcription API, and it refuses the whole request with it, so Settings names such a term and leaves it out rather than letting one stray character cost a recording.
+
 ## Windows and macOS
 
-Download the [0.4.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.1):
+Download the [0.4.2 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.2):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
-The dictation key and typing at the cursor are new on these platforms in 0.4.1 and have been built and tested automatically, but not yet used by anyone on a real Windows or macOS machine. Linux is the platform exercised by hand. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
+The dictation key and typing at the cursor are new on these platforms since 0.4.1 and have been built and tested automatically, but not yet used by anyone on a real Windows or macOS machine. Linux is the platform exercised by hand. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
 
 On macOS drag Utterform into Applications. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
@@ -86,7 +104,8 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - Batch transcription with `gpt-transcribe` — no realtime session required
 - Offline transcription through `whisper.cpp`
 - One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
-- Plain, Clean, Polish, Summarize, Prompt, and user-defined actions
+- Plain, Clean, Polish, Summarize, Prompt, Email, and user-defined actions — every shipped prompt can be rewritten
+- A vocabulary of your own terms, and a reasoning effort for the text step
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
 - Global dictation with a reserved key combination on Windows, macOS and X11, or a compositor binding on Wayland: either way without raising the window
@@ -113,7 +132,7 @@ Shortcuts work while the Utterform window is focused.
 | `Space` | Start or finish recording (also while paused) |
 | `P` | Pause or resume the current recording without processing it |
 | `Escape` | Discard the active or paused recording |
-| `1`–`5` | Select Plain, Clean, Polish, Summarize, or Prompt |
+| `1`–`6` | Select Plain, Clean, Polish, Summarize, Prompt, or Email |
 | `C` | Toggle clipboard output |
 | `F` | Toggle file output |
 | `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |

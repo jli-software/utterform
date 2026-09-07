@@ -1,3 +1,4 @@
+mod actions;
 mod activation;
 mod audio;
 mod cli;
@@ -97,6 +98,7 @@ pub fn run() {
             commands::take_startup_intent,
             commands::global_hotkey_support,
             commands::apply_global_hotkey,
+            commands::list_built_in_actions,
             commands::get_settings,
             commands::save_settings,
             commands::list_input_devices,

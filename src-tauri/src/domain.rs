@@ -1,4 +1,8 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+
+use crate::actions::ActionOverride;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -48,6 +52,29 @@ pub enum Theme {
     System,
 }
 
+/// How much the text model thinks before rewriting a transcript. Lower is
+/// faster and cheaper; `None` sends nothing and leaves the model its own
+/// default, so a model that does not know a level cannot reject the request.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TextEffort {
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+impl TextEffort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
@@ -61,7 +88,17 @@ pub struct AppSettings {
     pub language_hints: Vec<String>,
     pub type_at_cursor: bool,
     pub text_model: String,
+    /// Reasoning effort for the text transformation, where the model offers it.
+    pub text_effort: Option<TextEffort>,
+    /// Literal terms to expect in the audio: names, products, spellings the
+    /// model would otherwise guess at. Sent to GPT Transcribe as keywords, and
+    /// given to local Whisper as its initial prompt.
+    pub vocabulary: Vec<String>,
+    /// Free-form context about what is being recorded. GPT Transcribe only.
+    pub transcription_context: String,
     pub theme: Theme,
+    /// What the user typed in place of a shipped prompt, by action id.
+    pub action_overrides: BTreeMap<String, ActionOverride>,
     pub custom_actions: Vec<CustomAction>,
     pub history_enabled: bool,
     pub sound_enabled: bool,
@@ -94,7 +131,11 @@ impl Default for AppSettings {
             language_hints: Vec::new(),
             type_at_cursor: false,
             text_model: "gpt-5-mini".into(),
+            text_effort: None,
+            vocabulary: Vec::new(),
+            transcription_context: String::new(),
             theme: Theme::System,
+            action_overrides: BTreeMap::new(),
             custom_actions: Vec::new(),
             history_enabled: true,
             sound_enabled: true,

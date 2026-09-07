@@ -3,7 +3,7 @@ use std::{io::Cursor, time::Duration};
 use reqwest::{Client, StatusCode, multipart};
 use serde::Deserialize;
 
-use crate::{audio::RecordingArtifact, domain::AppSettings, secrets};
+use crate::{actions, audio::RecordingArtifact, domain::AppSettings, secrets};
 
 const TRANSCRIPTIONS_URL: &str = "https://api.openai.com/v1/audio/transcriptions";
 const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
@@ -73,6 +73,13 @@ pub async fn transcribe(
     {
         form = form.text("languages[]", language.trim().to_string());
     }
+    for keyword in usable_keywords(&settings.vocabulary) {
+        form = form.text("keywords[]", keyword);
+    }
+    let context = settings.transcription_context.trim();
+    if !context.is_empty() {
+        form = form.text("prompt", context.to_string());
+    }
 
     let response = client()?
         .post(TRANSCRIPTIONS_URL)
@@ -102,13 +109,18 @@ pub async fn transform(
     custom_prompt: Option<&str>,
     settings: &AppSettings,
 ) -> Result<String, String> {
-    let instructions = action_instructions(action, custom_prompt)?;
-    let body = serde_json::json!({
+    let instructions = action_instructions(action, custom_prompt, settings)?;
+    let mut body = serde_json::json!({
         "model": settings.text_model,
         "instructions": instructions,
         "input": transcript,
         "store": false
     });
+    // Sent only when the user chose a level: a model that does not offer the
+    // one we would have guessed rejects the whole request.
+    if let Some(effort) = settings.text_effort {
+        body["reasoning"] = serde_json::json!({ "effort": effort.as_str() });
+    }
     let response = client()?
         .post(RESPONSES_URL)
         .bearer_auth(secrets::openai_api_key()?)
@@ -175,19 +187,35 @@ fn normalized_wav(artifact: &RecordingArtifact) -> Result<Vec<u8>, String> {
     Ok(cursor.into_inner())
 }
 
-fn action_instructions(action: &str, custom_prompt: Option<&str>) -> Result<String, String> {
-    match action {
-        "clean" => Ok("Correct punctuation, capitalization, spelling, and paragraph breaks. Preserve the speaker's language, wording, intent, names, numbers, and level of detail. Remove only obvious filler words. Return only the corrected text.".into()),
-        "polish" => Ok("Rewrite the transcript into clear, fluent prose in the speaker's language. Preserve every material fact, requirement, name, number, and the original intent. Do not add information. Return only the polished text.".into()),
-        "summarize" => Ok("Summarize the transcript concisely in the speaker's language. Retain decisions, requirements, action items, names, numbers, and caveats. Use short paragraphs or bullets when helpful. Return only the summary.".into()),
-        "prompt" => Ok("Convert the transcript into a precise, self-contained prompt for an AI assistant. Preserve all requirements, constraints, examples, and desired output. Remove conversational filler and resolve only unambiguous references. Return only the prompt.".into()),
-        "custom" => custom_prompt
+/// Words or phrases the model should expect to hear.
+///
+/// The API rejects the entire request when a keyword carries `<`, `>`, a
+/// carriage return or a line feed, so one stray character would cost the
+/// recording rather than the term. Drop the term instead; Settings says so
+/// where the words are entered.
+fn usable_keywords(vocabulary: &[String]) -> Vec<String> {
+    vocabulary
+        .iter()
+        .map(|keyword| keyword.trim())
+        .filter(|keyword| !keyword.is_empty() && !keyword.contains(['<', '>', '\r', '\n']))
+        .map(str::to_string)
+        .collect()
+}
+
+fn action_instructions(
+    action: &str,
+    custom_prompt: Option<&str>,
+    settings: &AppSettings,
+) -> Result<String, String> {
+    if action == "custom" {
+        return custom_prompt
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| "A custom action requires instructions".to_string()),
-        _ => Err(format!("Unknown action: {action}")),
+            .ok_or_else(|| "A custom action requires instructions".to_string());
     }
+    actions::instructions(action, &settings.action_overrides)
+        .ok_or_else(|| format!("Unknown action: {action}"))
 }
 
 async fn api_error(status: StatusCode, response: reqwest::Response) -> String {
@@ -208,15 +236,56 @@ mod tests {
 
     #[test]
     fn plain_is_not_a_transform_action() {
-        assert!(action_instructions("plain", None).is_err());
+        assert!(action_instructions("plain", None, &AppSettings::default()).is_err());
     }
 
     #[test]
     fn custom_requires_non_empty_instructions() {
-        assert!(action_instructions("custom", Some("  ")).is_err());
+        let settings = AppSettings::default();
+        assert!(action_instructions("custom", Some("  "), &settings).is_err());
         assert_eq!(
-            action_instructions("custom", Some("Use bullets")).unwrap(),
+            action_instructions("custom", Some("Use bullets"), &settings).unwrap(),
             "Use bullets"
+        );
+    }
+
+    #[test]
+    fn a_shipped_prompt_runs_until_the_user_replaces_it() {
+        let mut settings = AppSettings::default();
+        assert_eq!(
+            action_instructions("email", None, &settings).unwrap(),
+            actions::find("email").unwrap().prompt
+        );
+
+        settings.action_overrides.insert(
+            "email".into(),
+            actions::ActionOverride {
+                name: None,
+                prompt: Some("Answer as a postcard.".into()),
+            },
+        );
+        assert_eq!(
+            action_instructions("email", None, &settings).unwrap(),
+            "Answer as a postcard."
+        );
+    }
+
+    #[test]
+    fn keywords_that_would_be_refused_are_dropped_rather_than_sent() {
+        let vocabulary = [
+            "  Careum  ",
+            "",
+            "   ",
+            "a<b",
+            "a>b",
+            "two\nlines",
+            "carriage\rreturn",
+            "Utterform",
+        ]
+        .map(str::to_string);
+        assert_eq!(
+            usable_keywords(&vocabulary),
+            vec!["Careum".to_string(), "Utterform".to_string()]
         );
     }
 }

@@ -3,16 +3,25 @@
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { isTauri } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { ACTIONS, DEFAULT_SETTINGS } from "./lib/types";
+  import {
+    BUILT_IN_ACTIONS,
+    DEFAULT_SETTINGS,
+    FORBIDDEN_IN_KEYWORD,
+    actionName,
+    actionPrompt,
+    isActionEdited,
+  } from "./lib/types";
   import type {
     AppSettings,
     AudioDevice,
+    BuiltInAction,
     DownloadProgress,
     HistoryEntry,
     HotkeySupport,
     LocalModel,
     ProcessResult,
     RemoteIntent,
+    TextEffort,
     Theme,
   } from "./lib/types";
   import { api } from "./lib/api";
@@ -23,6 +32,21 @@
   import { modalFocus } from "./lib/modal-focus";
 
   type Phase = "idle" | "starting" | "recording" | "paused" | "processing" | "done" | "error";
+  type SettingsTab = "voice" | "prompts" | "output" | "general";
+
+  const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; hint: string }> = [
+    { id: "voice", label: "Voice", hint: "Engine, microphone, vocabulary" },
+    { id: "prompts", label: "Prompts", hint: "What each action asks for" },
+    { id: "output", label: "Output", hint: "Where the finished text goes" },
+    { id: "general", label: "General", hint: "Appearance, key, history" },
+  ];
+  const EFFORTS: Array<{ value: TextEffort | null; label: string }> = [
+    { value: null, label: "Auto" },
+    { value: "minimal", label: "Minimal" },
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+  ];
 
   let phase: Phase = "idle";
   let settings: AppSettings = structuredClone(DEFAULT_SETTINGS);
@@ -30,6 +54,22 @@
   let models: LocalModel[] = [];
   let selectedAction: string = "plain";
   let showSettings = false;
+  let settingsTab: SettingsTab = "voice";
+  // The shipped prompts come from the backend so there is only ever one copy of
+  // them; this list stands in until it answers, and in a browser preview.
+  let builtInActions: BuiltInAction[] = BUILT_IN_ACTIONS;
+  let selectedPrompt = "clean";
+  // The editor writes through drafts rather than the resolved value: clearing
+  // the box would otherwise drop the override and snap the shipped text back
+  // under the cursor.
+  let nameDraft = "";
+  let promptDraft = "";
+  /// Which prompt is showing the text Utterform ships, so it can be read before
+  /// it is written over.
+  let showsDefault = "";
+  // Typed as written rather than reassembled from the parsed terms, so a blank
+  // line being typed is not swallowed under the cursor.
+  let vocabularyDraft = "";
   let settingsSnapshot: AppSettings | null = null;
   let hasApiKey = false;
   let apiKeyInput = "";
@@ -67,10 +107,25 @@
 
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
+  // Number keys follow the list, so a renamed or added action still has one.
+  $: resolvedActions = builtInActions.map((action, index) => ({
+    id: action.id,
+    label: actionName(action, settings.action_overrides),
+    hint: action.hint,
+    key: index < 9 ? String(index + 1) : undefined,
+  }));
   $: actionOptions = [
-    ...ACTIONS.map((action) => ({ value: action.id, label: action.label, hint: action.hint, key: action.key })),
+    ...resolvedActions.map((action) => ({ value: action.id, label: action.label, hint: action.hint, key: action.key })),
     ...settings.custom_actions.map((action) => ({ value: `custom:${action.id}`, label: action.name, hint: "Custom action" })),
   ];
+  $: editedPrompt = builtInActions.find((action) => action.id === selectedPrompt) ?? null;
+  $: editedCustom = settings.custom_actions.find((action) => `custom:${action.id}` === selectedPrompt) ?? null;
+  // Split on lines, so a term can never carry the newline the API refuses; only
+  // the angle brackets have to be caught here.
+  $: rejectedTerms = vocabularyDraft
+    .split("\n")
+    .map((term) => term.trim())
+    .filter((term) => term && FORBIDDEN_IN_KEYWORD.test(term));
   $: historyOptions = history.map((entry) => ({ value: entry.id, label: entry.title, hint: formatHistoryTime(historyTimestamp(entry), now) }));
   $: displayedTimestamp = selectedHistory ? historyTimestamp(selectedHistory) : resultTimestamp;
   $: recordingActive = phase === "recording" || phase === "paused";
@@ -98,12 +153,13 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey, hotkeySupport] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
         api.hasOpenAiApiKey(),
         api.globalHotkeySupport(),
+        api.listBuiltInActions(),
       ]);
       applyTheme(settings.theme);
       // Load independently: a damaged history must not disable microphone/settings setup.
@@ -217,7 +273,7 @@
       return;
     }
     if (phase === "idle" || phase === "done" || phase === "error") {
-      const action = ACTIONS.find((item) => item.key === event.key);
+      const action = resolvedActions.find((item) => item.key === event.key);
       if (action) selectedAction = action.id;
       if (event.key.toLowerCase() === "c") {
         settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard };
@@ -527,7 +583,69 @@
   function openSettings() {
     settingsSnapshot = structuredClone(settings);
     confirmClear = false;
+    settingsTab = "voice";
+    vocabularyDraft = settings.vocabulary.join("\n");
+    selectPrompt(promptExists(selectedPrompt) ? selectedPrompt : firstEditablePrompt());
     showSettings = true;
+  }
+
+  function promptExists(id: string) {
+    return builtInActions.some((action) => action.id === id)
+      || settings.custom_actions.some((action) => `custom:${action.id}` === id);
+  }
+
+  function firstEditablePrompt() {
+    return builtInActions.find((action) => action.prompt !== "" || action.id !== "plain")?.id
+      ?? builtInActions[0]?.id
+      ?? "";
+  }
+
+  function moveSettingsTab(event: KeyboardEvent, index: number) {
+    const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const next = SETTINGS_TABS[(index + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+    settingsTab = next.id;
+    // Follow the selection with focus, as a tablist is expected to.
+    (document.getElementById(`settings-tab-${next.id}`) as HTMLElement | null)?.focus();
+  }
+
+  function updateVocabulary(value: string) {
+    vocabularyDraft = value;
+    settings = {
+      ...settings,
+      vocabulary: value.split("\n").map((term) => term.trim()).filter(Boolean),
+    };
+  }
+
+  /// Store only what differs from what we ship. A field returned to the default
+  /// stops being an override, so a later release can still improve it, and an
+  /// action with nothing left of the user's follows the default again.
+  function overrideAction(action: BuiltInAction, field: "name" | "prompt", value: string) {
+    const shipped = field === "name" ? action.name : action.prompt;
+    const stored = { ...settings.action_overrides[action.id] };
+    if (value.trim() === shipped.trim() || !value.trim()) delete stored[field];
+    else stored[field] = value;
+    const overrides = { ...settings.action_overrides };
+    if (stored.name?.trim() || stored.prompt?.trim()) overrides[action.id] = stored;
+    else delete overrides[action.id];
+    settings = { ...settings, action_overrides: overrides };
+  }
+
+  function resetAction(id: string) {
+    const overrides = { ...settings.action_overrides };
+    delete overrides[id];
+    settings = { ...settings, action_overrides: overrides };
+    selectPrompt(id);
+  }
+
+  function selectPrompt(id: string) {
+    selectedPrompt = id;
+    showsDefault = "";
+    const builtIn = builtInActions.find((action) => action.id === id);
+    const custom = settings.custom_actions.find((action) => `custom:${action.id}` === id);
+    nameDraft = builtIn ? actionName(builtIn, settings.action_overrides) : custom?.name ?? "";
+    promptDraft = builtIn ? actionPrompt(builtIn, settings.action_overrides) : custom?.prompt ?? "";
   }
 
   function cancelSettings() {
@@ -544,6 +662,7 @@
       ...settings,
       custom_actions: [...settings.custom_actions, { id, name: "Custom action", prompt: "" }],
     };
+    selectPrompt(`custom:${id}`);
   }
 
   function updateCustomAction(id: string, field: "name" | "prompt", value: string) {
@@ -561,6 +680,7 @@
       custom_actions: settings.custom_actions.filter((action) => action.id !== id),
     };
     if (selectedAction === `custom:${id}`) selectedAction = "plain";
+    if (selectedPrompt === `custom:${id}`) selectPrompt(firstEditablePrompt());
   }
 </script>
 
@@ -682,26 +802,36 @@
     <div class="settings-modal" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="settings-title" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSettings(); } }}>
       <div class="modal-header"><div class="settings-brand"><img src={brandIcon} alt="" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2><p>Make room for your way of working.</p></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
 
-      <div class="settings-scroll">
-        <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
-          {#each ["system", "light", "dark"] as theme}
-            <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
+      <div class="settings-body">
+        <div class="settings-rail" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+          {#each SETTINGS_TABS as tab, index}
+            <button id={`settings-tab-${tab.id}`} role="tab" class:active={settingsTab === tab.id}
+              aria-selected={settingsTab === tab.id} aria-controls="settings-panel"
+              tabindex={settingsTab === tab.id ? 0 : -1}
+              onclick={() => (settingsTab = tab.id)} onkeydown={(event) => moveSettingsTab(event, index)}>
+              <strong>{tab.label}</strong><small>{tab.hint}</small>
+            </button>
           {/each}
-        </div></div>
+        </div>
 
+        <div class="settings-scroll" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
+        {#if settingsTab === "voice"}
         <div class="setting-group"><h3>Transcription</h3><div class="segmented">
           <button class:active={settings.engine === "open_ai"} onclick={() => (settings = { ...settings, engine: "open_ai" })}>GPT Transcribe</button>
           <button class:active={settings.engine === "local_whisper"} onclick={() => (settings = { ...settings, engine: "local_whisper" })}>Local Whisper</button>
         </div>
         <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
-        <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label></div>
+        <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label>
+        <p class="privacy-note">GPT Transcribe sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
 
-        <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
-        <label class="field"><span>Text transformation model</span><input bind:value={settings.text_model} /></label><p class="privacy-note">GPT Transcribe sends audio to OpenAI. With Local Whisper, only text is sent when using Clean, Polish, Summarize, or Prompt.</p></div>
-
-        <div class="setting-group"><div class="group-heading"><h3>Custom actions</h3><button onclick={addCustomAction}>Add action</button></div>
-          {#if settings.custom_actions.length === 0}<p class="empty-note">Create reusable instructions for your own output styles.</p>{/if}
-          <div class="custom-actions">{#each settings.custom_actions as action}<div class="custom-action"><div class="inline-field"><input aria-label="Action name" value={action.name} oninput={(event) => updateCustomAction(action.id, "name", event.currentTarget.value)} /><button class="danger-text" onclick={() => removeCustomAction(action.id)}>Remove</button></div><textarea aria-label="Action instructions" placeholder="Describe exactly how the transcript should be transformed…" value={action.prompt} oninput={(event) => updateCustomAction(action.id, "prompt", event.currentTarget.value)}></textarea></div>{/each}</div>
+        <div class="setting-group"><div class="group-heading"><h3>Vocabulary</h3><span class="section-badge">Both engines</span></div>
+          <p class="section-description">Names, products and spellings the model would otherwise guess at. One per line.</p>
+          <label class="field"><span class="visually-hidden">Vocabulary</span><textarea class="vocabulary" rows="4" aria-label="Vocabulary" placeholder={"Careum\nUtterform\nOmarchy"} value={vocabularyDraft} oninput={(event) => updateVocabulary(event.currentTarget.value)}></textarea></label>
+          {#if rejectedTerms.length}
+            <p class="setting-error" role="alert">Not sent, because the transcription API refuses a term containing &lt; or &gt;: {rejectedTerms.join(", ")}</p>
+          {/if}
+          <label class="field"><span>Recording context <small>optional, GPT Transcribe only</small></span><textarea rows="2" placeholder="A standup about the billing rewrite." value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })}></textarea></label>
+          <p class="privacy-note">GPT Transcribe takes the words as keywords; local Whisper is given them as the text it starts from. They are hints either way — the model still transcribes what it hears.</p>
         </div>
 
         <div class="setting-group local-models"><div class="group-heading"><h3>Local Whisper models</h3><span class="section-badge">On-device audio</span></div>
@@ -719,7 +849,70 @@
         <div class="setting-group"><h3>Recording feedback</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play start/stop clicks and a chime when the text is ready</span></label>
         </div>
+        {/if}
 
+        {#if settingsTab === "prompts"}
+        <div class="setting-group prompts-group"><div class="group-heading"><h3>Prompts</h3><button onclick={addCustomAction}>Add prompt</button></div>
+          <p class="section-description">Every prompt Utterform ships with is a starting point. Rewrite any of them — Reset brings the original back.</p>
+          <div class="prompt-workbench">
+            <div class="prompt-list" role="group" aria-label="Prompts">
+              {#each builtInActions as action}
+                <button class="prompt-entry" class:active={selectedPrompt === action.id} aria-pressed={selectedPrompt === action.id} onclick={() => selectPrompt(action.id)}>
+                  <span class="prompt-entry-name">{actionName(action, settings.action_overrides)}</span>
+                  {#if !action.prompt && action.id === "plain"}<span class="prompt-tag">no prompt</span>
+                  {:else if isActionEdited(action.id, settings.action_overrides)}<span class="prompt-dot" aria-label="Edited"></span>{/if}
+                </button>
+              {/each}
+              {#if settings.custom_actions.length}<span class="prompt-divider">Your own</span>{/if}
+              {#each settings.custom_actions as action}
+                <button class="prompt-entry" class:active={selectedPrompt === `custom:${action.id}`} aria-pressed={selectedPrompt === `custom:${action.id}`} onclick={() => selectPrompt(`custom:${action.id}`)}>
+                  <span class="prompt-entry-name">{action.name || "Untitled prompt"}</span>
+                </button>
+              {/each}
+            </div>
+
+            <div class="prompt-editor">
+              {#if editedCustom}
+                <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "name", nameDraft); }} /></label>
+                <label class="field"><span>Instructions <small>sent with every recording that uses it</small></span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" placeholder="Describe exactly how the transcript should be transformed…" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "prompt", promptDraft); }}></textarea></label>
+                <div class="prompt-footer"><span>{promptDraft.trim().length} characters</span>
+                  <button class="danger-text" onclick={() => removeCustomAction(editedCustom.id)}>Delete prompt</button>
+                </div>
+              {:else if editedPrompt && !editedPrompt.prompt}
+                <div class="prompt-empty"><strong>{actionName(editedPrompt, settings.action_overrides)}</strong>
+                  <p>Delivers what you said, word for word. It never reaches a text model, so there is no prompt to write — and no API cost when Local Whisper does the transcribing.</p>
+                </div>
+              {:else if editedPrompt}
+                <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; overrideAction(editedPrompt, "name", nameDraft); }} /></label>
+                <label class="field"><span>Instructions <small>sent with every recording that uses it</small></span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; overrideAction(editedPrompt, "prompt", promptDraft); }}></textarea></label>
+                <div class="prompt-footer">
+                  <span>{promptDraft.trim().length} characters{isActionEdited(editedPrompt.id, settings.action_overrides) ? " · edited" : ""}</span>
+                  <span class="prompt-footer-actions">
+                    <button class="link-button" onclick={() => (showsDefault = showsDefault === editedPrompt.id ? "" : editedPrompt.id)}>{showsDefault === editedPrompt.id ? "Hide the original" : "View the original"}</button>
+                    <button class="danger-text" disabled={!isActionEdited(editedPrompt.id, settings.action_overrides)} onclick={() => resetAction(editedPrompt.id)}>Reset</button>
+                  </span>
+                </div>
+                {#if showsDefault === editedPrompt.id}<p class="prompt-default">{editedPrompt.prompt}</p>{/if}
+              {/if}
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-group"><h3>Text model</h3>
+          <p class="section-description">The model that runs these prompts. Plain never reaches it.</p>
+          <label class="field"><span>Model</span><input bind:value={settings.text_model} /></label>
+          <div class="field"><span>Thinking effort <small>lower is faster and cheaper</small></span>
+            <div class="segmented five">
+              {#each EFFORTS as effort}
+                <button class:active={settings.text_effort === effort.value} onclick={() => (settings = { ...settings, text_effort: effort.value })}>{effort.label}</button>
+              {/each}
+            </div>
+          </div>
+          <p class="privacy-note">Auto leaves the model its own default. Not every model offers every level; one that does not know the level you chose refuses the request, and the plain transcript is delivered instead.</p>
+        </div>
+        {/if}
+
+        {#if settingsTab === "output"}
         <div class="setting-group"><h3>Dictation key</h3>
           {#if hotkeySupport.supported}
             <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Start and finish a recording from anywhere, without raising the window</span></label>
@@ -743,6 +936,19 @@
           <p class="privacy-note">{typingNote}</p>
         </div>
 
+        <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>
+        {/if}
+
+        {#if settingsTab === "general"}
+        <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
+          {#each ["system", "light", "dark"] as theme}
+            <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
+          {/each}
+        </div></div>
+
+        <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
+        <p class="privacy-note">The key is kept in the operating system keyring, never in the settings file.</p></div>
+
         <div class="setting-group"><h3>Recent texts</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.history_enabled} /><span>Remember the last 100 texts on this device</span></label>
           <p class="privacy-note">Stored locally, unencrypted, including clipboard-only results. Titles are made from the text without an AI request. Turning this off keeps existing history until you clear it.</p>
@@ -750,8 +956,8 @@
           {#if confirmClear}<button class="clear-history" onclick={() => confirmClear = false}>Keep history</button>{/if}
           {#if historyMessage}<p class="privacy-note" role="status">{historyMessage}</p>{/if}
         </div>
-
-        <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>
+        {/if}
+        </div>
       </div>
 
       <div class="modal-actions"><button class="secondary" onclick={cancelSettings}>Cancel</button><button class="primary" onclick={savePreferences}>Save settings</button></div>

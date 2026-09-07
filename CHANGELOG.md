@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2 — v0.4.2
+
+- Rewrite any prompt Utterform ships with. Clean, Polish, Summarize and Prompt now show the instructions they actually run, in a Settings tab of their own, with the original one click away and a Reset that brings it back. Only what differs from the shipped text is stored, so a renamed action still follows a later, better default.
+- Email as a sixth built-in action, and `6` to select it.
+- A vocabulary of your own terms: names and spellings a model would otherwise guess at. Sent to GPT Transcribe as keywords and given to local Whisper as the text it starts from; a term the API would refuse is named in Settings rather than costing a recording.
+- Recording context for GPT Transcribe, and a thinking effort — Auto, Minimal, Low, Medium, High — for the text step. Auto sends nothing and keeps 0.4.1 behaviour.
+- Settings is four tabs — Voice, Prompts, Output, General — instead of ten stacked groups.
+
+See [0.4.2 release notes](docs/releases/v0.4.2.md).
+
 ## 0.4.1 — v0.4.1
 
 - Dictate from anywhere on Windows, macOS and X11 with a reserved key combination, `Ctrl+Alt+D` by default, configurable in Settings. The window is never raised; the start/stop clicks and the completion chime are the confirmation. Wayland keeps using `utterform --toggle`, because the compositor owns the keyboard there.

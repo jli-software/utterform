@@ -9,6 +9,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `activation.rs` — the single way to reveal the one main window, and which tray gestures ask for it
 - `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives
+- `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
@@ -53,6 +54,22 @@ Omarchy is detected only in a Hyprland desktop session with an Omarchy installat
 `src-tauri/icons/app-icon.svg` is the single source for the in-app brand (imported by Vite), Settings header, and generated desktop icons. Run `npm run icons` after changing it. The generator uses Tauri's renderer, copies only desktop assets, and canonicalizes ICNS chunk order for byte-stable regeneration. The app identifier, executable name and storage paths remain unchanged. The tray continues to use Tauri's default window icon.
 
 Settings uses the same theme tokens and custom `SelectMenu` as the main controls, including microphone/model selection. Opening motion is disabled under reduced motion; keyboard focus is contained and restored, and Escape closes an open selector before closing the dialog.
+
+The dialog is a tablist — Voice, Prompts, Output, General — with arrow-key navigation and roving focus; the rail lies down above the panel below 760 px. Cancel still restores the snapshot taken when the dialog opened, across every tab.
+
+## Prompts
+
+`actions.rs` holds the shipped prompts and is the only place their text exists. The interface fetches them through `list_built_in_actions` rather than keeping a copy, so what Settings shows, what *Reset* restores, and what a recording runs cannot drift apart.
+
+`AppSettings::action_overrides` stores only what the user replaced, per action id, with `name` and `prompt` independently optional: an action that was renamed still follows a later, better default prompt. A blank replacement resolves back to the default in `actions::instructions`, so an emptied box cannot fail the recording that used it. Resolution happens in Rust with the settings a recording already loads, which is why the tray, the dictation key and `utterform --toggle` run the edited prompts without the frontend sending any prompt text.
+
+`plain` is in the same list with no prompt at all: it is shown in the editor as the action that never reaches a text model, and has nothing to edit.
+
+## Transcription context
+
+`vocabulary` is a list of literal terms. GPT Transcribe takes them as `keywords[]`, the parameter the API offers for expected terms; local Whisper takes them joined as `initial_prompt`, its own way of biasing a spelling. The API refuses a keyword containing `<`, `>`, CR or LF — and refuses the whole request with it — so terms are entered one per line, the interface names one it would have to drop, and `usable_keywords` filters them again before sending. `transcription_context` is the API's free-form `prompt` and reaches GPT Transcribe only.
+
+`text_effort` becomes `reasoning.effort` on the Responses call, and is sent only when the user chose a level. Left on Auto nothing is sent, so a text model that does not offer the level we would otherwise have guessed cannot reject the request.
 
 ## Text history
 

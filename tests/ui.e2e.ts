@@ -33,6 +33,14 @@ test.beforeEach(async ({ page }) => {
             case "take_startup_intent": return null;
             case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
+            case "list_built_in_actions": return [
+              { id: "plain", name: "Plain", hint: "Transcription only", prompt: "" },
+              { id: "clean", name: "Clean", hint: "Fix punctuation and obvious errors", prompt: "Correct punctuation, capitalization, spelling, and paragraph breaks. Return only the corrected text." },
+              { id: "polish", name: "Polish", hint: "Rewrite for clarity", prompt: "Rewrite the transcript into clear, fluent prose in the speaker's language. Return only the polished text." },
+              { id: "summarize", name: "Summarize", hint: "Keep the essentials", prompt: "Summarize the transcript concisely in the speaker's language. Return only the summary." },
+              { id: "prompt", name: "Prompt", hint: "Shape it into an AI prompt", prompt: "Convert the transcript into a precise, self-contained prompt for an AI assistant. Return only the prompt." },
+              { id: "email", name: "Email", hint: "Turn it into a ready-to-send email", prompt: "Write the transcript as an email in the speaker's language. Return only the email." },
+            ];
             case "get_settings": return settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
             case "has_openai_api_key": return true;
@@ -152,7 +160,9 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
   await trigger.click();
+  await page.getByRole("tab", { name: /General/ }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.getByRole("tab", { name: /Voice/ }).click();
   await page.waitForTimeout(350);
   await page.screenshot({ path: testInfo.outputPath("settings-light.png") });
   await page.getByRole("combobox", { name: "Microphone", exact: true }).click();
@@ -167,6 +177,60 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
   await page.screenshot({ path: testInfo.outputPath("models-light.png") });
   await page.getByRole("button", { name: "Save settings" }).click();
   expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({ theme: "light", local_model_id: "tiny", input_device: "test-mic" });
+});
+
+test("prompts can be rewritten, read against the original, and reset", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /Prompts/ }).click();
+  await page.getByRole("button", { name: /^Email/ }).click();
+  const editor = page.getByRole("textbox", { name: "Prompt instructions" });
+  await expect(editor).toHaveValue(/Write the transcript as an email/);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: testInfo.outputPath("prompts-dark.png") });
+
+  await editor.fill("Answer in two short paragraphs, signed with my first name.");
+  await page.getByRole("button", { name: "View the original" }).click();
+  await expect(page.locator(".prompt-default")).toContainText("Write the transcript as an email");
+  await page.getByRole("textbox", { name: "Prompt name" }).fill("Reply");
+  await expect(page.getByRole("button", { name: /^Reply/ })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("prompts-edited-dark.png") });
+
+  await page.getByRole("button", { name: "Save settings" }).click();
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
+    action_overrides: { email: { name: "Reply", prompt: "Answer in two short paragraphs, signed with my first name." } },
+  });
+
+  // The renamed action is what the main window now offers.
+  await page.getByRole("combobox", { name: "Action", exact: true }).click();
+  await expect(page.getByRole("option", { name: /Reply/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /Prompts/ }).click();
+  await page.getByRole("button", { name: /^Reply/ }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
+  await expect(editor).toHaveValue(/Write the transcript as an email/);
+  await page.getByRole("button", { name: "Save settings" }).click();
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({ action_overrides: {} });
+});
+
+test("vocabulary and effort are set where the recording is configured", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("textbox", { name: "Vocabulary" }).fill("Careum\nUtterform\n<tagged>");
+  await expect(page.getByRole("alert")).toContainText("<tagged>");
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: testInfo.outputPath("vocabulary-dark.png") });
+
+  await page.getByRole("textbox", { name: "Vocabulary" }).fill("Careum\nUtterform");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("tab", { name: /Prompts/ }).click();
+  await page.getByRole("button", { name: "Low", exact: true }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
+    vocabulary: ["Careum", "Utterform"], text_effort: "low",
+  });
 });
 
 test("history shows local European dates in both the result and menu", async ({ page }) => {
@@ -244,6 +308,7 @@ test("the dictation key and the typing method are reachable and readable in Sett
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await page.getByRole("tab", { name: /Output/ }).click();
 
   const shortcut = page.getByRole("textbox", { name: /Shortcut/ });
   await shortcut.scrollIntoViewIfNeeded();
