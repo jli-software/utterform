@@ -35,3 +35,17 @@ pub fn delete_openai_api_key() -> Result<(), String> {
         Err(error) => Err(format!("Could not remove the API key: {error}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Reading the key happens inside `finish_recording`, which Tauri runs on
+    /// its async runtime. The OS keyring goes through zbus' blocking API on
+    /// Linux, and that must not try to start a runtime inside a runtime.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_keyring_can_be_reached_from_the_async_runtime() {
+        // Absence of a stored key is fine here; a panic or a hang is not.
+        let _ = has_openai_api_key();
+    }
+}

@@ -9,7 +9,12 @@ const TRANSCRIPTIONS_URL: &str = "https://api.openai.com/v1/audio/transcriptions
 const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const MAX_UPLOAD_BYTES: u64 = 25 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+// A ten-minute recording is a ~19 MB upload that the model then has to work
+// through, so a two-minute cap on the whole exchange cut off legitimate long
+// clips. Bound inactivity instead, and keep a generous overall ceiling so a
+// dead connection cannot hold the UI in "Transcribing…" forever.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Deserialize)]
 struct TranscriptionResponse {
@@ -139,6 +144,7 @@ pub async fn transform(
 fn client() -> Result<Client, String> {
     Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|error| format!("Could not initialize the OpenAI client: {error}"))

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 — v0.3.4
+
+- Fix GPT Transcribe hanging forever, a 0.3.3 regression: `ksni`'s tokio feature turned on `zbus/tokio` for the whole build, so reading the API key from the OS keyring panicked inside Tauri's async runtime and the command never answered. Build `ksni` on async-io and test the keyring from an async runtime.
+- Stop cutting off long recordings after two minutes: bound inactivity rather than the whole OpenAI exchange.
+
+See [0.3.4 release notes](docs/releases/v0.3.4.md).
+
 ## 0.3.3 — v0.3.3
 
 - Open Utterform with a left or middle click on the Linux tray icon: Utterform serves its own StatusNotifierItem instead of using AppIndicator, which exposes no `Activate`. This corrects the claim in 0.3.2 that Linux tray clicks are undeliverable.
