@@ -9,6 +9,14 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.3.3
+
+Utterform is single-instance (0.3.2) and owns its Linux tray icon (0.3.3). Every path that opens the window — tray click, tray menu, a second launch from the app drawer — goes through `activation::reveal_main_window`.
+
+The Linux tray is a `ksni` StatusNotifierItem, not AppIndicator, because AppIndicator exposes no `Activate` and therefore cannot report a left click. Tauri's native tray remains for Windows/macOS and as the Linux fallback when no StatusNotifierItem host answers. Run the Rust suite as `dbus-run-session -- cargo test`: the tray activation test needs a session bus of its own.
+
+Still to confirm by hand on Omarchy: that a left click on the Waybar tray icon opens the window, and that launching Utterform a second time focuses the running one.
+
 ## Current handoff — 0.3.1
 
 **Published and verified:** [Utterform 0.3.1](https://github.com/jli-software/utterform/releases/tag/v0.3.1) is Latest, source `368bdc7`, branch `feat/compact-recorder-0.3.1` (not merged into `main`). The [release run](https://github.com/jli-software/utterform/actions/runs/34040148263) passed all three platforms and published all six assets plus checksums. Independently downloaded assets, isolated Linux installation, Windows GUI subsystem and real-Mac DMG/ZIP strict signatures passed. See [release notes](releases/v0.3.1.md) and [testing](TESTING.md) for validation/publication status. The tray popup remains a [discussion proposal](TRAY-POPUP.md), not part of this release.
