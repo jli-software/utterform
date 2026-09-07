@@ -159,6 +159,11 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .engine-chip { display:none; }
   .output-bar { gap:4px; padding:7px; }
   .output-label, .output-bar kbd { display:none; }
+  /* Three targets plus the format menu only fit on one row as icons; a second
+     row would push the recorder out of a 360 × 400 floating window. Hidden
+     visually rather than removed, so each button keeps the same name for
+     assistive technology at every width. */
+  .output-name { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .output-bar > button { padding:0 8px; }
   .output-bar > .select-menu { width:112px; }
   .result-card { padding:10px 12px; }

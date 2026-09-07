@@ -595,17 +595,17 @@
 
   <section class="output-bar" aria-label="Output selection">
     <span class="output-label">Send to</span>
-    <button class:enabled={settings.copy_to_clipboard} onclick={() => (settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard })} disabled={controlsLocked}>
+    <button class:enabled={settings.copy_to_clipboard} onclick={() => (settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard })} disabled={controlsLocked} title="Copy to clipboard">
       <svg viewBox="0 0 24 24"><path d="M8 5V3h8v2h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2Zm2 0h4V4h-4v1Zm-4 2v13h12V7h-2v1H8V7H6Z"/></svg>
-      Clipboard <kbd>C</kbd>
+      <span class="output-name">Clipboard</span> <kbd>C</kbd>
     </button>
-    <button class:enabled={settings.save_to_file} onclick={() => (settings = { ...settings, save_to_file: !settings.save_to_file })} disabled={controlsLocked}>
+    <button class:enabled={settings.save_to_file} onclick={() => (settings = { ...settings, save_to_file: !settings.save_to_file })} disabled={controlsLocked} title="Save to file">
       <svg viewBox="0 0 24 24"><path d="M4 2h12l4 4v16H4V2Zm2 2v16h12V7h-3V4H6Zm2 9h8v5H8v-5Zm1-8h4v4H9V5Z"/></svg>
-      File <kbd>F</kbd>
+      <span class="output-name">File</span> <kbd>F</kbd>
     </button>
     <button class:enabled={settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked} title="Type the finished text into whatever window has focus">
       <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 2h2v2H7V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9ZM7 12h2v2H7v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-7 3h6v2H9v-2Z"/></svg>
-      Type <kbd>T</kbd>
+      <span class="output-name">Type</span> <kbd>T</kbd>
     </button>
     <SelectMenu id="format" label="File format" value={settings.output_format}
       onchange={(value) => settings = { ...settings, output_format: value as AppSettings["output_format"] }}
