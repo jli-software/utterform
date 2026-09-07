@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — v0.4.1
+
+- A command answers even when the work inside it panics, so the interface can never wait on silence again.
+- Retry OpenAI requests on rate limits, server faults and incomplete connections, with growing waits and the server's own `Retry-After`; never retry a rejected or malformed request.
+- Stop waiting after 30 minutes as a last resort, with a message that says where the text may be.
+- Add Whisper Medium, Large v3 Turbo and a quantized Large v3 Turbo to the offline model catalog.
+
+See [0.4.1 release notes](docs/releases/v0.4.1.md).
+
 ## 0.4.0 — v0.4.0
 
 - Dictate from anywhere: `utterform --toggle` from a compositor binding starts and finishes a recording without raising the window. `--start`, `--stop` and `--cancel` are available too, and the command starts Utterform if it is not running.

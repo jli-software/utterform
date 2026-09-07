@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.0** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.0).
+> Utterform is under active development. **0.4.1** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.1).
 
 ## Install on Omarchy / Arch Linux
 
@@ -53,7 +53,7 @@ Clipboard, file and typing are independent. Typing happens last, so a missing to
 
 ## Windows and macOS
 
-Download the [0.4.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.0):
+Download the [0.4.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.1):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -67,7 +67,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary,
 
 - Batch transcription with `gpt-transcribe` — no realtime session required
 - Offline transcription through `whisper.cpp`
-- One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
+- One-click, SHA-256-verified downloads for Tiny, Base, Small, Medium and Large v3 Turbo multilingual models
 - Plain, Clean, Polish, Summarize, Prompt, and user-defined actions
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback

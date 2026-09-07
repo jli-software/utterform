@@ -15,6 +15,7 @@
     Theme,
   } from "./lib/types";
   import { api } from "./lib/api";
+  import { withCeiling } from "./lib/ceiling";
   import SelectMenu from "./lib/SelectMenu.svelte";
   import { version } from "../package.json";
   import brandIcon from "../src-tauri/icons/app-icon.svg";
@@ -321,7 +322,7 @@
     phase = "processing";
     message = settings.engine === "open_ai" ? "Transcribing with GPT Transcribe…" : "Transcribing locally…";
     try {
-      result = await api.finishRecording({
+      result = await withCeiling(api.finishRecording({
         action: selectedAction.startsWith("custom:") ? "custom" : selectedAction,
         customPrompt: selectedAction.startsWith("custom:")
           ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
@@ -330,7 +331,7 @@
         saveToFile: settings.save_to_file,
         typeAtCursor: settings.type_at_cursor,
         outputFormat: settings.output_format,
-      });
+      }), "Processing did not finish. Check your history — the text may already be saved.");
       now = Date.now();
       resultTimestamp = now;
       if (result.historyEntry) {

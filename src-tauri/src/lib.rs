@@ -8,6 +8,7 @@ mod history;
 mod models;
 mod output;
 mod platform;
+mod resilience;
 mod secrets;
 mod settings;
 mod transcription;
