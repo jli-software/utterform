@@ -6,7 +6,9 @@
 
 A test that only failed in the full suite exposed a real defect rather than a flake: a component torn down before `onMount` finished left its keydown handler bound to the window, so a later keypress ran two handlers. Listeners are now bound before the first await.
 
-Not covered: an actual keypress on Omarchy and actual typing into another window. Both need a real desktop session and the compositor's own binding.
+**Confirmed on Omarchy by Jonas on 2026-09-07:** the compositor binding starts and finishes a recording, and the finished text is typed straight into the focused window. He calls the direct insertion the feature that makes the tool work for him. This is what no automated test could establish.
+
+Not covered anywhere: macOS and Windows behaviour. Typing at the cursor is not implemented there at all (see the platform reality in the handoff), and the hotkey, single instance and tray click have never been exercised interactively on either. Compilation on those platforms is not a claim about them.
 
 ## 0.3.4 GPT Transcribe regression
 

@@ -51,6 +51,8 @@ sudo pacman -S --needed xdotool   # X11
 
 Clipboard, file and typing are independent. Typing happens last, so a missing tool costs a warning and never the text.
 
+Typing at the cursor is **Linux only** for now. The command line works on every platform, but macOS and Windows have no key binding that runs a command out of the box, and typing into another window is not implemented there yet.
+
 ## Windows and macOS
 
 Download the [0.4.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.0):
@@ -72,7 +74,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary,
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
 - Global dictation through a compositor binding: `utterform --toggle` from any hotkey, without raising the window
-- Optional typing of the finished text into the focused window, next to clipboard and file
+- Optional typing of the finished text into the focused window, next to clipboard and file (Linux)
 - Focused-window shortcuts and a compact system tray presence
 - Single instance: launching Utterform again reveals the running window instead of starting a second one
 - Tray left click opens the window on every platform, double click on Windows and macOS, middle click on Linux; right click keeps the menu
