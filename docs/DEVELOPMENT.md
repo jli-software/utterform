@@ -21,20 +21,23 @@ Keystrokes stay selectable, with the two documented fixes: a leading `Shift_L` p
 
 **Windows types through `SendInput`.** No helper program, Unicode rather than scan codes, one atomic call per batch. `typing/mod.rs` holds the text→key rule so it is tested on every platform; `typing/windows.rs` holds only the unsafe glue.
 
+**Confirmed on Omarchy by Jonas on 2026-09-07.** The dropped letters are gone: the finished text arrives in the focused window intact. [v0.4.1](https://github.com/jli-software/utterform/releases/tag/v0.4.1) is published and its assets independently verified. This is the state to build on and debug from; the next session starts here.
+
 ### Platform reality — do not assume parity
 
 Only Linux has been exercised by a person. The rest is compilation, not evidence. The Windows paths in this release are type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and were never run.
 
 | | Linux / Omarchy | macOS | Windows |
 | --- | --- | --- | --- |
-| Typing at the cursor | 0.4.0 confirmed; paste delivery **new, unconfirmed** | **not implemented** | implemented, **never run** |
+| Typing at the cursor, as a paste | **works, confirmed 2026-09-07** | **not implemented** | implemented, **never run** |
+| Typing at the cursor, as keystrokes | 0.4.0 worked; not re-tested since the Shift tap and delay | **not implemented** | implemented, **never run** |
 | Reserved dictation key | n/a under Wayland, by design | implemented, **never run** | implemented, **never run** |
 | `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried |
 | Binding it to a key | `bind =` in hyprland.conf | Settings → Dictation key | Settings → Dictation key |
 | Tray click opens the window | works, confirmed | never tried | never tried |
 | Recording, transcription, clipboard, file | works, confirmed | never tried interactively | never tried interactively |
 
-What to ask Jonas after he tests: whether paste delivery fixed the dropped letters in his terminal, and whether `Ctrl+Alt+D` is free on his Windows machine.
+Jonas said on 2026-09-07 that he will test Windows later. What to ask him then: whether `Ctrl+Alt+D` is free on his machine, whether the key toggles a recording without the window coming forward, and whether the text lands in the focused window. If a paste does not arrive in some window, the fallback is Settings → Typing at the cursor → Keystrokes; the chord guess lives in `typing::is_terminal_class`.
 
 The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS still reports that typing at the cursor is not available there, which is now true rather than misleading.
 

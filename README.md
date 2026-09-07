@@ -75,9 +75,11 @@ Download the [0.4.1 assets](https://github.com/jli-software/utterform/releases/t
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
+The dictation key and typing at the cursor are new on these platforms in 0.4.1 and have been built and tested automatically, but not yet used by anyone on a real Windows or macOS machine. Linux is the platform exercised by hand. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
+
 On macOS drag Utterform into Applications. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
-Push/PR CI runs Linux validation without release compilation. For a test binary, manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) and choose Linux, Windows, macOS, or all. GitHub enables manual dispatch once this new workflow is integrated into the default branch; a release tag alone does not enable that button. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
+Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) and choose Linux, Windows, macOS, or all; it publishes nothing. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
 
 ## Features
 
