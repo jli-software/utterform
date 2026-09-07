@@ -25,15 +25,24 @@ mod windows;
 /// Slow enough for the terminals that drop characters, fast enough that a
 /// sentence does not visibly crawl in.
 pub const DEFAULT_DELAY_MS: u32 = 15;
+
+// The rules below decide what only the Linux tools have to be told: how fast to
+// type, and which paste the window takes. Windows needs neither — one SendInput
+// call is atomic, and everything there pastes on Ctrl+V. They are compiled for
+// tests everywhere all the same, so the rules are checked on every platform
+// rather than only on the one that runs them.
+#[cfg(any(target_os = "linux", test))]
 const MAX_DELAY_MS: u32 = 500;
 
 /// Keep a hand-edited settings file from stalling delivery for minutes.
+#[cfg(any(target_os = "linux", test))]
 pub fn clamp_delay(milliseconds: u32) -> u32 {
     milliseconds.min(MAX_DELAY_MS)
 }
 
 /// Which paste the focused window understands. Terminals reserve plain Ctrl+V
 /// for the shell, so they take the text on Ctrl+Shift+V instead.
+#[cfg(any(target_os = "linux", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Paste {
     Plain,
@@ -43,6 +52,7 @@ pub enum Paste {
 /// Window classes that are terminal emulators. Guessing wrong costs a paste
 /// that does not arrive, never the text: clipboard and file are already done
 /// by the time typing runs, and a failed paste is reported as a warning.
+#[cfg(any(target_os = "linux", test))]
 const TERMINALS: &[&str] = &[
     "alacritty",
     "aterm",
@@ -81,6 +91,7 @@ const TERMINALS: &[&str] = &[
 
 /// Reverse-DNS classes (`org.gnome.Console`, `com.mitchellh.ghostty`) name the
 /// application in their last segment; everything before it is the vendor.
+#[cfg(any(target_os = "linux", test))]
 pub fn is_terminal_class(class: &str) -> bool {
     let name = class
         .trim()
@@ -95,6 +106,7 @@ pub fn is_terminal_class(class: &str) -> bool {
 }
 
 /// An unknown window gets the paste every graphical toolkit agrees on.
+#[cfg(any(target_os = "linux", test))]
 pub fn paste_for(window_class: Option<&str>) -> Paste {
     match window_class {
         Some(class) if is_terminal_class(class) => Paste::Terminal,

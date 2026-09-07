@@ -57,6 +57,8 @@ Ordered as Jonas chose: robustness (in #8) before streaming. After that, file st
 
 The Windows-only code cannot be checked with `cargo check --target x86_64-pc-windows-msvc`: `ring`'s build script needs an MSVC toolchain. Type-check `typing/windows.rs` against the real API by compiling it in a throwaway crate that depends only on `windows-sys`, with the Tauri and domain layers stubbed out.
 
+**A green local Clippy says nothing about the other platforms.** `cargo clippy -- -D warnings` on Linux compiles only the `cfg(target_os = "linux")` items, so anything the Linux backend alone uses looks alive here and is dead code — a hard error — on Windows and macOS. That failed the first v0.4.1 release run after the tag was already pushed. **Whenever a change adds or moves `cfg(target_os)` code, run Actions → Desktop builds on the branch for `all` before tagging.** It runs the same fmt/Clippy/test steps on all three platforms and publishes nothing.
+
 ## Current handoff — 0.3.4
 
 0.3.3 broke GPT Transcribe and 0.3.4 fixes it. The lesson is about Cargo feature unification: `ksni`'s tokio feature switched `zbus` to `zbus/tokio` build-wide, and the keyring's blocking zbus calls then panicked inside Tauri's async runtime. Keep `ksni` on `async-io`, and check `cargo tree -e features -i zbus` before adding any dependency that speaks D-Bus.

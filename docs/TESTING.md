@@ -6,6 +6,8 @@
 
 In the interface: a changed shortcut registered on save and an unchanged one left alone; a key another application holds keeping the dialog open with the reason where it was entered, while the rest of the settings are stored; turning the key off unregistering it; a Wayland session offered `utterform --toggle` instead of a dead field; and the keystroke delay staying out of the way until keystrokes are chosen.
 
+The first v0.4.1 release run failed on Windows and macOS after the tag was pushed: the paste-chord and delay rules in `typing/mod.rs` are used only by the Linux backend, so Linux Clippy saw them alive while both other platforms rejected them as dead code under `-D warnings`. They are now compiled for `cfg(target_os = "linux")` and for tests, so they are still checked everywhere. Nothing had been published — the release job never ran — and the corrected tag was verified on all three platforms through Desktop builds first.
+
 The Windows implementation is type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and has **never been run**. Neither has the reserved dictation key on Windows or macOS. Paste delivery has not been confirmed on a real desktop either — the bug it fixes was reported from Omarchy, and only Jonas can say whether it is gone. Compilation is not a claim about any of this.
 
 ## 0.4.0 Global dictation
