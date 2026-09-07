@@ -8,6 +8,8 @@ In the interface: a changed shortcut registered on save and an unchanged one lef
 
 The first v0.4.1 release run failed on Windows and macOS after the tag was pushed: the paste-chord and delay rules in `typing/mod.rs` are used only by the Linux backend, so Linux Clippy saw them alive while both other platforms rejected them as dead code under `-D warnings`. They are now compiled for `cfg(target_os = "linux")` and for tests, so they are still checked everywhere. Nothing had been published — the release job never ran — and the corrected tag was verified on all three platforms through Desktop builds first.
 
+Windows then failed a second time, on the test binary rather than the build: `tauri = { features = ["test"] }` as a dev-dependency left it unable to start (`STATUS_ENTRYPOINT_NOT_FOUND`). The mock runtime is gone again and the dictation-key reporting is tested through a pure `support_with(failure)` instead, which needs no Tauri runtime. Both corrections were verified on all three platforms through Desktop builds before the tag was moved.
+
 The Windows implementation is type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and has **never been run**. Neither has the reserved dictation key on Windows or macOS. Paste delivery has not been confirmed on a real desktop either — the bug it fixes was reported from Omarchy, and only Jonas can say whether it is gone. Compilation is not a claim about any of this.
 
 ## 0.4.0 Global dictation
