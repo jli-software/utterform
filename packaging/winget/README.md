@@ -18,6 +18,13 @@ was opened on 2026-09-07. The package is not available from the public winget
 source until that pull request is merged. Do not advertise the `winget install`
 command in the project README before then.
 
+As of 2026-09-07, the contributor licence agreement is accepted and the
+upstream validation pipeline has completed: checks 01–07 and 09–10 passed.
+Installation Validation (check 08) completed with a neutral result and the PR
+has the `Validation-Executable-Error` label. The manifests are mergeable but
+still require a winget-pkgs maintainer review. This is a waiting state, not a
+rejection; no further publisher action is currently requested.
+
 ## What is here
 
 `0.4.2/` holds the three manifests winget expects, matching the published

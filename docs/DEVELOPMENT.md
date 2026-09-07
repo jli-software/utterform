@@ -94,9 +94,12 @@ recording state. The per-user uninstall registry confirmed `Utterform` as the
 ARP `ProductCode`; the manifest now carries it and `winget upgrade --manifest`
 correlates the installed 0.4.2 package. The first upstream submission is
 [microsoft/winget-pkgs#431040](https://github.com/microsoft/winget-pkgs/pull/431040),
-opened on 2026-09-07. The package is not available from the public source until
-that pull request is merged, so the project README must not advertise
-`winget install` before then.
+opened on 2026-09-07. The CLA is accepted; upstream checks 01–07 and 09–10
+passed. Check 08 (Installation Validation) completed neutral and the PR carries
+the `Validation-Executable-Error` label, so it is waiting for the required
+winget-pkgs maintainer review. The package is not available from the public
+source until that pull request is merged, so the project README must not
+advertise `winget install` before then.
 
 ### Then
 
