@@ -12,6 +12,12 @@ use crate::{
     models, output, secrets, settings, transcription,
 };
 
+/// The interface asks once it can act; an intent is delivered to one caller only.
+#[tauri::command]
+pub fn take_startup_intent(state: State<'_, crate::StartupIntent>) -> Option<crate::cli::Intent> {
+    state.take()
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
     settings::load(&app)
@@ -151,6 +157,7 @@ pub async fn finish_recording(
         text,
         saved_path: delivery.saved_path,
         copied_to_clipboard: delivery.copied_to_clipboard,
+        typed_at_cursor: delivery.typed_at_cursor,
         delivery_warnings: warnings,
         duration_ms,
         engine: current_settings.engine,

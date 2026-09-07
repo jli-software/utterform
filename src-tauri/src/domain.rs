@@ -45,6 +45,7 @@ pub struct AppSettings {
     pub output_format: OutputFormat,
     pub local_model_id: Option<String>,
     pub language_hints: Vec<String>,
+    pub type_at_cursor: bool,
     pub text_model: String,
     pub theme: Theme,
     pub custom_actions: Vec<CustomAction>,
@@ -70,6 +71,7 @@ impl Default for AppSettings {
             output_format: OutputFormat::Txt,
             local_model_id: Some("base".into()),
             language_hints: Vec::new(),
+            type_at_cursor: false,
             text_model: "gpt-5-mini".into(),
             theme: Theme::System,
             custom_actions: Vec::new(),
@@ -94,6 +96,7 @@ pub struct ProcessRequest {
     pub custom_prompt: Option<String>,
     pub copy_to_clipboard: bool,
     pub save_to_file: bool,
+    pub type_at_cursor: bool,
     pub output_format: OutputFormat,
 }
 
@@ -104,6 +107,7 @@ pub struct ProcessResult {
     pub text: String,
     pub saved_path: Option<String>,
     pub copied_to_clipboard: bool,
+    pub typed_at_cursor: bool,
     pub delivery_warnings: Vec<String>,
     pub duration_ms: u64,
     pub engine: TranscriptionEngine,

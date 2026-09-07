@@ -12,7 +12,9 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
-- `output.rs` — independent clipboard and file delivery
+- `cli.rs` — what a command line or a second launch asks the running app to do
+- `typing.rs` — typing the finished text into the focused window through wtype/xdotool
+- `output.rs` — independent clipboard, file and cursor delivery
 - `settings.rs` — non-secret JSON settings
 - `history.rs` — bounded, atomic, device-local text history; local titles, no AI calls
 - `secrets.rs` — OS credential-store access

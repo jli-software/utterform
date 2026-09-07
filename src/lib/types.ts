@@ -2,6 +2,8 @@ export type Engine = "open_ai" | "local_whisper";
 export type OutputFormat = "txt" | "md";
 export type Theme = "light" | "dark" | "system";
 export type ActionId = "plain" | "clean" | "polish" | "summarize" | "prompt";
+/// What a compositor hotkey or a second launch asks the running app to do.
+export type RemoteIntent = "show" | "toggle" | "start" | "stop" | "cancel";
 
 export interface AppSettings {
   engine: Engine;
@@ -9,6 +11,7 @@ export interface AppSettings {
   output_directory: string | null;
   copy_to_clipboard: boolean;
   save_to_file: boolean;
+  type_at_cursor: boolean;
   output_format: OutputFormat;
   local_model_id: string | null;
   language_hints: string[];
@@ -53,6 +56,7 @@ export interface ProcessResult {
   text: string;
   savedPath: string | null;
   copiedToClipboard: boolean;
+  typedAtCursor: boolean;
   deliveryWarnings: string[];
   durationMs: number;
   engine: Engine;
@@ -78,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   output_directory: null,
   copy_to_clipboard: true,
   save_to_file: false,
+  type_at_cursor: false,
   output_format: "txt",
   local_model_id: "base",
   language_hints: [],

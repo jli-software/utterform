@@ -7,10 +7,21 @@ import App from "./App.svelte";
 import { api } from "./lib/api";
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+const listeners = new Map<string, (event: { payload: unknown }) => void>();
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(name, handler);
+    return () => listeners.delete(name);
+  }),
+}));
+/// Deliver what the backend emits when a compositor hotkey runs `utterform --toggle`.
+async function remoteIntent(intent: string) {
+  await waitFor(() => expect(listeners.has("remote-intent")).toBe(true));
+  listeners.get("remote-intent")!({ payload: intent });
+}
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
-  getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
+  takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
@@ -22,6 +33,7 @@ const older: HistoryEntry = { ...latest, createdAtMs: new Date(2026, 8, 4, 9, 15
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listeners.clear();
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
@@ -65,7 +77,8 @@ describe("recording pause", () => {
   });
 
   it("finishes paused audio with Space, and ignores key repeat", async () => {
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 12000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: [] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 12000, engine: "open_ai", savedPath: null, copiedToClipboard: true,
+      typedAtCursor: false, deliveryWarnings: [] });
     const view = await start();
     await fireEvent.keyDown(window, { code: "KeyP", repeat: true });
     expect(api.setRecordingPaused).not.toHaveBeenCalled();
@@ -99,7 +112,8 @@ describe("recording pause", () => {
   it("serializes repeated pause requests and handles the watchdog winning the race", async () => {
     let resolve!: (status: Awaited<ReturnType<typeof api.getRecordingStatus>>) => void;
     vi.mocked(api.setRecordingPaused).mockImplementationOnce(() => new Promise((done) => resolve = done));
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 600000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: [] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 600000, engine: "open_ai", savedPath: null, copiedToClipboard: true,
+      typedAtCursor: false, deliveryWarnings: [] });
     const view = await start();
     await fireEvent.keyDown(window, { code: "KeyP" });
     await fireEvent.keyDown(window, { code: "KeyP" });
@@ -141,7 +155,8 @@ describe("transcript history", () => {
   });
 
   it("shows a new result even when history persistence failed", async () => {
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Unsaved but recoverable", durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard: true, deliveryWarnings: ["History was not saved"] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Unsaved but recoverable", durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard: true,
+      typedAtCursor: false, deliveryWarnings: ["History was not saved"] });
     const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
@@ -197,7 +212,7 @@ describe("compact result feedback", () => {
   });
 
   it.each([true, false])("reports actual automatic clipboard outcome (%s), not the requested setting", async (copiedToClipboard) => {
-    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard, deliveryWarnings: copiedToClipboard ? ["History was not saved"] : ["Clipboard unavailable"] });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: latest, text: latest.text, durationMs: 1000, engine: "open_ai", savedPath: null, copiedToClipboard, typedAtCursor: false, deliveryWarnings: copiedToClipboard ? ["History was not saved"] : ["Clipboard unavailable"] });
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
@@ -244,7 +259,39 @@ it("drains an outstanding manual copy before recording and blocks copies until p
   expect(view.getByRole("button", { name: /Copy/ }).hasAttribute("disabled")).toBe(true);
   await fireEvent.keyDown(window, { code: "KeyC", ctrlKey: true, shiftKey: true });
   expect(api.copyText).toHaveBeenCalledOnce();
-  completeProcessing({ text: "New text", historyEntry: null, savedPath: null, copiedToClipboard: true, durationMs: 1000, engine: "open_ai", deliveryWarnings: [] });
+  completeProcessing({ text: "New text", historyEntry: null, savedPath: null, copiedToClipboard: true,
+      typedAtCursor: false, durationMs: 1000, engine: "open_ai", deliveryWarnings: [] });
   await waitFor(() => expect(view.queryByText("Copied")).not.toBeNull());
   expect(view.getByRole("button", { name: /Copied/ }).hasAttribute("disabled")).toBe(false);
+});
+
+describe("compositor hotkey", () => {
+  it("starts and finishes a recording without the window being touched", async () => {
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Dictated", savedPath: null,
+      copiedToClipboard: true, typedAtCursor: true, deliveryWarnings: [], durationMs: 900, engine: "open_ai" });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    await waitFor(() => expect(view.queryByText("Typed at the cursor · Copied to clipboard")).not.toBeNull());
+  });
+
+  it("ignores a stop or cancel when nothing is being recorded", async () => {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await remoteIntent("stop");
+    await remoteIntent("cancel");
+    expect(api.finishRecording).not.toHaveBeenCalled();
+    expect(api.cancelRecording).not.toHaveBeenCalled();
+  });
+
+  it("records straight away when the hotkey had to start the app first", async () => {
+    vi.mocked(api.takeStartupIntent).mockResolvedValue("toggle");
+    render(App);
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+  });
 });

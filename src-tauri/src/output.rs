@@ -9,14 +9,16 @@ use crate::domain::{AppSettings, OutputFormat, ProcessRequest};
 pub struct DeliveryResult {
     pub saved_path: Option<String>,
     pub copied_to_clipboard: bool,
+    pub typed_at_cursor: bool,
     pub warnings: Vec<String>,
 }
 
 impl DeliveryResult {
     pub fn all_requested_outputs_succeeded(&self, request: &ProcessRequest) -> bool {
-        (request.copy_to_clipboard || request.save_to_file)
+        (request.copy_to_clipboard || request.save_to_file || request.type_at_cursor)
             && (!request.copy_to_clipboard || self.copied_to_clipboard)
             && (!request.save_to_file || self.saved_path.is_some())
+            && (!request.type_at_cursor || self.typed_at_cursor)
     }
 }
 
@@ -34,6 +36,7 @@ pub fn deliver(
                 .map_err(|error| error.to_string())
         },
         || save_file(text, request.output_format, settings),
+        || crate::typing::insert_at_cursor(text),
     )
 }
 
@@ -41,12 +44,14 @@ fn deliver_to(
     request: &ProcessRequest,
     clipboard: impl FnOnce() -> Result<(), String>,
     file: impl FnOnce() -> Result<PathBuf, String>,
+    type_at_cursor: impl FnOnce() -> Result<(), String>,
 ) -> Result<DeliveryResult, String> {
-    if !request.copy_to_clipboard && !request.save_to_file {
-        return Err("Select Clipboard, File, or both as an output".into());
+    if !request.copy_to_clipboard && !request.save_to_file && !request.type_at_cursor {
+        return Err("Select Clipboard, File, or typing at the cursor as an output".into());
     }
 
     let mut copied_to_clipboard = false;
+    let mut typed_at_cursor = false;
     let mut warnings = Vec::new();
     let mut saved_path = None;
 
@@ -66,12 +71,22 @@ fn deliver_to(
         }
     }
 
-    if !copied_to_clipboard && saved_path.is_none() && warnings.is_empty() {
+    // Typed last: the clipboard and the file are already safe by then, so a
+    // missing wtype/xdotool costs a warning rather than the text.
+    if request.type_at_cursor {
+        match type_at_cursor() {
+            Ok(()) => typed_at_cursor = true,
+            Err(error) => warnings.push(format!("Typing: {error}")),
+        }
+    }
+
+    if !copied_to_clipboard && saved_path.is_none() && !typed_at_cursor && warnings.is_empty() {
         warnings.push("No output target completed".to_string());
     }
     Ok(DeliveryResult {
         saved_path,
         copied_to_clipboard,
+        typed_at_cursor,
         warnings,
     })
 }
@@ -103,12 +118,17 @@ fn save_file(text: &str, format: OutputFormat, settings: &AppSettings) -> Result
 mod tests {
     use super::*;
 
-    fn request(copy_to_clipboard: bool, save_to_file: bool) -> ProcessRequest {
+    fn request(
+        copy_to_clipboard: bool,
+        save_to_file: bool,
+        type_at_cursor: bool,
+    ) -> ProcessRequest {
         ProcessRequest {
             action: "plain".into(),
             custom_prompt: None,
             copy_to_clipboard,
             save_to_file,
+            type_at_cursor,
             output_format: OutputFormat::Txt,
         }
     }
@@ -117,48 +137,69 @@ mod tests {
     fn completion_requires_every_requested_delivery_and_reports_clipboard_truthfully() {
         for clipboard_requested in [false, true] {
             for file_requested in [false, true] {
-                let request = request(clipboard_requested, file_requested);
-                for clipboard_succeeds in [false, true] {
-                    for file_succeeds in [false, true] {
-                        let result = deliver_to(
-                            &request,
-                            || {
-                                assert!(clipboard_requested);
-                                if clipboard_succeeds {
-                                    Ok(())
-                                } else {
-                                    Err("unavailable".into())
+                for typing_requested in [false, true] {
+                    let request = request(clipboard_requested, file_requested, typing_requested);
+                    for clipboard_succeeds in [false, true] {
+                        for file_succeeds in [false, true] {
+                            for typing_succeeds in [false, true] {
+                                let result = deliver_to(
+                                    &request,
+                                    || {
+                                        assert!(clipboard_requested);
+                                        if clipboard_succeeds {
+                                            Ok(())
+                                        } else {
+                                            Err("unavailable".into())
+                                        }
+                                    },
+                                    || {
+                                        assert!(file_requested);
+                                        if file_succeeds {
+                                            Ok(PathBuf::from("note.txt"))
+                                        } else {
+                                            Err("unwritable".into())
+                                        }
+                                    },
+                                    || {
+                                        assert!(typing_requested);
+                                        if typing_succeeds {
+                                            Ok(())
+                                        } else {
+                                            Err("wtype is not installed".into())
+                                        }
+                                    },
+                                );
+                                if !clipboard_requested && !file_requested && !typing_requested {
+                                    assert!(result.is_err());
+                                    continue;
                                 }
-                            },
-                            || {
-                                assert!(file_requested);
-                                if file_succeeds {
-                                    Ok(PathBuf::from("note.txt"))
-                                } else {
-                                    Err("unwritable".into())
-                                }
-                            },
-                        );
-                        if !clipboard_requested && !file_requested {
-                            assert!(result.is_err());
-                            continue;
+                                let result = result.unwrap();
+                                assert_eq!(
+                                    result.copied_to_clipboard,
+                                    clipboard_requested && clipboard_succeeds
+                                );
+                                assert_eq!(
+                                    result.saved_path.is_some(),
+                                    file_requested && file_succeeds
+                                );
+                                assert_eq!(
+                                    result.typed_at_cursor,
+                                    typing_requested && typing_succeeds
+                                );
+                                assert_eq!(
+                                    result.warnings.len(),
+                                    usize::from(clipboard_requested && !clipboard_succeeds)
+                                        + usize::from(file_requested && !file_succeeds)
+                                        + usize::from(typing_requested && !typing_succeeds)
+                                );
+                                assert_eq!(
+                                    result.all_requested_outputs_succeeded(&request),
+                                    (!clipboard_requested || clipboard_succeeds)
+                                        && (!file_requested || file_succeeds)
+                                        && (!typing_requested || typing_succeeds)
+                                );
+                            }
                         }
-                        let result = result.unwrap();
-                        assert_eq!(
-                            result.copied_to_clipboard,
-                            clipboard_requested && clipboard_succeeds
-                        );
-                        assert_eq!(result.saved_path.is_some(), file_requested && file_succeeds);
-                        assert_eq!(
-                            result.warnings.len(),
-                            usize::from(clipboard_requested && !clipboard_succeeds)
-                                + usize::from(file_requested && !file_succeeds)
-                        );
-                        assert_eq!(
-                            result.all_requested_outputs_succeeded(&request),
-                            (!clipboard_requested || clipboard_succeeds)
-                                && (!file_requested || file_succeeds)
-                        );
                     }
                 }
             }
