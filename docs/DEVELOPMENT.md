@@ -9,6 +9,10 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.3.4
+
+0.3.3 broke GPT Transcribe and 0.3.4 fixes it. The lesson is about Cargo feature unification: `ksni`'s tokio feature switched `zbus` to `zbus/tokio` build-wide, and the keyring's blocking zbus calls then panicked inside Tauri's async runtime. Keep `ksni` on `async-io`, and check `cargo tree -e features -i zbus` before adding any dependency that speaks D-Bus.
+
 ## Current handoff — 0.3.3
 
 Utterform is single-instance (0.3.2) and owns its Linux tray icon (0.3.3). Every path that opens the window — tray click, tray menu, a second launch from the app drawer — goes through `activation::reveal_main_window`.

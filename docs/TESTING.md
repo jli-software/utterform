@@ -1,5 +1,13 @@
 # Validation
 
+## 0.3.4 GPT Transcribe regression
+
+0.3.3 broke OpenAI transcription. `cargo tree -e features -i zbus` showed `zbus feature "tokio"` enabled by exactly one edge: `ksni feature "tokio"`, added in 0.3.3. With that feature `zbus::block_on` drives a static tokio runtime instead of calling `async_io::block_on`; the keyring reaches it through `zbus::blocking` from inside Tauri's async runtime, and tokio panics with "Cannot start a runtime from within a runtime". The panicking command never answers, so the interface waits forever. Local Whisper with the plain action never reads the keyring on that path, which matches the report that only OpenAI was affected.
+
+`secrets::tests::the_keyring_can_be_reached_from_the_async_runtime` reproduced the panic before the fix and passes after it. It is a real guard: any dependency that reintroduces `zbus/tokio` fails it.
+
+An actual OpenAI transcription was not run here — that needs a key and a microphone.
+
 ## 0.3.3 Linux tray activation
 
 The claim in 0.3.2 that Linux cannot deliver tray clicks was checked and is wrong. `libayatana-appindicator3.so.1`, which `tray-icon` uses for Tauri's Linux tray, exports `SecondaryActivate` and `XAyatanaSecondaryActivate` but no `Activate`, so its items can only offer a menu. That is a property of that library, not of the platform: hosts do call `Activate`, and applications that serve the StatusNotifierItem themselves receive it.
