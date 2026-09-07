@@ -15,7 +15,38 @@ Dictation no longer requires the window. A compositor binding runs `utterform --
 
 `typing.rs` types the finished text into the focused window through `wtype` (Wayland) or `xdotool` (X11), both fed on stdin so transcript content is never parsed as options. It is a third output next to clipboard and file, runs last, and degrades to a warning naming the package to install.
 
-Still open for 0.4: streaming transcription (`stream=true` on `gpt-transcribe`) and a vocabulary using `keywords[]`/`prompt`. Both were chosen for this release line. Longer recordings (Opus upload instead of WAV, which lifts the 25 MB limit from ~13 minutes to hours), the `large-v3-turbo` local models and a frontend timeout guard remain on the list after that.
+**Confirmed working on Omarchy by Jonas on 2026-09-07.** The hotkey and, above all, typing straight into the focused window are what he wanted from the tool. 0.4.0 is the state to build on and debug from; the next session starts here.
+
+### Platform reality — do not assume parity
+
+Only Linux has been exercised by a person. The rest is compilation, not evidence.
+
+| | Linux / Omarchy | macOS | Windows |
+| --- | --- | --- | --- |
+| Typing at the cursor | works, confirmed | **not implemented** | **not implemented** |
+| `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried |
+| Binding it to a key | `bind =` in hyprland.conf | no OS mechanism; needs Raycast/Karabiner/Automator | shortcut properties or AutoHotkey |
+| Tray click opens the window | works, confirmed | never tried | never tried |
+| Recording, transcription, clipboard, file | works, confirmed | never tried interactively | never tried interactively |
+
+`typing.rs::session()` returns `(false, false)` off Linux, so the **Type** button is offered on macOS and Windows but always fails — and with a misleading message, "Typing at the cursor needs a graphical session", on a machine that plainly has one. Either implement those platforms or hide the target there; leaving it as it is misleads the user. This is the first thing to decide when Windows or macOS come up.
+
+### Waiting, not released
+
+Pull request #8 (`feat/robustness-and-models`, CI green, mergeable) carries two things Jonas asked for but has not released, because he wants to test 0.4.0 first:
+
+- Robustness: a command answers even when its work panics (`resilience.rs`), bounded retries with backoff for rate limits and server faults (`openai::retry_delay`), and a 30-minute ceiling in the interface (`lib/ceiling.ts`).
+- The larger offline models: Medium, Large v3 Turbo, and the quantized Large v3 Turbo.
+
+It bumps the version to 0.4.1. Merge it when he says so; do not release it unasked.
+
+### Then
+
+Ordered as Jonas chose: robustness (in #8) before streaming. After that, file streaming and the vocabulary, then longer recordings and GPU acceleration. See the streaming distinction in the 0.4.1 handoff — file streaming and realtime transcription are different projects and only the first is planned for 0.4.
+
+### Running the tests
+
+`dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml`. The tray activation test needs a session bus of its own; plain `cargo test` fails without one.
 
 ## Current handoff — 0.3.4
 
