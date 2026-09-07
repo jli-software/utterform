@@ -1,5 +1,6 @@
 mod activation;
 mod audio;
+mod cli;
 mod commands;
 mod domain;
 mod feedback;
@@ -11,25 +12,53 @@ mod secrets;
 mod settings;
 mod transcription;
 mod tray;
+mod typing;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use activation::reveal_main_window;
+use cli::Intent;
+
+/// The intent Utterform itself was launched with, kept until the interface is
+/// ready to act on it. A hotkey that starts the app must still start recording.
+#[derive(Default)]
+pub struct StartupIntent(std::sync::Mutex<Option<Intent>>);
+
+impl StartupIntent {
+    pub fn take(&self) -> Option<Intent> {
+        self.0.lock().ok().and_then(|mut intent| intent.take())
+    }
+
+    fn set(&self, intent: Intent) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = Some(intent);
+        }
+    }
+}
 
 pub fn run() {
     tauri::Builder::default()
         // Registered first so a launcher entry or a second `utterform` process
         // hands its arguments to the running app instead of starting a rival
         // instance with its own tray icon and recording state.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            reveal_main_window(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let intent = cli::intent_from(args);
+            if intent.raises_window() {
+                reveal_main_window(app);
+            }
+            // The interface owns the recording state machine, so a hotkey is
+            // routed to it rather than reimplemented here.
+            let _ = app.emit("remote-intent", intent);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
+        .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
         .setup(|app| {
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
+            app.state::<StartupIntent>()
+                .set(cli::intent_from(std::env::args()));
             if let Some(window) = app.get_webview_window("main") {
                 if platform::use_borderless_window() {
                     window.set_decorations(false)?;
@@ -48,6 +77,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::take_startup_intent,
             commands::get_settings,
             commands::save_settings,
             commands::list_input_devices,

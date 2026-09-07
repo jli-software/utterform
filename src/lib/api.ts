@@ -8,9 +8,13 @@ import type {
   OutputFormat,
   ProcessResult,
   RecordingStatus,
+  RemoteIntent,
 } from "./types";
 
 export const api = {
+  // Delivered once: the intent Utterform was launched with, for a hotkey that
+  // had to start the app first.
+  takeStartupIntent: () => invoke<RemoteIntent | null>("take_startup_intent"),
   getSettings: () => invoke<AppSettings>("get_settings"),
   listHistory: () => invoke<HistoryEntry[]>("list_history"),
   clearHistory: () => invoke<void>("clear_history"),
@@ -31,6 +35,7 @@ export const api = {
     customPrompt: string | null;
     copyToClipboard: boolean;
     saveToFile: boolean;
+    typeAtCursor: boolean;
     outputFormat: OutputFormat;
   }) => invoke<ProcessResult>("finish_recording", { request }),
   hasOpenAiApiKey: () => invoke<boolean>("has_openai_api_key"),

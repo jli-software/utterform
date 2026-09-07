@@ -11,6 +11,7 @@
     HistoryEntry,
     LocalModel,
     ProcessResult,
+    RemoteIntent,
     Theme,
   } from "./lib/types";
   import { api } from "./lib/api";
@@ -56,6 +57,8 @@
   let busyModel: string | null = null;
   let unlistenProgress: UnlistenFn | null = null;
   let unlistenLimit: UnlistenFn | null = null;
+  let unlistenIntent: UnlistenFn | null = null;
+  let destroyed = false;
 
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
@@ -68,15 +71,18 @@
   $: recordingActive = phase === "recording" || phase === "paused";
   $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
   $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
-  $: canRecord = settings.copy_to_clipboard || settings.save_to_file;
+  $: canRecord = settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
 
   onMount(async () => {
     applyTheme(settings.theme);
     historyTimer = setInterval(() => now = Date.now(), 15_000);
+    // Registered before the first await: a component torn down mid-setup must
+    // not leave a keyboard handler bound to the window after it is gone.
+    window.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     if (!isTauri()) {
       message = "UI preview — launch the desktop app to record";
-      window.addEventListener("keydown", handleKeyDown);
       return;
     }
     try {
@@ -97,6 +103,7 @@
     } catch (error) {
       setError(error);
     }
+    if (destroyed) return;
     unlistenProgress = await listen<DownloadProgress>("model-download-progress", (event) => {
       const value = event.payload.totalBytes
         ? event.payload.downloadedBytes / event.payload.totalBytes
@@ -106,19 +113,56 @@
     unlistenLimit = await listen("recording-limit-reached", () => {
       if (recordingActive && !changingPause) void finishRecording();
     });
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("keydown", handleKeyDown);
+    unlistenIntent = await listen<RemoteIntent>("remote-intent", (event) => {
+      void applyIntent(event.payload);
+    });
+    if (destroyed) {
+      unlistenProgress?.();
+      unlistenLimit?.();
+      unlistenIntent?.();
+      return;
+    }
+    // A hotkey that had to start Utterform still means "record now".
+    try {
+      await applyIntent(await api.takeStartupIntent());
+    } catch (error) {
+      setError(error);
+    }
   });
 
   onDestroy(() => {
+    destroyed = true;
     stopTimer();
     if (historyTimer) clearInterval(historyTimer);
     if (copyReset) clearTimeout(copyReset);
     unlistenProgress?.();
     unlistenLimit?.();
+    unlistenIntent?.();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("keydown", handleKeyDown);
   });
+
+  /// A compositor hotkey routes through here so it takes exactly the same path
+  /// as the buttons, including every guard against double starts.
+  async function applyIntent(intent: RemoteIntent | null) {
+    switch (intent) {
+      case "toggle":
+        if (recordingActive) await finishRecording();
+        else if (phase !== "starting" && phase !== "processing") await startRecording();
+        break;
+      case "start":
+        if (!recordingActive && phase !== "starting" && phase !== "processing") await startRecording();
+        break;
+      case "stop":
+        if (recordingActive) await finishRecording();
+        break;
+      case "cancel":
+        if (recordingActive) await cancelRecording();
+        break;
+      default:
+        break;
+    }
+  }
 
   function isTypingTarget(target: EventTarget | null) {
     const element = target as HTMLElement | null;
@@ -167,6 +211,9 @@
       }
       if (event.key.toLowerCase() === "f") {
         settings = { ...settings, save_to_file: !settings.save_to_file };
+      }
+      if (event.key.toLowerCase() === "t") {
+        settings = { ...settings, type_at_cursor: !settings.type_at_cursor };
       }
     }
   }
@@ -281,6 +328,7 @@
           : null,
         copyToClipboard: settings.copy_to_clipboard,
         saveToFile: settings.save_to_file,
+        typeAtCursor: settings.type_at_cursor,
         outputFormat: settings.output_format,
       });
       now = Date.now();
@@ -329,9 +377,12 @@
 
   function completionMessage(value: ProcessResult) {
     if (value.deliveryWarnings.length) return value.deliveryWarnings.join(" · ");
-    if (value.savedPath && value.copiedToClipboard) return "Copied and saved";
-    if (value.savedPath) return "File saved";
-    return value.copiedToClipboard ? "Copied to clipboard" : "Text ready";
+    const done = [
+      value.typedAtCursor ? "Typed at the cursor" : "",
+      value.copiedToClipboard ? "Copied to clipboard" : "",
+      value.savedPath ? "File saved" : "",
+    ].filter(Boolean);
+    return done.length ? done.join(" · ") : "Text ready";
   }
 
   function resetCopyFeedback() {
@@ -551,6 +602,10 @@
     <button class:enabled={settings.save_to_file} onclick={() => (settings = { ...settings, save_to_file: !settings.save_to_file })} disabled={controlsLocked}>
       <svg viewBox="0 0 24 24"><path d="M4 2h12l4 4v16H4V2Zm2 2v16h12V7h-3V4H6Zm2 9h8v5H8v-5Zm1-8h4v4H9V5Z"/></svg>
       File <kbd>F</kbd>
+    </button>
+    <button class:enabled={settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked} title="Type the finished text into whatever window has focus">
+      <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 2h2v2H7V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9ZM7 12h2v2H7v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-7 3h6v2H9v-2Z"/></svg>
+      Type <kbd>T</kbd>
     </button>
     <SelectMenu id="format" label="File format" value={settings.output_format}
       onchange={(value) => settings = { ...settings, output_format: value as AppSettings["output_format"] }}

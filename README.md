@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.3.4** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.3.4.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.3.4).
+> Utterform is under active development. **0.4.0** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.0).
 
 ## Install on Omarchy / Arch Linux
 
@@ -22,9 +22,38 @@ Required Omarchy/Arch runtime packages:
 sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 ```
 
+## Dictate from anywhere
+
+Wayland gives no application the right to grab a global shortcut — the compositor owns the keyboard. Utterform therefore takes its orders from the command line, and a single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
+
+```
+bind = SUPER, D, exec, utterform --toggle
+```
+
+Press it once to start recording, again to finish. The window is not raised, so you stay in whatever you were typing in. The same works from any launcher, script or panel button:
+
+| Command | Effect |
+| --- | --- |
+| `utterform --toggle` | Start recording, or finish the running one |
+| `utterform --start` | Start recording |
+| `utterform --stop` | Finish and process |
+| `utterform --cancel` | Discard without transcribing |
+| `utterform` | Show the window |
+
+If Utterform is not running yet, the command starts it and still records.
+
+To have the finished text typed straight into the window you were working in, enable **Type** in the output bar (or press `T`). This needs the session's own typing tool, because a Wayland client cannot synthesize input for another window:
+
+```bash
+sudo pacman -S --needed wtype     # Wayland/Hyprland
+sudo pacman -S --needed xdotool   # X11
+```
+
+Clipboard, file and typing are independent. Typing happens last, so a missing tool costs a warning and never the text.
+
 ## Windows and macOS
 
-Download the [0.3.4 assets](https://github.com/jli-software/utterform/releases/tag/v0.3.4):
+Download the [0.4.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.0):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -42,6 +71,8 @@ Push/PR CI runs Linux validation without release compilation. For a test binary,
 - Plain, Clean, Polish, Summarize, Prompt, and user-defined actions
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
+- Global dictation through a compositor binding: `utterform --toggle` from any hotkey, without raising the window
+- Optional typing of the finished text into the focused window, next to clipboard and file
 - Focused-window shortcuts and a compact system tray presence
 - Single instance: launching Utterform again reveals the running window instead of starting a second one
 - Tray left click opens the window on every platform, double click on Windows and macOS, middle click on Linux; right click keeps the menu

@@ -9,6 +9,14 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.0
+
+Dictation no longer requires the window. A compositor binding runs `utterform --toggle`; `cli.rs` turns the command line into an `Intent`, the single-instance plugin carries it to the running app, and the interface applies it through exactly the same functions the buttons use. Only `Show` raises the window — a dictation hotkey must leave the user where they are typing.
+
+`typing.rs` types the finished text into the focused window through `wtype` (Wayland) or `xdotool` (X11), both fed on stdin so transcript content is never parsed as options. It is a third output next to clipboard and file, runs last, and degrades to a warning naming the package to install.
+
+Still open for 0.4: streaming transcription (`stream=true` on `gpt-transcribe`) and a vocabulary using `keywords[]`/`prompt`. Both were chosen for this release line. Longer recordings (Opus upload instead of WAV, which lifts the 25 MB limit from ~13 minutes to hours), the `large-v3-turbo` local models and a frontend timeout guard remain on the list after that.
+
 ## Current handoff — 0.3.4
 
 0.3.3 broke GPT Transcribe and 0.3.4 fixes it. The lesson is about Cargo feature unification: `ksni`'s tokio feature switched `zbus` to `zbus/tokio` build-wide, and the keyring's blocking zbus calls then panicked inside Tauri's async runtime. Keep `ksni` on `async-io`, and check `cargo tree -e features -i zbus` before adding any dependency that speaks D-Bus.

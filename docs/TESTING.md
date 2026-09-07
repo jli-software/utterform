@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.0 Global dictation
+
+41 native and 31 interface tests. New coverage: every combination of clipboard, file and typing requested against every combination of succeeding and failing, including that typing runs last so the text is already safe; the tool choice for Wayland, X11, XWayland and nothing installed; that both typing tools take the text on stdin, so a transcript starting with `-` or containing newlines is never parsed as options; the hotkey starting and finishing a recording through the emitted event; a hotkey that had to start the app first; and stop/cancel ignored when nothing is recording.
+
+A test that only failed in the full suite exposed a real defect rather than a flake: a component torn down before `onMount` finished left its keydown handler bound to the window, so a later keypress ran two handlers. Listeners are now bound before the first await.
+
+Not covered: an actual keypress on Omarchy and actual typing into another window. Both need a real desktop session and the compositor's own binding.
+
 ## 0.3.4 GPT Transcribe regression
 
 0.3.3 broke OpenAI transcription. `cargo tree -e features -i zbus` showed `zbus feature "tokio"` enabled by exactly one edge: `ksni feature "tokio"`, added in 0.3.3. With that feature `zbus::block_on` drives a static tokio runtime instead of calling `async_io::block_on`; the keyring reaches it through `zbus::blocking` from inside Tauri's async runtime, and tokio panics with "Cannot start a runtime from within a runtime". The panicking command never answers, so the interface waits forever. Local Whisper with the plain action never reads the keyring on that path, which matches the report that only OpenAI was affected.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — v0.4.0
+
+- Dictate from anywhere: `utterform --toggle` from a compositor binding starts and finishes a recording without raising the window. `--start`, `--stop` and `--cancel` are available too, and the command starts Utterform if it is not running.
+- Type the finished text into the focused window as a third output next to clipboard and file, through `wtype` on Wayland or `xdotool` on X11.
+- Bind interface listeners before the first await, so a component torn down while starting up cannot leave a keyboard handler on the window.
+
+See [0.4.0 release notes](docs/releases/v0.4.0.md).
+
 ## 0.3.4 — v0.3.4
 
 - Fix GPT Transcribe hanging forever, a 0.3.3 regression: `ksni`'s tokio feature turned on `zbus/tokio` for the whole build, so reading the API key from the OS keyring panicked inside Tauri's async runtime and the command never answered. Build `ksni` on async-io and test the keyring from an async runtime.
