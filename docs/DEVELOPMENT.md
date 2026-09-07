@@ -9,44 +9,53 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.4.0
+## Current handoff — 0.4.1
 
-Dictation no longer requires the window. A compositor binding runs `utterform --toggle`; `cli.rs` turns the command line into an `Intent`, the single-instance plugin carries it to the running app, and the interface applies it through exactly the same functions the buttons use. Only `Show` raises the window — a dictation hotkey must leave the user where they are typing.
+0.4.0 made dictation work without the window, on Omarchy. 0.4.1 gives Windows and macOS the same key and fixes the text arriving damaged.
 
-`typing.rs` types the finished text into the focused window through `wtype` (Wayland) or `xdotool` (X11), both fed on stdin so transcript content is never parsed as options. It is a third output next to clipboard and file, runs last, and degrades to a warning naming the package to install.
+**One intent, two ways in.** `hotkey.rs` reserves a key combination where the platform grants one — Windows, macOS, Linux under X11 — and emits the same `remote-intent` event that a compositor binding produces through `cli.rs` and the single-instance plugin. The interface therefore keeps exactly one recording state machine. Wayland registers nothing and Settings says what to bind instead. The plugin is installed from `setup`, not at build time: a host that will not create a hotkey manager must cost the dictation key, not the application.
 
-**Confirmed working on Omarchy by Jonas on 2026-09-07.** The hotkey and, above all, typing straight into the focused window are what he wanted from the tool. 0.4.0 is the state to build on and debug from; the next session starts here.
+**Typing at the cursor pastes by default.** Jonas reported terminals losing letters — "Session" arriving as "ession" — while a manual paste of the same text was intact. That is delivery, not transcription: keystrokes cross the compositor, the input method and the target application one character at a time, and any of them can drop or reorder one. A paste moves the whole text at once. `typing/` chooses the chord from the focused window's class, because Ctrl+Shift+V pastes in a terminal and does something else entirely in a browser or an editor.
+
+Keystrokes stay selectable, with the two documented fixes: a leading `Shift_L` press/release for the Wayland clients that swallow the first character a fresh virtual keyboard sends, and a delay between keys.
+
+**Windows types through `SendInput`.** No helper program, Unicode rather than scan codes, one atomic call per batch. `typing/mod.rs` holds the text→key rule so it is tested on every platform; `typing/windows.rs` holds only the unsafe glue.
 
 ### Platform reality — do not assume parity
 
-Only Linux has been exercised by a person. The rest is compilation, not evidence.
+Only Linux has been exercised by a person. The rest is compilation, not evidence. The Windows paths in this release are type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and were never run.
 
 | | Linux / Omarchy | macOS | Windows |
 | --- | --- | --- | --- |
-| Typing at the cursor | works, confirmed | **not implemented** | **not implemented** |
+| Typing at the cursor | 0.4.0 confirmed; paste delivery **new, unconfirmed** | **not implemented** | implemented, **never run** |
+| Reserved dictation key | n/a under Wayland, by design | implemented, **never run** | implemented, **never run** |
 | `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried |
-| Binding it to a key | `bind =` in hyprland.conf | no OS mechanism; needs Raycast/Karabiner/Automator | shortcut properties or AutoHotkey |
+| Binding it to a key | `bind =` in hyprland.conf | Settings → Dictation key | Settings → Dictation key |
 | Tray click opens the window | works, confirmed | never tried | never tried |
 | Recording, transcription, clipboard, file | works, confirmed | never tried interactively | never tried interactively |
 
-`typing.rs::session()` returns `(false, false)` off Linux, so the **Type** button is offered on macOS and Windows but always fails — and with a misleading message, "Typing at the cursor needs a graphical session", on a machine that plainly has one. Either implement those platforms or hide the target there; leaving it as it is misleads the user. This is the first thing to decide when Windows or macOS come up.
+What to ask Jonas after he tests: whether paste delivery fixed the dropped letters in his terminal, and whether `Ctrl+Alt+D` is free on his Windows machine.
+
+The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS still reports that typing at the cursor is not available there, which is now true rather than misleading.
 
 ### Waiting, not released
 
-Pull request #8 (`feat/robustness-and-models`, CI green, mergeable) carries two things Jonas asked for but has not released, because he wants to test 0.4.0 first:
+Pull request #8 (`feat/robustness-and-models`, CI green, mergeable) carries two things Jonas asked for but has not released, because he wanted to test 0.4.0 first:
 
 - Robustness: a command answers even when its work panics (`resilience.rs`), bounded retries with backoff for rate limits and server faults (`openai::retry_delay`), and a 30-minute ceiling in the interface (`lib/ceiling.ts`).
 - The larger offline models: Medium, Large v3 Turbo, and the quantized Large v3 Turbo.
 
-It bumps the version to 0.4.1. Merge it when he says so; do not release it unasked.
+**It bumps the version to 0.4.1, which this release now uses.** Jonas asked for the Windows dictation key as 0.4.1 and asked for it first. Re-target #8 to 0.4.2 before merging it; do not release it unasked.
 
 ### Then
 
-Ordered as Jonas chose: robustness (in #8) before streaming. After that, file streaming and the vocabulary, then longer recordings and GPU acceleration. See the streaming distinction in the 0.4.1 handoff — file streaming and realtime transcription are different projects and only the first is planned for 0.4.
+Ordered as Jonas chose: robustness (in #8) before streaming. After that, file streaming and the vocabulary, then longer recordings and GPU acceleration. File streaming and realtime transcription are different projects and only the first is planned for 0.4.
 
 ### Running the tests
 
 `dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml`. The tray activation test needs a session bus of its own; plain `cargo test` fails without one.
+
+The Windows-only code cannot be checked with `cargo check --target x86_64-pc-windows-msvc`: `ring`'s build script needs an MSVC toolchain. Type-check `typing/windows.rs` against the real API by compiling it in a throwaway crate that depends only on `windows-sys`, with the Tauri and domain layers stubbed out.
 
 ## Current handoff — 0.3.4
 

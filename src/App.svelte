@@ -9,6 +9,7 @@
     AudioDevice,
     DownloadProgress,
     HistoryEntry,
+    HotkeySupport,
     LocalModel,
     ProcessResult,
     RemoteIntent,
@@ -32,6 +33,10 @@
   let settingsSnapshot: AppSettings | null = null;
   let hasApiKey = false;
   let apiKeyInput = "";
+  // Until the backend answers, assume the session grants nothing: a field that
+  // appears and then turns out to be dead is worse than one that arrives late.
+  let hotkeySupport: HotkeySupport = { supported: false, default: "Ctrl+Alt+D", explanation: "" };
+  let hotkeyError = "";
   let elapsedSeconds = 0;
   let audioLevel = 0;
   let polling = false;
@@ -72,6 +77,9 @@
   $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
   $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
   $: canRecord = settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
+  $: typingNote = settings.typing_method === "paste"
+    ? "The whole text moves at once, so nothing can be dropped or reordered on the way — terminals included. It is left on the clipboard."
+    : "The text is typed one character at a time. Windows that receive it faster than a person could type may drop letters; raise the delay if characters go missing.";
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
 
   onMount(async () => {
@@ -86,11 +94,12 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
         api.hasOpenAiApiKey(),
+        api.globalHotkeySupport(),
       ]);
       applyTheme(settings.theme);
       // Load independently: a damaged history must not disable microphone/settings setup.
@@ -439,6 +448,7 @@
   }
 
   async function savePreferences() {
+    const previousHotkey = settingsSnapshot?.global_hotkey ?? null;
     try {
       await api.saveSettings(settings);
       if (apiKeyInput.trim()) {
@@ -447,6 +457,17 @@
         hasApiKey = true;
       }
       applyTheme(settings.theme);
+      hotkeyError = "";
+      if (hotkeySupport.supported && settings.global_hotkey !== previousHotkey) {
+        try {
+          await api.applyGlobalHotkey(settings.global_hotkey);
+        } catch (error) {
+          // Everything else is saved; only the key needs another attempt, so
+          // the dialog stays open where the shortcut was entered.
+          hotkeyError = String(error);
+          return;
+        }
+      }
       showSettings = false;
       settingsSnapshot = null;
       phase = phase === "error" ? "idle" : phase;
@@ -502,6 +523,7 @@
   }
 
   function cancelSettings() {
+    hotkeyError = "";
     if (settingsSnapshot) settings = settingsSnapshot;
     settingsSnapshot = null;
     applyTheme(settings.theme);
@@ -688,6 +710,29 @@
 
         <div class="setting-group"><h3>Recording feedback</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play start/stop clicks and a chime when the text is ready</span></label>
+        </div>
+
+        <div class="setting-group"><h3>Dictation key</h3>
+          {#if hotkeySupport.supported}
+            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Start and finish a recording from anywhere, without raising the window</span></label>
+            {#if settings.global_hotkey !== null}
+              <label class="field"><span>Shortcut <small>modifiers first, for example {hotkeySupport.default}</small></span><input value={settings.global_hotkey} oninput={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.value })} placeholder={hotkeySupport.default} /></label>
+            {/if}
+            {#if hotkeyError}<p class="setting-error" role="alert">{hotkeyError}</p>{/if}
+            <p class="privacy-note">The key is reserved for Utterform while it runs. Press it once to start and again to finish; the sounds are the confirmation, since the window never comes forward.</p>
+          {:else}
+            <p class="privacy-note">{hotkeySupport.explanation}</p>
+          {/if}
+        </div>
+
+        <div class="setting-group"><h3>Typing at the cursor</h3><div class="segmented">
+          <button class:active={settings.typing_method === "paste"} onclick={() => (settings = { ...settings, typing_method: "paste" })}>Paste</button>
+          <button class:active={settings.typing_method === "keystrokes"} onclick={() => (settings = { ...settings, typing_method: "keystrokes" })}>Keystrokes</button>
+        </div>
+          {#if settings.typing_method === "keystrokes"}
+            <label class="field"><span>Delay between keystrokes <small>milliseconds</small></span><input type="number" min="0" max="500" step="1" value={settings.typing_delay_ms} oninput={(event) => (settings = { ...settings, typing_delay_ms: Math.max(0, Math.min(500, Math.round(Number(event.currentTarget.value) || 0))) })} /></label>
+          {/if}
+          <p class="privacy-note">{typingNote}</p>
         </div>
 
         <div class="setting-group"><h3>Recent texts</h3>

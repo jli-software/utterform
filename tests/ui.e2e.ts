@@ -24,11 +24,15 @@ test.beforeEach(async ({ page }) => {
       __copiedText: "",
       __finishCount: 0,
       __savedSettings: null,
+      __appliedHotkey: undefined,
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
       __TAURI_INTERNALS__: {
         transformCallback: (callback: (event: unknown) => void) => { callbacks.set(++counter, callback); return counter; },
         invoke: async (command: string, args: Record<string, unknown>) => {
           switch (command) {
+            case "take_startup_intent": return null;
+            case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "" };
+            case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
             case "get_settings": return settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
             case "has_openai_api_key": return true;
@@ -235,3 +239,37 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 480, height: 480 }
     await expect.poll(() => page.evaluate(() => Reflect.get(window, "__copiedText"))).toContain("A previous thought");
   });
 }
+
+test("the dictation key and the typing method are reachable and readable in Settings", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+
+  const shortcut = page.getByRole("textbox", { name: /Shortcut/ });
+  await shortcut.scrollIntoViewIfNeeded();
+  await expect(shortcut).toHaveValue("Ctrl+Alt+D");
+  await page.screenshot({ path: testInfo.outputPath("dictation-key-dark.png") });
+
+  // Paste is the default; the keystroke delay only appears once it is needed,
+  // so the common case stays a single choice.
+  await expect(page.getByRole("spinbutton", { name: /Delay between keystrokes/ })).toBeHidden();
+  await page.getByRole("button", { name: "Keystrokes", exact: true }).click();
+  const delay = page.getByRole("spinbutton", { name: /Delay between keystrokes/ });
+  await expect(delay).toHaveValue("15");
+
+  // Both new groups must stay inside the scroll viewport at the default size.
+  const scroll = (await page.locator(".settings-scroll").boundingBox())!;
+  for (const field of [shortcut, delay]) {
+    const box = (await field.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(scroll.x - 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(scroll.x + scroll.width + 1);
+  }
+
+  await shortcut.fill("Ctrl+Alt+K");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
+  expect(await page.evaluate(() => Reflect.get(window, "__appliedHotkey"))).toBe("Ctrl+Alt+K");
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
+    typing_method: "keystrokes", typing_delay_ms: 15, global_hotkey: "Ctrl+Alt+K",
+  });
+});

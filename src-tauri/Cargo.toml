@@ -1,6 +1,6 @@
 [package]
 name = "utterform"
-version = "0.4.0"
+version = "0.4.1"
 description = "Fast, lightweight voice-to-text transformation for the desktop"
 authors = ["Jonas"]
 edition = "2024"
@@ -32,6 +32,7 @@ thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["fs", "io-util", "macros", "rt-multi-thread", "sync"] }
 tempfile = "3.23.0"
 whisper-rs = "0.16.0"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Tauri's tray uses libayatana-appindicator, which exposes no Activate method,
@@ -45,3 +46,6 @@ ksni = { version = "0.3.6", default-features = false, features = ["blocking", "a
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 zbus = "5.9"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation"] }

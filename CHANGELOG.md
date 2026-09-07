@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — v0.4.1
+
+- Dictate from anywhere on Windows, macOS and X11 with a reserved key combination, `Ctrl+Alt+D` by default, configurable in Settings. The window is never raised; the start/stop clicks and the completion chime are the confirmation. Wayland keeps using `utterform --toggle`, because the compositor owns the keyboard there.
+- Stop typing at the cursor dropping letters in terminals: deliver the text as one paste by default, choosing the paste a terminal listens for over the one every other window takes.
+- Keep synthesized keystrokes as an option, and make them survivable — a leading Shift tap for the Wayland clients that swallow the first character, and an adjustable delay between keys.
+- Type at the cursor on Windows through `SendInput`, with no helper program: Unicode rather than scan codes, so the layout does not matter, and real Return presses for line breaks.
+
+See [0.4.1 release notes](docs/releases/v0.4.1.md).
+
 ## 0.4.0 — v0.4.0
 
 - Dictate from anywhere: `utterform --toggle` from a compositor binding starts and finishes a recording without raising the window. `--start`, `--stop` and `--cancel` are available too, and the command starts Utterform if it is not running.

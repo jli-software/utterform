@@ -2,6 +2,9 @@ export type Engine = "open_ai" | "local_whisper";
 export type OutputFormat = "txt" | "md";
 export type Theme = "light" | "dark" | "system";
 export type ActionId = "plain" | "clean" | "polish" | "summarize" | "prompt";
+/// How the finished text reaches the focused window. A paste moves it whole;
+/// keystrokes travel one character at a time and can be dropped on the way.
+export type TypingMethod = "paste" | "keystrokes";
 /// What a compositor hotkey or a second launch asks the running app to do.
 export type RemoteIntent = "show" | "toggle" | "start" | "stop" | "cancel";
 
@@ -20,6 +23,16 @@ export interface AppSettings {
   custom_actions: CustomAction[];
   history_enabled: boolean;
   sound_enabled: boolean;
+  typing_method: TypingMethod;
+  typing_delay_ms: number;
+  global_hotkey: string | null;
+}
+
+/// What this session allows for a system-wide dictation key.
+export interface HotkeySupport {
+  supported: boolean;
+  default: string;
+  explanation: string;
 }
 
 export interface CustomAction {
@@ -91,6 +104,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_actions: [],
   history_enabled: true,
   sound_enabled: true,
+  typing_method: "paste",
+  typing_delay_ms: 15,
+  global_hotkey: "Ctrl+Alt+D",
 };
 
 export const ACTIONS: Array<{ id: ActionId; label: string; hint: string; key: string }> = [

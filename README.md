@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.0** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.0).
+> Utterform is under active development. **0.4.1** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.1).
 
 ## Install on Omarchy / Arch Linux
 
@@ -24,13 +24,17 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 
 ## Dictate from anywhere
 
-Wayland gives no application the right to grab a global shortcut — the compositor owns the keyboard. Utterform therefore takes its orders from the command line, and a single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
+Press one key, speak, press it again. The window never comes forward, so you stay in whatever you were typing in. How the key reaches Utterform depends on who owns the keyboard.
+
+**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default; change it or turn it off under **Settings → Dictation key**. Nothing to configure elsewhere. A combination another application already holds is reported where you entered it.
+
+**Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 
 ```
 bind = SUPER, D, exec, utterform --toggle
 ```
 
-Press it once to start recording, again to finish. The window is not raised, so you stay in whatever you were typing in. The same works from any launcher, script or panel button:
+The command line works on every platform, from any launcher, script or panel button:
 
 | Command | Effect |
 | --- | --- |
@@ -42,20 +46,30 @@ Press it once to start recording, again to finish. The window is not raised, so 
 
 If Utterform is not running yet, the command starts it and still records.
 
-To have the finished text typed straight into the window you were working in, enable **Type** in the output bar (or press `T`). This needs the session's own typing tool, because a Wayland client cannot synthesize input for another window:
+Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**.
+
+## Typing at the cursor
+
+Enable **Type** in the output bar (or press `T`) to have the finished text put into the window you were working in, next to clipboard and file. Clipboard, file and typing are independent, and typing happens last, so a failure there costs a warning and never the text.
+
+**Paste** is the default. The whole text moves in one step, so nothing can be dropped or reordered on the way — the reason a terminal used to turn "Session" into "ession". Utterform sends the paste a terminal listens for (`Ctrl+Shift+V`) and the one every other window takes (`Ctrl+V`). Paste delivery leaves the text on the clipboard.
+
+**Keystrokes** is available under **Settings → Typing at the cursor** for windows that refuse a paste. It types character by character, with a leading Shift tap for the Wayland clients that swallow the first character and an adjustable delay (15 ms by default) for the ones that reorder fast input.
+
+On Linux both methods need the session's own input tool, because a Wayland client cannot synthesize input for another window:
 
 ```bash
 sudo pacman -S --needed wtype     # Wayland/Hyprland
 sudo pacman -S --needed xdotool   # X11
 ```
 
-Clipboard, file and typing are independent. Typing happens last, so a missing tool costs a warning and never the text.
+On Windows nothing needs installing; Utterform uses `SendInput` directly, sending Unicode rather than scan codes so the active keyboard layout does not matter. Windows refuses input from a normal process to a window running as administrator, which is reported as a delivery warning.
 
-Typing at the cursor is **Linux only** for now. The command line works on every platform, but macOS and Windows have no key binding that runs a command out of the box, and typing into another window is not implemented there yet.
+Typing at the cursor is not implemented on **macOS** yet.
 
 ## Windows and macOS
 
-Download the [0.4.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.0):
+Download the [0.4.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.1):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -73,8 +87,8 @@ Push/PR CI runs Linux validation without release compilation. For a test binary,
 - Plain, Clean, Polish, Summarize, Prompt, and user-defined actions
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
-- Global dictation through a compositor binding: `utterform --toggle` from any hotkey, without raising the window
-- Optional typing of the finished text into the focused window, next to clipboard and file (Linux)
+- Global dictation with a reserved key combination on Windows, macOS and X11, or a compositor binding on Wayland: either way without raising the window
+- Optional typing of the finished text into the focused window, next to clipboard and file, as one paste or as keystrokes (Linux and Windows)
 - Focused-window shortcuts and a compact system tray presence
 - Single instance: launching Utterform again reveals the running window instead of starting a second one
 - Tray left click opens the window on every platform, double click on Windows and macOS, middle click on Linux; right click keeps the menu
@@ -102,7 +116,7 @@ Shortcuts work while the Utterform window is focused.
 | `F` | Toggle file output |
 | `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |
 
-Global shortcuts are intentionally deferred, primarily because support differs across Linux desktop environments and Wayland compositors. **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to pause or finish it, or let the ten-minute active-recording limit stop capture. A paused recording remains paused across app switches and close-to-tray. Paused audio is discarded, not stored or sent; the microphone device stays open so resuming works consistently across platforms. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
+Global dictation is separate from these: see [Dictate from anywhere](#dictate-from-anywhere). **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to pause or finish it, or let the ten-minute active-recording limit stop capture. A paused recording remains paused across app switches and close-to-tray. Paused audio is discarded, not stored or sent; the microphone device stays open so resuming works consistently across platforms. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
 
 ## Privacy model
 

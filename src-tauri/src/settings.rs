@@ -68,11 +68,51 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    use crate::domain::TypingMethod;
+
     #[test]
     fn default_settings_are_serializable() {
         let json = serde_json::to_string(&AppSettings::default()).unwrap();
         let restored: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.text_model, "gpt-5-mini");
         assert!(restored.copy_to_clipboard);
+    }
+
+    #[test]
+    fn a_settings_file_from_an_earlier_version_gains_the_new_defaults() {
+        // Everything 0.4.0 wrote, and nothing it did not. An upgrade must not
+        // leave the dictation key unset or typing without a method.
+        let earlier = r#"{
+            "engine": "open_ai",
+            "input_device": null,
+            "output_directory": null,
+            "copy_to_clipboard": true,
+            "save_to_file": false,
+            "output_format": "txt",
+            "local_model_id": "base",
+            "language_hints": [],
+            "type_at_cursor": true,
+            "text_model": "gpt-5-mini",
+            "theme": "system",
+            "custom_actions": [],
+            "history_enabled": true,
+            "sound_enabled": true
+        }"#;
+        let settings: AppSettings = serde_json::from_str(earlier).unwrap();
+        assert!(settings.type_at_cursor, "existing choices survive");
+        assert_eq!(settings.typing_method, TypingMethod::Paste);
+        assert_eq!(settings.typing_delay_ms, crate::typing::DEFAULT_DELAY_MS);
+        assert_eq!(
+            settings.global_hotkey.as_deref(),
+            Some(crate::hotkey::DEFAULT)
+        );
+    }
+
+    #[test]
+    fn a_dictation_key_turned_off_stays_off() {
+        let stored = r#"{ "global_hotkey": null, "typing_method": "keystrokes" }"#;
+        let settings: AppSettings = serde_json::from_str(stored).unwrap();
+        assert_eq!(settings.global_hotkey, None);
+        assert_eq!(settings.typing_method, TypingMethod::Keystrokes);
     }
 }

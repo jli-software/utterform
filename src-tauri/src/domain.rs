@@ -25,6 +25,20 @@ impl OutputFormat {
     }
 }
 
+/// How the finished text reaches the focused window.
+///
+/// Synthesized keystrokes travel one character at a time and every hop can
+/// drop or reorder one: a terminal that swallows the letter after a word
+/// break turns "Session" into "ession". A paste moves the whole text at once,
+/// so there is nothing to reorder, which is why it is the default.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TypingMethod {
+    #[default]
+    Paste,
+    Keystrokes,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
@@ -51,6 +65,13 @@ pub struct AppSettings {
     pub custom_actions: Vec<CustomAction>,
     pub history_enabled: bool,
     pub sound_enabled: bool,
+    pub typing_method: TypingMethod,
+    /// Milliseconds between synthesized keystrokes. Ignored by paste delivery
+    /// and on Windows, where one call injects the whole text atomically.
+    pub typing_delay_ms: u32,
+    /// A system-wide dictation key, where the operating system grants one.
+    /// `None` disables it; Wayland ignores it and keeps using `--toggle`.
+    pub global_hotkey: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +98,9 @@ impl Default for AppSettings {
             custom_actions: Vec::new(),
             history_enabled: true,
             sound_enabled: true,
+            typing_method: TypingMethod::Paste,
+            typing_delay_ms: crate::typing::DEFAULT_DELAY_MS,
+            global_hotkey: Some(crate::hotkey::DEFAULT.to_string()),
         }
     }
 }

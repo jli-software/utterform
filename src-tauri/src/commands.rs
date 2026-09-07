@@ -18,6 +18,21 @@ pub fn take_startup_intent(state: State<'_, crate::StartupIntent>) -> Option<cra
     state.take()
 }
 
+/// Whether this session hands global shortcuts to applications at all, so
+/// Settings can explain a Wayland session instead of showing a dead field.
+#[tauri::command]
+pub fn global_hotkey_support() -> crate::hotkey::Support {
+    crate::hotkey::support()
+}
+
+/// Put a changed dictation key into effect. Separate from saving settings so
+/// the shortcut is only re-registered when the user actually changed it, and
+/// so a key another application holds is reported where it was entered.
+#[tauri::command]
+pub fn apply_global_hotkey(app: AppHandle, shortcut: Option<String>) -> Result<(), String> {
+    crate::hotkey::apply(&app, shortcut.as_deref())
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
     settings::load(&app)

@@ -23,6 +23,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
+  globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "" })),
+  applyGlobalHotkey: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
   copyText: vi.fn(), clearHistory: vi.fn(),
@@ -265,7 +267,10 @@ it("drains an outstanding manual copy before recording and blocks copies until p
   expect(view.getByRole("button", { name: /Copied/ }).hasAttribute("disabled")).toBe(false);
 });
 
-describe("compositor hotkey", () => {
+// Both a compositor binding running `utterform --toggle` and a system-wide
+// dictation key on Windows, macOS or X11 arrive as the same `remote-intent`
+// event, so these cover the recording path for every platform.
+describe("dictation hotkey", () => {
   it("starts and finishes a recording without the window being touched", async () => {
     vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Dictated", savedPath: null,
       copiedToClipboard: true, typedAtCursor: true, deliveryWarnings: [], durationMs: 900, engine: "open_ai" });
@@ -293,5 +298,85 @@ describe("compositor hotkey", () => {
     vi.mocked(api.takeStartupIntent).mockResolvedValue("toggle");
     render(App);
     await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+  });
+});
+
+describe("dictation key settings", () => {
+  async function openSettings() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).not.toBeNull());
+    return view;
+  }
+
+  it("registers a changed shortcut and closes", async () => {
+    const view = await openSettings();
+    const field = view.getByRole("textbox", { name: /Shortcut/ });
+    await fireEvent.input(field, { target: { value: "Ctrl+Alt+K" } });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith("Ctrl+Alt+K"));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the dialog open and names the problem when the key is taken", async () => {
+    vi.mocked(api.applyGlobalHotkey).mockRejectedValue("Ctrl+Alt+K is not available");
+    const view = await openSettings();
+    await fireEvent.input(view.getByRole("textbox", { name: /Shortcut/ }), { target: { value: "Ctrl+Alt+K" } });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
+    expect(view.getByRole("alert").textContent).toContain("not available");
+    // The rest of the settings are stored; only the key needs another attempt.
+    expect(api.saveSettings).toHaveBeenCalled();
+    expect(view.queryByRole("dialog")).not.toBeNull();
+  });
+
+  it("leaves a working key alone when other settings change", async () => {
+    const view = await openSettings();
+    await fireEvent.click(view.getByRole("button", { name: "Dark" }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.applyGlobalHotkey).not.toHaveBeenCalled();
+  });
+
+  it("turning the key off unregisters it", async () => {
+    const view = await openSettings();
+    await fireEvent.click(view.getByRole("checkbox", { name: /without raising the window/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith(null));
+  });
+
+  it("offers a Wayland session the command line instead of a dead field", async () => {
+    vi.mocked(api.globalHotkeySupport).mockResolvedValue({
+      supported: false, default: "Ctrl+Alt+D",
+      explanation: "Wayland gives no application a global shortcut. Bind `utterform --toggle` in your compositor instead.",
+    });
+    const view = await openSettings();
+    await waitFor(() => expect(view.queryByText(/utterform --toggle/)).not.toBeNull());
+    expect(view.queryByRole("textbox", { name: /Shortcut/ })).toBeNull();
+  });
+});
+
+describe("typing at the cursor", () => {
+  it("keeps the keystroke delay out of the way until keystrokes are chosen", async () => {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+
+    // Paste is the default because it cannot drop or reorder characters.
+    expect(view.queryByRole("spinbutton", { name: /Delay between keystrokes/ })).toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "Keystrokes" }));
+    const delay = view.getByRole("spinbutton", { name: /Delay between keystrokes/ }) as HTMLInputElement;
+    expect(delay.value).toBe("15");
+
+    await fireEvent.input(delay, { target: { value: "40" } });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ typing_method: "keystrokes", typing_delay_ms: 40 }),
+    ));
   });
 });
