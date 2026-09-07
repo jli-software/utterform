@@ -49,6 +49,33 @@ const MODELS: &[ModelDefinition] = &[
         size_bytes: 487_601_967,
         sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
     },
+    ModelDefinition {
+        id: "medium",
+        name: "Whisper Medium",
+        description: "Clearly better than Small · noticeably slower",
+        file_name: "ggml-medium.bin",
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        size_bytes: 1_533_763_059,
+        sha256: "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+    },
+    ModelDefinition {
+        id: "large-v3-turbo-q5",
+        name: "Large v3 Turbo (compact)",
+        description: "Near-Turbo accuracy at a third of the size · a good default on a laptop",
+        file_name: "ggml-large-v3-turbo-q5_0.bin",
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        size_bytes: 574_041_195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    },
+    ModelDefinition {
+        id: "large-v3-turbo",
+        name: "Large v3 Turbo",
+        description: "The most accurate offline model · fast for its size, needs the most memory",
+        file_name: "ggml-large-v3-turbo.bin",
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+        size_bytes: 1_624_555_275,
+        sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+    },
 ];
 
 #[derive(Clone, Serialize)]
@@ -184,5 +211,35 @@ mod tests {
         assert_eq!(ids.len(), MODELS.len());
         assert!(MODELS.iter().all(|model| !model.file_name.contains('/')));
         assert!(MODELS.iter().all(|model| model.sha256.len() == 64));
+        assert!(
+            MODELS
+                .iter()
+                .all(|model| model.sha256.chars().all(|c| c.is_ascii_hexdigit()))
+        );
+    }
+
+    #[test]
+    fn every_model_url_ends_in_its_own_file_name() {
+        // A copied entry with the wrong URL would download one model under
+        // another's name and fail checksum verification at the very end.
+        for model in MODELS {
+            assert!(
+                model.url.ends_with(model.file_name),
+                "{} points at {}",
+                model.id,
+                model.url
+            );
+        }
+    }
+
+    #[test]
+    fn models_are_offered_from_smallest_to_largest_within_their_family() {
+        // The list is what Settings shows, so the order is user-facing.
+        assert!(
+            MODELS.windows(2).all(|pair| pair[0].id != pair[1].id),
+            "duplicate neighbours"
+        );
+        assert_eq!(MODELS.first().map(|model| model.id), Some("tiny"));
+        assert_eq!(MODELS.last().map(|model| model.id), Some("large-v3-turbo"));
     }
 }

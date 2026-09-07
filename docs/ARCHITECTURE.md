@@ -18,6 +18,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `settings.rs` — non-secret JSON settings
 - `history.rs` — bounded, atomic, device-local text history; local titles, no AI calls
 - `secrets.rs` — OS credential-store access
+- `resilience.rs` — a command answers even when the work inside it panics
 - `commands.rs` — thin Tauri command boundary
 - `src/` — presentation and focused-window keyboard interaction
 

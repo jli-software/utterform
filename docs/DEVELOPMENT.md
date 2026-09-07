@@ -9,6 +9,17 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.1
+
+Robustness first, on Jonas' explicit sequencing: he wanted the app unable to hang before any streaming work begins. `resilience::always_answers` runs command work on its own task so a panic becomes an error; `openai::retry_delay` decides what is worth repeating; `lib/ceiling.ts` stops the interface waiting after 30 minutes. The offline catalog now covers Medium and both Large v3 Turbo builds.
+
+**Two different things are both called "streaming", and only one is planned next:**
+
+- **File streaming** — `stream=true` on `/v1/audio/transcriptions` with `gpt-transcribe`. The recording is already finished; the model emits `transcript.text.delta` events while it works, then `transcript.text.done`. No session, no protocol change, same endpoint we already use. This is what 0.4 will add.
+- **Realtime transcription** — `gpt-live-transcribe` over the Realtime API, for audio still arriving from the microphone. Text appears while you are still speaking. It needs a WebSocket/WebRTC session and audio streamed as it is captured, which means rebuilding the capture path rather than extending it. Worth doing, but it is its own project, not part of 0.4.
+
+Still open for 0.4: file streaming and the vocabulary (`keywords[]`/`prompt`). Afterwards: Opus upload instead of WAV, which lifts the 25 MB endpoint limit from ~13 minutes to hours, and GPU acceleration for local Whisper.
+
 ## Current handoff — 0.4.0
 
 Dictation no longer requires the window. A compositor binding runs `utterform --toggle`; `cli.rs` turns the command line into an `Intent`, the single-instance plugin carries it to the running app, and the interface applies it through exactly the same functions the buttons use. Only `Show` raises the window — a dictation hotkey must leave the user where they are typing.

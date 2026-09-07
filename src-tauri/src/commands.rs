@@ -105,6 +105,18 @@ pub async fn finish_recording(
 ) -> Result<ProcessResult, String> {
     let current_settings = settings::load(&app)?;
     let artifact = audio::stop_recording(&state)?;
+    // Nothing below borrows the capture state, so the rest can run on its own
+    // task: a panic anywhere in transcription or delivery then reaches the
+    // interface as an error instead of leaving it waiting for ever.
+    crate::resilience::always_answers(process(app, artifact, current_settings, request)).await
+}
+
+async fn process(
+    app: AppHandle,
+    artifact: audio::RecordingArtifact,
+    current_settings: AppSettings,
+    request: ProcessRequest,
+) -> Result<ProcessResult, String> {
     let duration_ms = artifact.duration_ms();
     let transcript = transcription::transcribe(&app, &artifact, &current_settings).await?;
     let mut warnings = Vec::new();

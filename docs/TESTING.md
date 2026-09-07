@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.1 Robustness and offline models
+
+49 native and 35 interface tests. New coverage: a panic inside a command produces an error rather than silence; which HTTP outcomes are worth repeating (429, 5xx, no status at all) and which are not (401, 403, 400, 413); bounded attempts with growing waits; the server's `Retry-After` winning but staying capped; the waiting ceiling passing results and rejections through, firing with a readable message, and leaving no timer behind; every model URL ending in that model's own file name.
+
+The new model checksums were taken from the published objects' `x-linked-etag`. The method was validated first against all three models already in the catalog: `tiny`, `base` and `small` each match their recorded SHA-256 exactly. `whisper-rs-sys` 0.15 bundles a whisper.cpp that knows `WHISPER_AHEADS_LARGE_V3_TURBO`, so the format is supported by the build we ship.
+
+Not run here: an actual transcription with the new models, and an actual rate-limited OpenAI request. The retry decision is unit-tested; the network path around it is not.
+
 ## 0.4.0 Global dictation
 
 41 native and 31 interface tests. New coverage: every combination of clipboard, file and typing requested against every combination of succeeding and failing, including that typing runs last so the text is already safe; the tool choice for Wayland, X11, XWayland and nothing installed; that both typing tools take the text on stdin, so a transcript starting with `-` or containing newlines is never parsed as options; the hotkey starting and finishing a recording through the emitted event; a hotkey that had to start the app first; and stop/cancel ignored when nothing is recording.

@@ -1,6 +1,6 @@
 use std::{io::Cursor, time::Duration};
 
-use reqwest::{Client, StatusCode, multipart};
+use reqwest::{Client, Response, StatusCode, multipart};
 use serde::Deserialize;
 
 use crate::{audio::RecordingArtifact, domain::AppSettings, secrets};
@@ -15,6 +15,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 // dead connection cannot hold the UI in "Transcribing…" forever.
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const MAX_ATTEMPTS: u32 = 3;
+const MAX_BACKOFF: Duration = Duration::from_secs(20);
 
 #[derive(Deserialize)]
 struct TranscriptionResponse {
@@ -59,32 +61,37 @@ pub async fn transcribe(
         return Err("The recording exceeds the 25 MB OpenAI upload limit".into());
     }
 
-    let part = multipart::Part::bytes(audio)
-        .file_name("recording.wav")
-        .mime_str("audio/wav")
-        .map_err(|error| format!("Could not prepare the recording: {error}"))?;
-    let mut form = multipart::Form::new()
-        .text("model", "gpt-transcribe")
-        .part("file", part);
-    for language in settings
+    // Read once and build once: a retry must not repeat the keyring lookup.
+    let key = secrets::openai_api_key()?;
+    let client = client()?;
+    let languages: Vec<String> = settings
         .language_hints
         .iter()
-        .filter(|value| !value.trim().is_empty())
-    {
-        form = form.text("languages[]", language.trim().to_string());
-    }
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
 
-    let response = client()?
-        .post(TRANSCRIPTIONS_URL)
-        .bearer_auth(secrets::openai_api_key()?)
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|error| format!("OpenAI transcription request failed: {error}"))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(api_error(status, response).await);
-    }
+    let response = send_retrying(
+        || {
+            // The body is consumed by sending, so each attempt needs its own.
+            let part = multipart::Part::bytes(audio.clone())
+                .file_name("recording.wav")
+                .mime_str("audio/wav")
+                .map_err(|error| format!("Could not prepare the recording: {error}"))?;
+            let mut form = multipart::Form::new()
+                .text("model", "gpt-transcribe")
+                .part("file", part);
+            for language in &languages {
+                form = form.text("languages[]", language.clone());
+            }
+            Ok(client
+                .post(TRANSCRIPTIONS_URL)
+                .bearer_auth(&key)
+                .multipart(form))
+        },
+        "OpenAI transcription request",
+    )
+    .await?;
     let payload = response
         .json::<TranscriptionResponse>()
         .await
@@ -109,17 +116,13 @@ pub async fn transform(
         "input": transcript,
         "store": false
     });
-    let response = client()?
-        .post(RESPONSES_URL)
-        .bearer_auth(secrets::openai_api_key()?)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| format!("OpenAI text transformation failed: {error}"))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(api_error(status, response).await);
-    }
+    let key = secrets::openai_api_key()?;
+    let client = client()?;
+    let response = send_retrying(
+        || Ok(client.post(RESPONSES_URL).bearer_auth(&key).json(&body)),
+        "OpenAI text transformation",
+    )
+    .await?;
     let payload = response
         .json::<ResponsesResponse>()
         .await
@@ -139,6 +142,73 @@ pub async fn transform(
         })
         .ok_or_else(|| "OpenAI returned an empty transformation".to_string())?;
     Ok(text.trim().to_string())
+}
+
+/// Send, and try again when trying again can plausibly help. The request is
+/// rebuilt per attempt because sending consumes the body.
+async fn send_retrying(
+    mut request: impl FnMut() -> Result<reqwest::RequestBuilder, String>,
+    what: &str,
+) -> Result<Response, String> {
+    let mut attempt = 0;
+    loop {
+        let outcome = request()?.send().await;
+        if let Ok(response) = &outcome
+            && response.status().is_success()
+        {
+            return Ok(outcome.expect("a successful status came from a response"));
+        }
+        let status = outcome.as_ref().ok().map(Response::status);
+        let hint = outcome.as_ref().ok().and_then(retry_after_header);
+        let Some(delay) = retry_delay(status, hint, attempt) else {
+            return match outcome {
+                Ok(response) => Err(api_error(response.status(), response).await),
+                Err(error) => Err(format!("{what} failed: {error}")),
+            };
+        };
+        tokio::time::sleep(delay).await;
+        attempt += 1;
+    }
+}
+
+/// How long to wait before another attempt, or `None` when repeating cannot
+/// help. A rejected key or a malformed request fails identically every time;
+/// rate limits, server faults and dropped connections do not.
+fn retry_delay(
+    status: Option<StatusCode>,
+    server_hint: Option<Duration>,
+    attempt: u32,
+) -> Option<Duration> {
+    if attempt + 1 >= MAX_ATTEMPTS {
+        return None;
+    }
+    let worth_repeating = match status {
+        // No status at all means the exchange never completed: a dropped
+        // connection, a timeout, a DNS hiccup.
+        None => true,
+        Some(code) => code == StatusCode::TOO_MANY_REQUESTS || code.is_server_error(),
+    };
+    if !worth_repeating {
+        return None;
+    }
+    // The server's own advice wins over guessing, but never unboundedly.
+    Some(
+        server_hint
+            .unwrap_or_else(|| Duration::from_secs(2u64.pow(attempt)))
+            .min(MAX_BACKOFF),
+    )
+}
+
+fn retry_after_header(response: &Response) -> Option<Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 fn client() -> Result<Client, String> {
@@ -205,6 +275,60 @@ async fn api_error(status: StatusCode, response: reqwest::Response) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rate_limits_and_server_faults_are_worth_repeating() {
+        for code in [
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            assert!(retry_delay(Some(code), None, 0).is_some(), "{code}");
+        }
+        // A connection that never produced a status is worth another attempt.
+        assert!(retry_delay(None, None, 0).is_some());
+    }
+
+    #[test]
+    fn a_rejected_request_is_not_repeated() {
+        for code in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::BAD_REQUEST,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ] {
+            assert_eq!(retry_delay(Some(code), None, 0), None, "{code}");
+        }
+    }
+
+    #[test]
+    fn attempts_are_bounded_and_back_off() {
+        let first = retry_delay(None, None, 0).unwrap();
+        let second = retry_delay(None, None, 1).unwrap();
+        assert!(second > first, "the wait must grow");
+        assert_eq!(retry_delay(None, None, MAX_ATTEMPTS - 1), None);
+    }
+
+    #[test]
+    fn the_servers_own_advice_wins_but_stays_bounded() {
+        assert_eq!(
+            retry_delay(
+                Some(StatusCode::TOO_MANY_REQUESTS),
+                Some(Duration::from_secs(7)),
+                0
+            ),
+            Some(Duration::from_secs(7))
+        );
+        assert_eq!(
+            retry_delay(
+                Some(StatusCode::TOO_MANY_REQUESTS),
+                Some(Duration::from_secs(3600)),
+                0
+            ),
+            Some(MAX_BACKOFF)
+        );
+    }
 
     #[test]
     fn plain_is_not_a_transform_action() {
