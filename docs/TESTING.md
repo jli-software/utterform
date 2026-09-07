@@ -6,7 +6,9 @@ The claim in 0.3.2 that Linux cannot deliver tray clicks was checked and is wron
 
 `tray::status_notifier_item::tests::a_left_click_reaches_the_application` proves the new path end to end. It owns `org.kde.StatusNotifierWatcher` on a private session bus, lets the real tray register with it, and calls `org.kde.StatusNotifierItem.Activate` — the D-Bus call a left click produces. The reveal action must run exactly once. CI runs the Rust suite through `dbus-run-session` on Linux; run it the same way locally.
 
-Not covered: which gesture a specific panel maps to `Activate`. That is the panel's decision and needs one click on the real Omarchy desktop. Single-instance focusing likewise needs a compositor and was not observed in an automated test.
+**Confirmed on the real desktop:** Jonas reports on 2026-09-07 that a left click on the tray icon opens Utterform on Omarchy. The panel there does map a left click to `Activate`, which no automated test could establish.
+
+Still uncovered: single-instance focusing needs a compositor and was not observed in an automated test or reported back yet.
 
 ## 0.3.2 single instance
 

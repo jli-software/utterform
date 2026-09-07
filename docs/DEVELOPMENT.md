@@ -15,7 +15,9 @@ Utterform is single-instance (0.3.2) and owns its Linux tray icon (0.3.3). Every
 
 The Linux tray is a `ksni` StatusNotifierItem, not AppIndicator, because AppIndicator exposes no `Activate` and therefore cannot report a left click. Tauri's native tray remains for Windows/macOS and as the Linux fallback when no StatusNotifierItem host answers. Run the Rust suite as `dbus-run-session -- cargo test`: the tray activation test needs a session bus of its own.
 
-Still to confirm by hand on Omarchy: that a left click on the Waybar tray icon opens the window, and that launching Utterform a second time focuses the running one.
+**Confirmed on Omarchy by Jonas on 2026-09-07:** a left click on the tray icon opens Utterform. The `ksni` path works on the real desktop, not only against the test's D-Bus watcher.
+
+Still to confirm by hand: that launching Utterform a second time from the app drawer focuses the running instance instead of starting another.
 
 ## Current handoff — 0.3.1
 
