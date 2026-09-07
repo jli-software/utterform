@@ -1,3 +1,4 @@
+mod activation;
 mod audio;
 mod commands;
 mod domain;
@@ -16,8 +17,16 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
+use activation::{opens_main_window, reveal_main_window};
+
 pub fn run() {
     tauri::Builder::default()
+        // Registered first so a launcher entry or a second `utterform` process
+        // hands its arguments to the running app instead of starting a rival
+        // instance with its own tray icon and recording state.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            reveal_main_window(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
@@ -40,18 +49,18 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.on_menu_event(|app, event| match event.id.as_ref() {
-                "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
+                "show" => reveal_main_window(app),
                 "quit" => {
                     let state = app.state::<audio::AudioCaptureState>();
                     let _ = audio::cancel_recording(&state);
                     app.exit(0);
                 }
                 _ => {}
+            })
+            .on_tray_icon_event(|tray, event| {
+                if opens_main_window(&event) {
+                    reveal_main_window(tray.app_handle());
+                }
             })
             .build(app)?;
             Ok(())

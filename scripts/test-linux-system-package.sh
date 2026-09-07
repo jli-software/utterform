@@ -60,4 +60,10 @@ fi
 grep -Fq 'unset LD_LIBRARY_PATH' "$launcher"
 grep -Fq '/bin/utterform" "$@"' "$launcher"
 
+desktop_file="$prefix/share/applications/software.jli.utterform.desktop"
+grep -Fq 'StartupWMClass=Utterform' "$desktop_file" || {
+  printf 'Utterform package test: desktop entry does not declare the window class\n' >&2
+  exit 1
+}
+
 printf 'Utterform package test: system-linked installation verified\n'

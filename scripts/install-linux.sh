@@ -2,7 +2,7 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v0.3.1}"
+version="${UTTERFORM_VERSION:-v0.3.2}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
 asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
@@ -99,6 +99,9 @@ desktop_tmp="${desktop_file}.tmp.$$"
   printf '%s\n' 'Terminal=false'
   printf '%s\n' 'Categories=Utility;AudioVideo;'
   printf '%s\n' 'StartupNotify=true'
+  # Utterform runs as a single instance; the window class lets desktops match
+  # the running window to this entry instead of offering another launch.
+  printf '%s\n' 'StartupWMClass=Utterform'
 } > "$desktop_tmp"
 mv "$desktop_tmp" "$desktop_file"
 
