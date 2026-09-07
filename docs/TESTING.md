@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.1 A dictation key off Wayland, and text that arrives whole
+
+57 native and 37 interface tests. New coverage: a shortcut read the way the Settings field writes it, and a typo, an empty field or a bare key refused before it reaches the plugin — a bare key would stop producing its own character everywhere in the session; a settings file written by 0.4.0 gaining the new defaults while its existing choices survive, and a dictation key turned off staying off; the paste chord chosen for fifteen terminal window classes and refused for ten ordinary ones, including the browsers and editors where Ctrl+Shift+V means something else; every line ending becoming exactly one Return and non-BMP characters surviving as their surrogate pairs; that keystrokes are paced and preceded by the Shift tap, and that every modifier a paste presses is released again; and that paste delivery is told whether the clipboard already holds the transcript, across all eight combinations of requested outputs and all eight of succeeding and failing ones.
+
+In the interface: a changed shortcut registered on save and an unchanged one left alone; a key another application holds keeping the dialog open with the reason where it was entered, while the rest of the settings are stored; turning the key off unregistering it; a Wayland session offered `utterform --toggle` instead of a dead field; and the keystroke delay staying out of the way until keystrokes are chosen.
+
+The Windows implementation is type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and has **never been run**. Neither has the reserved dictation key on Windows or macOS. Paste delivery has not been confirmed on a real desktop either — the bug it fixes was reported from Omarchy, and only Jonas can say whether it is gone. Compilation is not a claim about any of this.
+
 ## 0.4.0 Global dictation
 
 41 native and 31 interface tests. New coverage: every combination of clipboard, file and typing requested against every combination of succeeding and failing, including that typing runs last so the text is already safe; the tool choice for Wayland, X11, XWayland and nothing installed; that both typing tools take the text on stdin, so a transcript starting with `-` or containing newlines is never parsed as options; the hotkey starting and finishing a recording through the emitted event; a hotkey that had to start the app first; and stop/cancel ignored when nothing is recording.

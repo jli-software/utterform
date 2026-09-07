@@ -13,7 +13,8 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `transcription/local.rs` — blocking local Whisper inference
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
 - `cli.rs` — what a command line or a second launch asks the running app to do
-- `typing.rs` — typing the finished text into the focused window through wtype/xdotool
+- `hotkey.rs` — a reserved key combination where the OS grants one, routed into the same intent as the command line
+- `typing/` — putting the finished text into the focused window: paste or keystrokes, through wtype/xdotool on Linux and `SendInput` on Windows
 - `output.rs` — independent clipboard, file and cursor delivery
 - `settings.rs` — non-secret JSON settings
 - `history.rs` — bounded, atomic, device-local text history; local titles, no AI calls
@@ -37,7 +38,7 @@ The frontend never receives an API key or temporary audio path. Network calls or
 
 ## Background capture & feedback
 
-Capture is owned by Rust/CPAL, not the WebView. Focus changes, minimization, and closing the window to tray do not stop a recording. Explicit Stop processes it, Escape discards it, and tray Quit discards active audio before exiting. No microphone capture starts merely by launching the app. Recording shortcuts remain focused-window shortcuts, not global hotkeys.
+Capture is owned by Rust/CPAL, not the WebView. Focus changes, minimization, and closing the window to tray do not stop a recording. Explicit Stop processes it, Escape discards it, and tray Quit discards active audio before exiting. No microphone capture starts merely by launching the app. The in-window keys stay focused-window shortcuts; global dictation is a separate path described below.
 
 Pause/resume is an explicit, idempotent `set_recording_paused` command returning native recording status. CPAL stays open for cross-platform reliability; an atomic gate discards paused callbacks before conversion/allocation/writing. No silent gap is inserted. The OS may continue to show its microphone-use indicator. A native clock excludes paused intervals from elapsed time and the cutoff while keeping session identity unchanged. Stop can consume paused audio; Escape and tray Quit still discard it. The UI serializes pause commands, ignores stale polling responses, and handles a watchdog-completion race without processing twice.
 
@@ -61,13 +62,35 @@ New entries include `createdAtMs` (Unix milliseconds). Missing timestamps from o
 
 Writes are serialized with a mutex, use an owner-only temporary file in the same directory, flush data, and atomically replace the old file. Unreadable/corrupt history is never silently overwritten; the UI still receives the new text with a persistence warning. History is unencrypted and local to each device, not stored in Git or synchronized by the app. Users can disable future history and separately confirm clearing existing history in Settings. Clearing does not touch the clipboard or exported files.
 
+## Global dictation
+
+One intent, two ways in. A compositor binding runs `utterform --toggle` and the single-instance plugin hands the command line to the running app; a reserved key combination fires in the backend. Both emit the same `remote-intent` event, so the interface owns exactly one recording state machine and every guard against double starts applies to both.
+
+Key combinations are reserved only where the platform grants them: Windows, macOS, and Linux under X11. A Wayland session registers nothing — the compositor owns the keyboard — and Settings shows what to bind there instead. The plugin is installed from `setup` rather than at build time, so a host that refuses to create a hotkey manager costs the dictation key and not the application; a key another application already holds is reported in Settings, where it was entered, and the previously working key is released only after the new one parses.
+
+Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible.
+
+## Delivery to the focused window
+
+Clipboard, file and cursor are independent, and typing runs last so a delivery failure there costs a warning rather than the text.
+
+Paste is the default because synthesized keystrokes cross the compositor, the input method and the receiving application one character at a time, and each can drop or reorder one when input arrives faster than a person could type — the terminal that turns "Session" into "ession". A paste moves the whole text at once, so there is nothing to reorder. The chord depends on the window: terminals reserve plain Ctrl+V for the shell and take the text on Ctrl+Shift+V, while Ctrl+Shift+V means something else entirely in a browser or editor, so the focused window's class decides. Hyprland answers over its own socket, X11 through xdotool; an unrecognized window gets the chord every graphical toolkit agrees on. Guessing wrong costs a paste that does not arrive, never the text.
+
+Paste delivery is told whether the clipboard output already ran, so it neither writes the transcript twice nor takes the clipboard when it did not have to. When it does write, the text stays there — restoring the previous contents would race the receiving window's read and could paste the wrong text.
+
+Keystrokes stay selectable for the windows that refuse a paste, with a leading Shift press and release for the Wayland clients that swallow the first character a fresh virtual keyboard sends, and a delay between keys, clamped so a hand-edited settings file cannot stall delivery for minutes. Text always reaches wtype and xdotool on stdin, so a transcript starting with a dash is never read as options.
+
+Windows needs no helper program: one `SendInput` call appends its whole batch to the input queue atomically, so both methods deliver the text intact. Characters go in as Unicode rather than scan codes, making the transcript independent of the active keyboard layout, and every line ending becomes exactly one Return. Windows blocks input from a normal process to an elevated window; that is reported rather than counted as success. macOS typing is not implemented.
+
 ## Deliberate MVP constraints
 
 - Batch transcription only
-- Focused-window shortcuts only
+- One dictation key, not a set of separately bindable global shortcuts
+- No global dictation key under Wayland; the compositor binding covers it
+- No typing at the cursor on macOS
 - CPU local inference by default
-- No autostart, updater, or automatic text insertion
+- No autostart or updater
 - No files-as-clipboard-objects
 - No local LLM for transformations
 
-GPU backends, global shortcuts, and release signing require separate platform work and testing.
+GPU backends and release signing require separate platform work and testing.

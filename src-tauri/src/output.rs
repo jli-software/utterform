@@ -36,7 +36,15 @@ pub fn deliver(
                 .map_err(|error| error.to_string())
         },
         || save_file(text, request.output_format, settings),
-        || crate::typing::insert_at_cursor(text),
+        |clipboard_holds_text| {
+            crate::typing::insert_at_cursor(
+                app,
+                text,
+                settings.typing_method,
+                settings.typing_delay_ms,
+                clipboard_holds_text,
+            )
+        },
     )
 }
 
@@ -44,7 +52,7 @@ fn deliver_to(
     request: &ProcessRequest,
     clipboard: impl FnOnce() -> Result<(), String>,
     file: impl FnOnce() -> Result<PathBuf, String>,
-    type_at_cursor: impl FnOnce() -> Result<(), String>,
+    type_at_cursor: impl FnOnce(bool) -> Result<(), String>,
 ) -> Result<DeliveryResult, String> {
     if !request.copy_to_clipboard && !request.save_to_file && !request.type_at_cursor {
         return Err("Select Clipboard, File, or typing at the cursor as an output".into());
@@ -72,9 +80,11 @@ fn deliver_to(
     }
 
     // Typed last: the clipboard and the file are already safe by then, so a
-    // missing wtype/xdotool costs a warning rather than the text.
+    // missing wtype/xdotool costs a warning rather than the text. Paste
+    // delivery is told whether the clipboard already carries the transcript,
+    // so it neither writes it twice nor overwrites the clipboard needlessly.
     if request.type_at_cursor {
-        match type_at_cursor() {
+        match type_at_cursor(copied_to_clipboard) {
             Ok(()) => typed_at_cursor = true,
             Err(error) => warnings.push(format!("Typing: {error}")),
         }
@@ -160,8 +170,13 @@ mod tests {
                                             Err("unwritable".into())
                                         }
                                     },
-                                    || {
+                                    |clipboard_holds_text| {
                                         assert!(typing_requested);
+                                        assert_eq!(
+                                            clipboard_holds_text,
+                                            clipboard_requested && clipboard_succeeds,
+                                            "paste delivery must know whether the clipboard already holds the text"
+                                        );
                                         if typing_succeeds {
                                             Ok(())
                                         } else {

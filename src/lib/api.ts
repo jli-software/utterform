@@ -4,6 +4,7 @@ import type {
   AudioDevice,
   Engine,
   HistoryEntry,
+  HotkeySupport,
   LocalModel,
   OutputFormat,
   ProcessResult,
@@ -15,6 +16,11 @@ export const api = {
   // Delivered once: the intent Utterform was launched with, for a hotkey that
   // had to start the app first.
   takeStartupIntent: () => invoke<RemoteIntent | null>("take_startup_intent"),
+  globalHotkeySupport: () => invoke<HotkeySupport>("global_hotkey_support"),
+  // Separate from saving settings: only a changed dictation key re-registers,
+  // and a key another application holds is reported where it was entered.
+  applyGlobalHotkey: (shortcut: string | null) =>
+    invoke<void>("apply_global_hotkey", { shortcut }),
   getSettings: () => invoke<AppSettings>("get_settings"),
   listHistory: () => invoke<HistoryEntry[]>("list_history"),
   clearHistory: () => invoke<void>("clear_history"),
