@@ -66,6 +66,33 @@ Pull request #8 (`feat/robustness-and-models`, CI green, mergeable) carries two 
 
 **It bumps the version to 0.4.1, which is already released.** Jonas asked for the Windows dictation key as 0.4.1 and asked for it first; 0.4.2 is now taken as well. Re-target #8 to 0.4.3 before merging it; do not release it unasked.
 
+### Windows distribution — signing and winget
+
+Windows builds are unsigned, and staying unsigned is a deliberate decision, not an
+oversight. Researched on 2026-09-07 for Jonas as a Swiss sole proprietor
+(*Einzelfirma*):
+
+- **Azure Artifact Signing** (the renamed Azure Trusted Signing) is the cheapest
+  CI-capable route at roughly CHF 100/year, but Microsoft restricts *Individual
+  Developer* accounts to the USA and Canada. A Swiss Einzelfirma only qualifies
+  through *Organization* identity validation, which requires an Azure billing
+  account of that type and an officially verifiable registration. Not confirmed
+  for this business; it has to be tested by actually running the validation.
+- **SSL.com EV Sole Proprietor + eSigner** (roughly CHF 485/year) is the
+  fallback that explicitly covers sole proprietors, lists Switzerland, and
+  documents GitHub Actions.
+- Signing does **not** silence SmartScreen immediately in any case. Reputation
+  accrues to the signing identity over downloads.
+
+The decision: do not buy a certificate at current download volumes. Revisit if
+users report abandoning the install because of the warning.
+
+Instead, distribute through **winget**, which is free and needs no certificate.
+Manifests for 0.4.2 are prepared and validated in `packaging/winget/`; see that
+directory's README for the submission command and what is still open. The
+package is **not submitted yet**, so the README must not advertise
+`winget install` until the pull request is merged.
+
 ### Then
 
 Ordered as Jonas chose: robustness (in #8) before streaming. After that, file streaming and the vocabulary, then longer recordings and GPU acceleration. File streaming and realtime transcription are different projects and only the first is planned for 0.4.
