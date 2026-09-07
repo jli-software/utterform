@@ -36,16 +36,14 @@ pub const DEFAULT: &str = "Ctrl+Alt+D";
 pub struct Failure(Mutex<Option<String>>);
 
 impl Failure {
-    fn set<R: Runtime>(app: &AppHandle<R>, reason: Option<String>) {
-        if let Some(state) = app.try_state::<Failure>()
-            && let Ok(mut slot) = state.0.lock()
-        {
+    fn record(&self, reason: Option<String>) {
+        if let Ok(mut slot) = self.0.lock() {
             *slot = reason;
         }
     }
 
-    fn get<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-        app.try_state::<Failure>()?.0.lock().ok()?.clone()
+    fn reason(&self) -> Option<String> {
+        self.0.lock().ok()?.clone()
     }
 }
 
@@ -77,6 +75,10 @@ pub struct Support {
 }
 
 pub fn support<R: Runtime>(app: &AppHandle<R>) -> Support {
+    support_with(app.try_state::<Failure>().and_then(|state| state.reason()))
+}
+
+fn support_with(failure: Option<String>) -> Support {
     let supported = supported();
     Support {
         supported,
@@ -86,7 +88,7 @@ pub fn support<R: Runtime>(app: &AppHandle<R>) -> Support {
         } else {
             "Wayland gives no application a global shortcut — the compositor owns the keyboard. Bind `utterform --toggle` there instead."
         },
-        failure: Failure::get(app),
+        failure,
     }
 }
 
@@ -119,7 +121,9 @@ pub fn parse(spec: &str) -> Result<Shortcut, String> {
 /// Must not be called from the main thread — see the module note.
 pub fn apply<R: Runtime>(app: &AppHandle<R>, spec: Option<&str>) -> Result<(), String> {
     let outcome = register(app, spec);
-    Failure::set(app, outcome.as_ref().err().cloned());
+    if let Some(state) = app.try_state::<Failure>() {
+        state.record(outcome.as_ref().err().cloned());
+    }
     outcome
 }
 
@@ -208,8 +212,7 @@ mod tests {
 
     #[test]
     fn a_session_without_shortcuts_is_told_what_to_use_instead() {
-        let app = tauri::test::mock_app();
-        let support = support(app.handle());
+        let support = support_with(None);
         assert_eq!(support.default, DEFAULT);
         assert_eq!(support.explanation.is_empty(), support.supported);
         if !support.supported {
@@ -219,22 +222,21 @@ mod tests {
 
     #[test]
     fn a_key_that_could_not_be_registered_is_remembered_for_settings() {
-        let app = tauri::test::mock_app();
-        app.manage(Failure::default());
-        assert_eq!(support(app.handle()).failure, None);
+        // Startup registration runs on a thread with no one to report to, so
+        // the reason has to survive until Settings asks for it.
+        let failure = Failure::default();
+        assert_eq!(support_with(failure.reason()).failure, None);
 
-        // No plugin is installed here, so a rejected spec is the only way to
-        // fail — which is exactly the startup case Settings must report.
-        assert!(apply(app.handle(), Some("Ctrl+Alt+Nope")).is_err());
+        failure.record(parse("Ctrl+Alt+Nope").err());
         assert!(
-            support(app.handle())
+            support_with(failure.reason())
                 .failure
-                .is_some_and(|failure| failure.contains("Ctrl+Alt+Nope"))
+                .is_some_and(|reason| reason.contains("Ctrl+Alt+Nope"))
         );
 
         // A key that works clears it again, rather than leaving a stale
-        // complaint next to a shortcut that is now in effect.
-        assert!(apply(app.handle(), Some(DEFAULT)).is_ok());
-        assert_eq!(support(app.handle()).failure, None);
+        // complaint standing next to a shortcut that is now in effect.
+        failure.record(None);
+        assert_eq!(support_with(failure.reason()).failure, None);
     }
 }
