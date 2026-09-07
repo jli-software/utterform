@@ -8,6 +8,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `feedback.rs` — best-effort synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `activation.rs` — the single way to reveal the one main window, and which tray gestures ask for it
+- `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification

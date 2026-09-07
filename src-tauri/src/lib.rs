@@ -10,14 +10,11 @@ mod platform;
 mod secrets;
 mod settings;
 mod transcription;
+mod tray;
 
-use tauri::{
-    Manager,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-};
+use tauri::Manager;
 
-use activation::{opens_main_window, reveal_main_window};
+use activation::reveal_main_window;
 
 pub fn run() {
     tauri::Builder::default()
@@ -39,30 +36,7 @@ pub fn run() {
                 }
                 window.show()?;
             }
-            let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-            let mut tray = TrayIconBuilder::new()
-                .menu(&menu)
-                .show_menu_on_left_click(false);
-            if let Some(icon) = app.default_window_icon() {
-                tray = tray.icon(icon.clone());
-            }
-            tray.on_menu_event(|app, event| match event.id.as_ref() {
-                "show" => reveal_main_window(app),
-                "quit" => {
-                    let state = app.state::<audio::AudioCaptureState>();
-                    let _ = audio::cancel_recording(&state);
-                    app.exit(0);
-                }
-                _ => {}
-            })
-            .on_tray_icon_event(|tray, event| {
-                if opens_main_window(&event) {
-                    reveal_main_window(tray.app_handle());
-                }
-            })
-            .build(app)?;
+            tray::install(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {

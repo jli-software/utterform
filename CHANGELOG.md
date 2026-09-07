@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 — v0.3.3
+
+- Open Utterform with a left or middle click on the Linux tray icon: Utterform serves its own StatusNotifierItem instead of using AppIndicator, which exposes no `Activate`. This corrects the claim in 0.3.2 that Linux tray clicks are undeliverable.
+- Re-register the tray icon when the panel restarts, and fall back to the AppIndicator tray when no StatusNotifierItem host answers.
+- Verify tray activation against a real D-Bus watcher in CI.
+
+See [0.3.3 release notes](docs/releases/v0.3.3.md).
+
 ## 0.3.2 — v0.3.2
 
 - Run as a single instance: launching Utterform again reveals the running window instead of starting a second app.

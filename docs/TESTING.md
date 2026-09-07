@@ -1,5 +1,17 @@
 # Validation
 
+## 0.3.3 Linux tray activation
+
+The claim in 0.3.2 that Linux cannot deliver tray clicks was checked and is wrong. `libayatana-appindicator3.so.1`, which `tray-icon` uses for Tauri's Linux tray, exports `SecondaryActivate` and `XAyatanaSecondaryActivate` but no `Activate`, so its items can only offer a menu. That is a property of that library, not of the platform: hosts do call `Activate`, and applications that serve the StatusNotifierItem themselves receive it.
+
+`tray::status_notifier_item::tests::a_left_click_reaches_the_application` proves the new path end to end. It owns `org.kde.StatusNotifierWatcher` on a private session bus, lets the real tray register with it, and calls `org.kde.StatusNotifierItem.Activate` — the D-Bus call a left click produces. The reveal action must run exactly once. CI runs the Rust suite through `dbus-run-session` on Linux; run it the same way locally.
+
+Not covered: which gesture a specific panel maps to `Activate`. That is the panel's decision and needs one click on the real Omarchy desktop. Single-instance focusing likewise needs a compositor and was not observed in an automated test.
+
+## 0.3.2 single instance
+
+29 Rust tests including tray gesture mapping and ARGB32 icon conversion, 28 frontend/metadata tests, Rustfmt, Clippy with warnings denied, and the Linux package test asserting the desktop entry's window class. No display was available to the implementing session, so second-launch focusing was not observed directly.
+
 ## 0.3.1 compact recording and completion
 
 Local validation: Svelte/TypeScript, production Vite build, release metadata guard, 28 frontend/metadata tests, Rustfmt, Clippy with warnings denied, and 22 native Rust tests. Eight production Chromium scenarios cover recording/pause, settings focus, history, reduced motion, and floating layouts at 360 × 400, 480 × 480 and 920 × 400. Screenshots are inspected in light/dark themes. A review-found clipboard race is covered with deferred IPC: an in-flight copy drains before recording starts, and manual copy is unavailable throughout recording/processing so it cannot overwrite final delivery.
