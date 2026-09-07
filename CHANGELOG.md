@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — v0.3.2
+
+- Run as a single instance: launching Utterform again reveals the running window instead of starting a second app.
+- Open Utterform with a left click or double click on the tray icon (Windows and macOS; Linux tray clicks are not deliverable and keep using the menu).
+- Declare the window class in the Linux desktop entry so desktops match the running window to the launcher entry.
+
+See [0.3.2 release notes](docs/releases/v0.3.2.md).
+
 ## 0.3.1 — v0.3.1
 
 - Collapse Latest text by default while keeping Copy visible, with truthful clipboard-success feedback.
