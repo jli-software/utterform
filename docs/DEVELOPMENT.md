@@ -19,7 +19,11 @@
 
 **Settings is a tablist now** — Voice, Prompts, Output, General. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
 
-Not yet used by a person: everything in 0.4.2. It is tested (70 Rust, 53 Vitest, 11 Playwright) but the words that matter — does a rewritten prompt read the way Jonas wants, does "Careum" come back spelled correctly — are for a real recording to answer.
+**`gpt-transcribe` has no effort parameter.** Jonas asked for one alongside the vocabulary; the current API gives transcription `keywords`, `prompt` and `languages` and nothing else. Effort is `reasoning.effort` on the Responses call that runs Clean/Polish/Summarize/Prompt/Email, which is where it now sits — under **Prompts → Text model**, not under the microphone. Do not move it back without re-reading the transcription reference.
+
+**[v0.4.2](https://github.com/jli-software/utterform/releases/tag/v0.4.2) is published and its assets independently verified** ([release run 34138984113](https://github.com/jli-software/utterform/actions/runs/34138984113), all three platforms, from `d1461a5`). This is the state to build on and debug from; the next session starts here.
+
+Not yet used by a person: everything in 0.4.2. It is tested (70 Rust, 53 Vitest, 11 Playwright) but the words that matter — does a rewritten prompt read the way Jonas wants, is the Email default worth keeping as shipped, does "Careum" come back spelled correctly once it is in the vocabulary — are for a real recording to answer. The reasoning-effort levels have never been sent to a live model either. **Start the next session by asking Jonas what his own use turned up**, before adding anything.
 
 ### Before 0.4.2
 
