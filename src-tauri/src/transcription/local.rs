@@ -27,6 +27,10 @@ pub async fn transcribe(
         .iter()
         .find(|value| !value.trim().is_empty())
         .map(|value| value.trim().to_string());
+    // Whisper has no keyword field; the documented way to bias it towards a
+    // spelling is to put the words in the prompt it starts from. The same
+    // vocabulary therefore helps whichever engine is selected.
+    let vocabulary = initial_prompt(&settings.vocabulary);
 
     tokio::task::spawn_blocking(move || {
         let context = WhisperContext::new_with_params(
@@ -43,6 +47,9 @@ pub async fn transcribe(
         params.set_print_special(false);
         params.set_print_timestamps(false);
         params.set_language(language.as_deref());
+        if let Some(prompt) = vocabulary.as_deref() {
+            params.set_initial_prompt(prompt);
+        }
         state
             .full(params, &audio)
             .map_err(|error| format!("Local Whisper transcription failed: {error}"))?;
@@ -58,4 +65,33 @@ pub async fn transcribe(
     })
     .await
     .map_err(|error| format!("Local Whisper worker failed: {error}"))?
+}
+
+/// The vocabulary as a sentence Whisper can start from. Whisper takes prior
+/// text rather than a keyword list, and a comma-separated run of the words is
+/// the documented way to bias its spelling.
+fn initial_prompt(vocabulary: &[String]) -> Option<String> {
+    let terms = vocabulary
+        .iter()
+        .map(|term| term.trim())
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>();
+    (!terms.is_empty()).then(|| terms.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_vocabulary_leaves_whisper_alone() {
+        assert_eq!(initial_prompt(&[]), None);
+        assert_eq!(initial_prompt(&["  ".to_string()]), None);
+    }
+
+    #[test]
+    fn the_words_reach_whisper_as_prior_text() {
+        let vocabulary = ["Careum".to_string(), "  ".into(), " Utterform ".into()];
+        assert_eq!(initial_prompt(&vocabulary).unwrap(), "Careum, Utterform");
+    }
 }

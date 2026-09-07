@@ -9,7 +9,19 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.4.1
+## Current handoff — 0.4.2
+
+0.4.2 hands the prompts to whoever installed the app. Jonas asked for it directly: the five shipped actions are fine as defaults, but the people who download Utterform must be able to adapt them.
+
+**The shipped prompts live in `actions.rs` and nowhere else.** The interface fetches them through `list_built_in_actions` instead of keeping a copy, so what Settings shows, what Reset restores and what a recording runs cannot drift apart. `action_overrides` stores only what the user replaced, `name` and `prompt` independently, so an action that was merely renamed still benefits when we improve its instructions. A blank replacement resolves back to the default rather than failing the recording that used it. Resolution is in Rust, with the settings `finish_recording` already loads, which is why the tray, the dictation key and `--toggle` run the edited prompts without the frontend sending prompt text.
+
+**Vocabulary is one field feeding two engines.** GPT Transcribe takes it as `keywords[]`; local Whisper takes it joined as `initial_prompt`. The API refuses a keyword containing `<`, `>`, CR or LF and refuses the whole request with it, so the interface names a term it would drop and `usable_keywords` filters again before sending. `text_effort` becomes `reasoning.effort` and is sent only when chosen — Auto keeps 0.4.1 behaviour and cannot be rejected by a model that does not offer the level.
+
+**Settings is a tablist now** — Voice, Prompts, Output, General. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
+
+Not yet used by a person: everything in 0.4.2. It is tested (70 Rust, 53 Vitest, 11 Playwright) but the words that matter — does a rewritten prompt read the way Jonas wants, does "Careum" come back spelled correctly — are for a real recording to answer.
+
+### Before 0.4.2
 
 0.4.0 made dictation work without the window, on Omarchy. 0.4.1 gives Windows and macOS the same key and fixes the text arriving damaged.
 
@@ -48,7 +60,7 @@ Pull request #8 (`feat/robustness-and-models`, CI green, mergeable) carries two 
 - Robustness: a command answers even when its work panics (`resilience.rs`), bounded retries with backoff for rate limits and server faults (`openai::retry_delay`), and a 30-minute ceiling in the interface (`lib/ceiling.ts`).
 - The larger offline models: Medium, Large v3 Turbo, and the quantized Large v3 Turbo.
 
-**It bumps the version to 0.4.1, which this release now uses.** Jonas asked for the Windows dictation key as 0.4.1 and asked for it first. Re-target #8 to 0.4.2 before merging it; do not release it unasked.
+**It bumps the version to 0.4.1, which is already released.** Jonas asked for the Windows dictation key as 0.4.1 and asked for it first; 0.4.2 is now taken as well. Re-target #8 to 0.4.3 before merging it; do not release it unasked.
 
 ### Then
 

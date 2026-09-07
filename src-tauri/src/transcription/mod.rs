@@ -4,6 +4,7 @@ mod openai;
 use tauri::AppHandle;
 
 use crate::{
+    actions,
     audio::RecordingArtifact,
     domain::{AppSettings, TranscriptionEngine},
 };
@@ -25,7 +26,7 @@ pub async fn transform(
     custom_prompt: Option<&str>,
     settings: &AppSettings,
 ) -> Result<String, String> {
-    if action == "plain" {
+    if action == actions::PLAIN {
         return Ok(transcript.trim().to_string());
     }
     openai::transform(transcript, action, custom_prompt, settings).await

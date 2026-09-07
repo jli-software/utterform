@@ -68,7 +68,7 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    use crate::domain::TypingMethod;
+    use crate::domain::{TextEffort, TypingMethod};
 
     #[test]
     fn default_settings_are_serializable() {
@@ -106,6 +106,48 @@ mod tests {
             settings.global_hotkey.as_deref(),
             Some(crate::hotkey::DEFAULT)
         );
+    }
+
+    #[test]
+    fn a_settings_file_from_0_4_1_keeps_the_shipped_prompts_and_gains_the_new_fields() {
+        // 0.4.1 knew nothing of prompt overrides, vocabulary or effort. An
+        // upgrade must leave every shipped prompt in force and send neither a
+        // keyword nor a reasoning level until the user asks for one.
+        let earlier = r#"{
+            "engine": "open_ai",
+            "text_model": "gpt-5-mini",
+            "custom_actions": [{ "id": "a", "name": "Notes", "prompt": "Bullets only" }],
+            "typing_method": "paste",
+            "global_hotkey": "Ctrl+Alt+D"
+        }"#;
+        let settings: AppSettings = serde_json::from_str(earlier).unwrap();
+        assert!(settings.action_overrides.is_empty());
+        assert!(settings.vocabulary.is_empty());
+        assert!(settings.transcription_context.is_empty());
+        assert_eq!(settings.text_effort, None);
+        assert_eq!(settings.custom_actions.len(), 1, "custom actions survive");
+    }
+
+    #[test]
+    fn an_edited_prompt_survives_a_save_and_a_reload() {
+        let mut settings = AppSettings::default();
+        settings.action_overrides.insert(
+            "email".into(),
+            crate::actions::ActionOverride {
+                name: Some("Reply".into()),
+                prompt: Some("Answer in two sentences.".into()),
+            },
+        );
+        settings.vocabulary = vec!["Careum".into()];
+        settings.text_effort = Some(TextEffort::Low);
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: AppSettings = serde_json::from_str(&json).unwrap();
+        let stored = restored.action_overrides.get("email").unwrap();
+        assert_eq!(stored.name.as_deref(), Some("Reply"));
+        assert_eq!(stored.prompt.as_deref(), Some("Answer in two sentences."));
+        assert_eq!(restored.vocabulary, vec!["Careum".to_string()]);
+        assert_eq!(restored.text_effort, Some(TextEffort::Low));
     }
 
     #[test]

@@ -2,6 +2,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::{
+    actions::{self, BuiltInAction},
     audio::{self, AudioCaptureState},
     domain::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
@@ -37,6 +38,13 @@ pub async fn apply_global_hotkey(app: AppHandle, shortcut: Option<String>) -> Re
         .map_err(|error| format!("Could not reach the shortcut manager: {error}"))?
 }
 
+/// The prompts Utterform ships with, so Settings can show and reset them
+/// without keeping a second copy of the text that would drift out of step.
+#[tauri::command]
+pub fn list_built_in_actions() -> &'static [BuiltInAction] {
+    actions::BUILT_INS
+}
+
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
     settings::load(&app)
@@ -61,7 +69,7 @@ pub fn start_recording(
     local_model_id: Option<String>,
     action: String,
 ) -> Result<(), String> {
-    if engine == TranscriptionEngine::OpenAi || action != "plain" {
+    if engine == TranscriptionEngine::OpenAi || action != actions::PLAIN {
         secrets::openai_api_key()?;
     }
     if engine == TranscriptionEngine::LocalWhisper {
@@ -137,7 +145,7 @@ pub async fn finish_recording(
     .await
     {
         Ok(text) => text,
-        Err(error) if request.action != "plain" => {
+        Err(error) if request.action != actions::PLAIN => {
             transformation_succeeded = false;
             warnings.push(format!(
                 "Transformation failed; the plain transcript was used: {error}"

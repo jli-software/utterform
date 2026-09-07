@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
+/// Just the queries these helpers use, so they take any render result.
+type Screen = {
+  getByRole: (role: string, options?: Record<string, unknown>) => HTMLElement;
+  queryByRole: (role: string, options?: Record<string, unknown>) => HTMLElement | null;
+};
 import { DEFAULT_SETTINGS } from "./lib/types";
-import type { HistoryEntry } from "./lib/types";
+import type { BuiltInAction, HistoryEntry } from "./lib/types";
 import App from "./App.svelte";
 import { api } from "./lib/api";
 
@@ -22,6 +27,7 @@ async function remoteIntent(intent: string) {
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
+  listBuiltInActions: vi.fn(),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
@@ -30,6 +36,14 @@ vi.mock("./lib/api", () => ({ api: {
   copyText: vi.fn(), clearHistory: vi.fn(),
 } }));
 
+// What the backend answers with: the prompts live in Rust, so the interface
+// only ever sees them over the wire.
+const SHIPPED_ACTIONS: BuiltInAction[] = [
+  { id: "plain", name: "Plain", hint: "Transcription only", prompt: "" },
+  { id: "clean", name: "Clean", hint: "Fix punctuation and obvious errors", prompt: "Correct punctuation, capitalization, and spelling." },
+  { id: "email", name: "Email", hint: "Turn it into a ready-to-send email", prompt: "Write the transcript as an email." },
+];
+
 const latest: HistoryEntry = { id: "2", createdAtMs: new Date(2026, 8, 6, 14, 30).getTime(), title: "Plan for tomorrow", text: "Plan for tomorrow: write tests.", durationMs: 2400, engine: "open_ai" };
 const older: HistoryEntry = { ...latest, createdAtMs: new Date(2026, 8, 4, 9, 15).getTime(), id: "1", title: "Earlier idea", text: "An earlier idea worth keeping." };
 
@@ -37,7 +51,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   listeners.clear();
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
+  vi.mocked(api.takeStartupIntent).mockResolvedValue(null);
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
+  vi.mocked(api.listBuiltInActions).mockResolvedValue(structuredClone(SHIPPED_ACTIONS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
   let paused = false;
   const status = () => ({ recording: true, paused, limitReached: false, elapsedSeconds: 12, level: paused ? 0 : .3 });
@@ -45,6 +61,12 @@ beforeEach(() => {
   vi.mocked(api.setRecordingPaused).mockImplementation(async (value) => { paused = value; return status(); });
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+/// Settings opens on Voice; everything else lives one tab away.
+async function showSettingsTab(view: Screen, tab: string) {
+  await waitFor(() => expect(view.queryByRole("dialog")).not.toBeNull());
+  await fireEvent.click(view.getByRole("tab", { name: new RegExp(tab) }));
+}
 
 async function renderExpanded() {
   const view = render(App);
@@ -186,6 +208,7 @@ describe("transcript history", () => {
     const view = await renderExpanded();
     await waitFor(() => expect(view.queryByText(latest.text)).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
     await fireEvent.click(view.getByRole("button", { name: "Clear saved history" }));
     expect(api.clearHistory).not.toHaveBeenCalled();
     await fireEvent.click(view.getByRole("button", { name: "Confirm: delete all saved texts" }));
@@ -306,7 +329,7 @@ describe("dictation key settings", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await waitFor(() => expect(view.queryByRole("dialog")).not.toBeNull());
+    await showSettingsTab(view, "Output");
     return view;
   }
 
@@ -335,6 +358,7 @@ describe("dictation key settings", () => {
 
   it("leaves a working key alone when other settings change", async () => {
     const view = await openSettings();
+    await showSettingsTab(view, "General");
     await fireEvent.click(view.getByRole("button", { name: "Dark" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
 
@@ -375,6 +399,7 @@ describe("typing at the cursor", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Output");
 
     // Paste is the default because it cannot drop or reorder characters.
     expect(view.queryByRole("spinbutton", { name: /Delay between keystrokes/ })).toBeNull();
@@ -387,5 +412,149 @@ describe("typing at the cursor", () => {
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ typing_method: "keystrokes", typing_delay_ms: 40 }),
     ));
+  });
+});
+
+describe("editing the prompts Utterform ships with", () => {
+  async function openPrompts() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Prompts");
+    return view;
+  }
+
+  it("shows the shipped instructions, and Plain as the one with none", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: /Clean/ }));
+    expect((view.getByRole("textbox", { name: "Prompt instructions" }) as HTMLTextAreaElement).value)
+      .toBe("Correct punctuation, capitalization, and spelling.");
+
+    await fireEvent.click(view.getByRole("button", { name: /Plain/ }));
+    expect(view.queryByRole("textbox", { name: "Prompt instructions" })).toBeNull();
+    expect(view.queryByText(/never reaches a text model/)).not.toBeNull();
+  });
+
+  it("saves a rewritten prompt, and offers the original alongside it", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: /Email/ }));
+    const editor = view.getByRole("textbox", { name: "Prompt instructions" });
+    await fireEvent.input(editor, { target: { value: "Answer in two sentences." } });
+
+    await fireEvent.click(view.getByRole("button", { name: "View the original" }));
+    expect(view.queryByText("Write the transcript as an email.")).not.toBeNull();
+
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      action_overrides: { email: { prompt: "Answer in two sentences." } },
+    })));
+  });
+
+  it("keeps an emptied box empty to type in, without storing an edit", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: /Clean/ }));
+    const editor = view.getByRole("textbox", { name: "Prompt instructions" }) as HTMLTextAreaElement;
+    await fireEvent.input(editor, { target: { value: "" } });
+
+    expect(editor.value).toBe("");
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ action_overrides: {} }),
+    ));
+  });
+
+  it("brings the shipped text back, and stops calling the action edited", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      action_overrides: { clean: { name: "Tidy", prompt: "Fix commas only." } },
+    });
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: /Tidy/ }));
+    expect((view.getByRole("textbox", { name: "Prompt instructions" }) as HTMLTextAreaElement).value)
+      .toBe("Fix commas only.");
+
+    await fireEvent.click(view.getByRole("button", { name: "Reset" }));
+    expect((view.getByRole("textbox", { name: "Prompt instructions" }) as HTMLTextAreaElement).value)
+      .toBe("Correct punctuation, capitalization, and spelling.");
+    expect(view.queryByRole("button", { name: /Tidy/ })).toBeNull();
+
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ action_overrides: {} }),
+    ));
+  });
+
+  it("offers a renamed action under its new name, and Cancel puts it back", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: /Email/ }));
+    await fireEvent.input(view.getByRole("textbox", { name: "Prompt name" }), { target: { value: "Reply" } });
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    await fireEvent.click(view.getByRole("combobox", { name: "Action" }));
+    await waitFor(() => expect(view.queryByRole("option", { name: /Email/ })).not.toBeNull());
+    expect(view.queryByRole("option", { name: /Reply/ })).toBeNull();
+  });
+
+  it("chooses an added prompt straight away, and drops it again on delete", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: "Add prompt" }));
+    const editor = view.getByRole("textbox", { name: "Prompt instructions" }) as HTMLTextAreaElement;
+    expect(editor.value).toBe("");
+    await fireEvent.input(view.getByRole("textbox", { name: "Prompt name" }), { target: { value: "Standup" } });
+    await fireEvent.input(editor, { target: { value: "Three bullets." } });
+
+    await fireEvent.click(view.getByRole("button", { name: "Delete prompt" }));
+    expect(view.queryByRole("button", { name: /Standup/ })).toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ custom_actions: [] }),
+    ));
+  });
+
+  it("sends a chosen reasoning level, and nothing at all on Auto", async () => {
+    const view = await openPrompts();
+    await fireEvent.click(view.getByRole("button", { name: "Low" }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ text_effort: "low" }),
+    ));
+
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Prompts");
+    await fireEvent.click(view.getByRole("button", { name: "Auto" }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text_effort: null }),
+    ));
+  });
+});
+
+describe("vocabulary", () => {
+  async function openVoice() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Voice");
+    return view;
+  }
+
+  it("keeps one term per line, and drops the blank ones", async () => {
+    const view = await openVoice();
+    await fireEvent.input(view.getByRole("textbox", { name: "Vocabulary" }), {
+      target: { value: "Careum\n\n  Utterform  \n" },
+    });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ vocabulary: ["Careum", "Utterform"] }),
+    ));
+  });
+
+  it("names the term the transcription API would refuse, rather than losing the recording to it", async () => {
+    const view = await openVoice();
+    await fireEvent.input(view.getByRole("textbox", { name: "Vocabulary" }), {
+      target: { value: "Careum\n<tagged>" },
+    });
+    expect(view.getByRole("alert").textContent).toContain("<tagged>");
   });
 });

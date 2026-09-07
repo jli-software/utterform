@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   AudioDevice,
+  BuiltInAction,
   Engine,
   HistoryEntry,
   HotkeySupport,
@@ -21,6 +22,9 @@ export const api = {
   // and a key another application holds is reported where it was entered.
   applyGlobalHotkey: (shortcut: string | null) =>
     invoke<void>("apply_global_hotkey", { shortcut }),
+  // The prompts Utterform ships with. Fetched rather than copied into the
+  // interface, so Settings shows and resets exactly the text a recording runs.
+  listBuiltInActions: () => invoke<BuiltInAction[]>("list_built_in_actions"),
   getSettings: () => invoke<AppSettings>("get_settings"),
   listHistory: () => invoke<HistoryEntry[]>("list_history"),
   clearHistory: () => invoke<void>("clear_history"),
