@@ -5,16 +5,36 @@
 //! interleave and nothing arrives out of order. Characters go in as Unicode
 //! rather than as keyboard scan codes, so the transcript does not depend on
 //! the layout the user happens to have active.
+//!
+//! A paste is a chord, and a chord is where 0.4.4 went wrong. It pressed
+//! `VK_CONTROL` and `VK_V` with no scan code, which every classic window
+//! accepts and Windows Terminal does not: it asks the key state for the left
+//! and right Control keys individually and reads the scan code off the
+//! message, and a synthesized key that carries neither looks like no key at
+//! all. So every key here is sent the way the keyboard would send it — the
+//! left-hand modifier, with its scan code — and a terminal gets Shift+Insert,
+//! the paste every Windows console understands, where Ctrl+V is the shell's
+//! and Ctrl+Shift+V is unknown to half of them.
 
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput,
-    VIRTUAL_KEY, VK_CONTROL, VK_RETURN, VK_V,
+use windows_sys::Win32::{
+    Foundation::CloseHandle,
+    System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    },
+    UI::{
+        Input::KeyboardAndMouse::{
+            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+            KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MapVirtualKeyW, SendInput, VIRTUAL_KEY, VK_INSERT,
+            VK_LCONTROL, VK_LSHIFT, VK_RETURN, VK_V,
+        },
+        WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId},
+    },
 };
 
-use super::{Key, keys_for};
-use crate::domain::TypingMethod;
+use super::{Key, Paste, keys_for, paste_for_window};
+use crate::{diagnostics, domain::TypingMethod};
 
 /// One batch stays well inside what the queue accepts while remaining large
 /// enough that an ordinary transcript is a single, uninterruptible injection.
@@ -35,14 +55,23 @@ fn unicode(unit: u16, up: bool) -> INPUT {
     }
 }
 
+/// A key as the keyboard would report it: virtual key and scan code both, and
+/// the extended flag on the keys that carry it, so a window that reads either
+/// sees a real key.
 fn virtual_key(key: VIRTUAL_KEY, up: bool) -> INPUT {
+    let scan = unsafe { MapVirtualKeyW(u32::from(key), MAPVK_VK_TO_VSC) } as u16;
+    let extended = if key == VK_INSERT {
+        KEYEVENTF_EXTENDEDKEY
+    } else {
+        0
+    };
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: key,
-                wScan: 0,
-                dwFlags: if up { KEYEVENTF_KEYUP } else { 0 },
+                wScan: scan,
+                dwFlags: extended | if up { KEYEVENTF_KEYUP } else { 0 },
                 time: 0,
                 dwExtraInfo: 0,
             },
@@ -97,14 +126,73 @@ pub fn type_text(text: &str) -> Result<(), String> {
     send(&batch)
 }
 
-/// Press Ctrl+V. Windows Terminal, the console host and every graphical
-/// toolkit paste on it, so there is no terminal special case to make here.
+/// A UTF-16 buffer Windows filled, up to its first NUL.
+fn string_from(buffer: &[u16]) -> String {
+    let end = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    String::from_utf16_lossy(&buffer[..end])
+}
+
+/// The window that will receive the paste: its class, and the name of the
+/// program behind it without the `.exe`. Either can be missing — a window
+/// belonging to a process Utterform may not open, say — and the paste is then
+/// chosen from what there is.
+fn focused_window() -> (Option<String>, Option<String>) {
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_null() {
+        return (None, None);
+    }
+    let mut class = [0u16; 256];
+    let class = match unsafe { GetClassNameW(window, class.as_mut_ptr(), class.len() as i32) } {
+        0 => None,
+        _ => Some(string_from(&class)),
+    };
+    let mut process_id = 0u32;
+    unsafe { GetWindowThreadProcessId(window, &mut process_id) };
+    if process_id == 0 {
+        return (class, None);
+    }
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+    if process.is_null() {
+        return (class, None);
+    }
+    let mut path = [0u16; 1024];
+    let mut length = path.len() as u32;
+    let program =
+        match unsafe { QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut length) } {
+            0 => None,
+            _ => std::path::Path::new(&string_from(&path[..length as usize]))
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned()),
+        };
+    unsafe { CloseHandle(process) };
+    (class, program)
+}
+
+/// Press the paste chord the focused window listens for, and say which.
 pub fn press_paste() -> Result<(), String> {
+    let (class, program) = focused_window();
+    let paste = paste_for_window(class.as_deref(), program.as_deref());
+    diagnostics::log(format!(
+        "pasting into window class {:?} of program {:?} with {}",
+        class.as_deref().unwrap_or("unknown"),
+        program.as_deref().unwrap_or("unknown"),
+        match paste {
+            Paste::Plain => "Ctrl+V",
+            Paste::Terminal => "Shift+Insert",
+        }
+    ));
+    let (modifier, key) = match paste {
+        Paste::Plain => (VK_LCONTROL, VK_V),
+        Paste::Terminal => (VK_LSHIFT, VK_INSERT),
+    };
     send(&[
-        virtual_key(VK_CONTROL, false),
-        virtual_key(VK_V, false),
-        virtual_key(VK_V, true),
-        virtual_key(VK_CONTROL, true),
+        virtual_key(modifier, false),
+        virtual_key(key, false),
+        virtual_key(key, true),
+        virtual_key(modifier, true),
     ])
 }
 

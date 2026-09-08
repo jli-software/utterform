@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.5 — v0.4.5
+
+- Typing at the cursor reaches Windows Terminal and the other Windows consoles. Keys are sent the way a keyboard sends them — left-hand modifier, scan code, extended flag — where 0.4.4 pressed a bare virtual key that Windows Terminal ignores, and a terminal window, recognised by its class or the program behind it, gets Shift+Insert, the paste every Windows console understands. Other windows keep Ctrl+V.
+- Every cue plays on a thread of its own, and the start cue is opened after the microphone rather than before it, so a capture stream reconfiguring the device cannot cut it off. Starting a recording no longer runs on the main thread.
+- A log file, `utterform.log` in the app's local data directory, records every cue outcome, the microphone opening, the recording arming and the paste decision — a Windows release build has no console. Settings shows the path and offers to play the three cues after five seconds, with the window in the background.
+- The tray dot is a third of its former size, without the white ring.
+
+See [0.4.5 release notes](docs/releases/v0.4.5.md).
+
 ## 0.4.4 — v0.4.4
 
 - A buffer under- or overrun no longer fails the recording. Windows and macOS report one on a stream that keeps running, to say a few milliseconds went missing; treating it as fatal threw away every recording made through a microphone Windows had just re-enumerated after a dock was plugged back in, with "Microphone stream failed: A buffer underrun or overrun occurred." Gaps are counted and logged; only a lost device ends a recording.

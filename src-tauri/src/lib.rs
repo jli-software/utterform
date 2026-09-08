@@ -3,6 +3,7 @@ mod activation;
 mod audio;
 mod cli;
 mod commands;
+mod diagnostics;
 mod domain;
 mod feedback;
 mod history;
@@ -61,6 +62,7 @@ pub fn run() {
         .manage(history::HistoryState::default())
         .manage(hotkey::Failure::default())
         .setup(|app| {
+            diagnostics::install(app.handle());
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
             app.state::<StartupIntent>()
                 .set(cli::intent_from(std::env::args()));
@@ -106,6 +108,8 @@ pub fn run() {
             commands::list_input_devices,
             commands::start_recording,
             commands::get_recording_status,
+            commands::play_test_cues,
+            commands::diagnostics_log_path,
             commands::set_recording_paused,
             commands::cancel_recording,
             commands::finish_recording,

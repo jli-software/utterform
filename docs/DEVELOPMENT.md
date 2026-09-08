@@ -9,6 +9,24 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.5
+
+Jonas's second Windows report, on 0.4.4, the same day: the text pastes everywhere except into a terminal; the start click sounds only when Utterform's own window is in the foreground — behind another window there is nothing, and once the stop click was missing too; and the tray dot should be more discreet.
+
+**Windows terminals get Shift+Insert, and every key carries a scan code.** `typing/windows.rs` pressed `VK_CONTROL` and `VK_V` with `wScan = 0`. Classic Win32, GTK, Qt and Chromium windows take that; Windows Terminal reads `KeyStatus().ScanCode` off the message and asks `CoreWindow.GetKeyState` for `LeftControl` and `RightControl` separately, and a bare `VK_CONTROL` without a scan code satisfies neither. `virtual_key` now fills the scan code from `MapVirtualKeyW` and sets the extended flag on Insert; the chord names `VK_LCONTROL` / `VK_LSHIFT`. `focused_window` reads the foreground window's class and, through `QueryFullProcessImageNameW`, the program behind it, and `paste_for_window` in `typing/mod.rs` recognises a terminal by either — Windows Terminal's class is `CASCADIA_HOSTING_WINDOW_CLASS`, the console host's `ConsoleWindowClass` under any shell, Electron terminals only by program. A terminal gets Shift+Insert rather than Ctrl+Shift+V because conhost, PuTTY and ConEmu do not know the latter and all of them know the former. The decision is logged with the class and program, so a window that gets the wrong chord can be named. VS Code is deliberately not a terminal: the whole window pastes on Ctrl+V.
+
+**Every cue on its own thread, after the microphone.** `feedback::start` now spawns a thread that opens, plays, finishes and drops the stream and logs the outcome; `Playback` is a receiver for the result. `audio::start_recording` opens the microphone first and starts the cue after `stream.play()`. `commands::start_recording` is `async` and does its work in `spawn_blocking`, so none of it runs on the main thread any more — a synchronous Tauri command does, and on Windows that is WebView2's thread. `arm` logs unconditionally with the time since the microphone opened.
+
+**What is not settled: why the foreground mattered.** Nothing in WASAPI cares which window is in front. Candidates, in the order to check: the cue thread and stream living on the main thread (removed now); the microphone opening reconfiguring the output device — a Bluetooth headset dropping to its hands-free profile silences the A2DP stream the cue was on, and this also explains a stop click going missing when the profile switches back late (order changed now, so the cue opens on whatever the device has become); Windows' communications ducking, Sound → Communications → "Mute all other sounds", which starts when a capture stream opens on the default communications device; and Windows 11 timer coalescing for processes whose windows are not visible, which should not touch an event-driven WASAPI stream but has not been ruled out.
+
+**What to ask Jonas, and what the log will say.** Which speaker and which microphone — laptop, dock, Bluetooth headset — and whether they are the same device. Then: Settings → Recording feedback → *Play the sounds in 5 seconds*, switch to another window, and read the result. All three play → the cue path is fine in the background and the microphone is the culprit; then try Sound → Communications → *Do nothing*, and a wired microphone. None play → the cue path itself is blocked in the background; the log line says whether the stream opened and how long the device took. The log is `%LOCALAPPDATA%\software.jli.utterform\utterform.log`; every real recording writes `microphone … open after`, `start cue played on …` or `start cue not played: …`, and `recording armed … ms after the microphone opened`. For the terminal: which terminal program, and whether a physical Shift+Insert pastes there.
+
+**The tray dot is a third of the size, without the ring.** `recording_badge` in `tray.rs`: radius 0.19 of the side, 0.06 margin, one pixel of anti-aliasing, no white ring — the corner it sits in is the icon's dark surface. Still six pixels across at 16. If Jonas wants it quieter still, the next step is tinting the microphone capsule rather than adding anything.
+
+**Windows cannot be compiled here.** `cargo check --target x86_64-pc-windows-msvc` fails in `ring`'s build script for want of a C compiler for that target. Run Actions → Desktop builds on the branch, `windows` for a quick answer and `all` before tagging.
+
+### Before 0.4.5
+
 ## Current handoff — 0.4.4
 
 Jonas tested 0.4.3 on Windows the same afternoon. Three findings, all fixed here; the first was a blocker.

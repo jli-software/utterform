@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.5 Paste into a Windows terminal, cues on their own threads, and a log
+
+81 native and 53 interface tests. New native coverage: a Windows terminal being recognised by its window class or by the program behind it — Windows Terminal, the console host under any shell, Electron terminals by program — while VS Code, browsers, Word and Notepad keep the ordinary paste; and the tray dot being small, soft-edged and confined to the lower right corner while still solid at 16 pixels. The badge tests replace the 0.4.4 ones.
+
+**Diagnosed from Jonas's report, not reproduced here.** The Windows paste failure — text arriving everywhere except in a terminal — matches Windows Terminal ignoring a synthesized Ctrl+V that carries no scan code and names the generic rather than the left Control key. The fix cannot be compiled on this Linux machine: `cargo check --target x86_64-pc-windows-msvc` stops at `ring`'s build script for want of a C compiler, so the Windows build is verified through Actions → Desktop builds on the branch. What no test covers: whether Windows Terminal takes the corrected Ctrl+V as well — it is sent Shift+Insert regardless — and whether Shift+Insert reaches every terminal on the list.
+
+**The start click on Windows is changed, not confirmed.** Jonas reported on 2026-09-08 that on 0.4.4 the click sounds with Utterform's window in front and not otherwise. The two structural differences between the start cue and the stop cue that works are removed (own thread per cue, opened after the microphone) and every outcome is logged. Whether that was the cause is what the log and the test button will say; see the handoff in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## 0.4.4 A gap is not a failure, and a dot on the tray
 
 79 native and 53 interface tests. New native coverage: a buffer under- or overrun report being counted while the stream error stays clear, and a lost device still ending the recording; the start cue peaking well above Stop and staying audible for longer, while remaining a click rather than an alarm; the recording badge being a solid red disc in the lower right that leaves the rest of the icon untouched, opaque even over a transparent icon, still several pixels across at the 16 pixels a Windows tray gives it, and never panicking on a buffer of the wrong size. The ksni tray test now spawns with both icons.

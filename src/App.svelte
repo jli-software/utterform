@@ -96,6 +96,10 @@
   let copyReset: ReturnType<typeof setTimeout> | null = null;
   let confirmClear = false;
   let historyMessage = "";
+  let cueTestMessage = "";
+  let cueTestPending = false;
+  let logPath: string | null = null;
+  let unlistenCueTest: UnlistenFn | undefined;
   const copyShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧C" : "Ctrl+Shift+C";
   let message = "Ready when you are";
   let downloadProgress: Record<string, number> = {};
@@ -185,11 +189,21 @@
     unlistenIntent = await listen<RemoteIntent>("remote-intent", (event) => {
       void applyIntent(event.payload);
     });
+    unlistenCueTest = await listen<string>("test-cues-finished", (event) => {
+      cueTestPending = false;
+      cueTestMessage = event.payload;
+    });
     if (destroyed) {
       unlistenProgress?.();
       unlistenLimit?.();
       unlistenIntent?.();
+      unlistenCueTest?.();
       return;
+    }
+    try {
+      logPath = await api.diagnosticsLogPath();
+    } catch {
+      logPath = null;
     }
     // A hotkey that had to start Utterform still means "record now".
     try {
@@ -207,6 +221,7 @@
     unlistenProgress?.();
     unlistenLimit?.();
     unlistenIntent?.();
+    unlistenCueTest?.();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("keydown", handleKeyDown);
   });
@@ -284,6 +299,19 @@
       if (event.key.toLowerCase() === "t") {
         settings = { ...settings, type_at_cursor: !settings.type_at_cursor };
       }
+    }
+  }
+
+  /// Five seconds is enough to click and switch to another window, which is
+  /// the situation a hotkey recording plays its cues in.
+  async function testCues() {
+    cueTestMessage = "";
+    cueTestPending = true;
+    try {
+      await api.playTestCues(5);
+    } catch (error) {
+      cueTestPending = false;
+      cueTestMessage = String(error);
     }
   }
 
@@ -848,6 +876,9 @@
 
         <div class="setting-group"><h3>Recording feedback</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play start/stop clicks and a chime when the text is ready</span></label>
+          <button class="cue-test" disabled={cueTestPending} onclick={testCues}>{cueTestPending ? "Playing in 5 seconds…" : "Play the sounds in 5 seconds"}</button>
+          <p class="privacy-note">Click, then switch to another window — that is how a hotkey recording plays them. What each sound did is shown here afterwards{#if logPath} and written to the log at <code>{logPath}</code>{/if}.</p>
+          {#if cueTestMessage}<pre class="cue-report" role="status">{cueTestMessage}</pre>{/if}
         </div>
         {/if}
 
