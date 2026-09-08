@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.4** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.4.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.4).
+> Utterform is under active development. **0.4.5** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.5.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.5).
 
 ## Install on Omarchy / Arch Linux
 
@@ -46,13 +46,13 @@ The command line works on every platform, from any launcher, script or panel but
 
 If Utterform is not running yet, the command starts it and still records.
 
-Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**. The tray icon shows a red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow.
+Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**. The tray icon carries a small red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow. If a sound stays silent, **Settings → Recording feedback → Play the sounds in 5 seconds** plays all three with the window in the background and reports what each did; every sound also leaves a line in the log file whose path is shown there.
 
 ## Typing at the cursor
 
 Enable **Type** in the output bar (or press `T`) to have the finished text put into the window you were working in, next to clipboard and file. Clipboard, file and typing are independent, and typing happens last, so a failure there costs a warning and never the text.
 
-**Paste** is the default. The whole text moves in one step, so nothing can be dropped or reordered on the way — the reason a terminal used to turn "Session" into "ession". Utterform sends the paste a terminal listens for (`Ctrl+Shift+V`) and the one every other window takes (`Ctrl+V`). Paste delivery leaves the text on the clipboard.
+**Paste** is the default. The whole text moves in one step, so nothing can be dropped or reordered on the way — the reason a terminal used to turn "Session" into "ession". Utterform sends the paste a terminal listens for — `Ctrl+Shift+V` on Linux, `Shift+Insert` on Windows — and the one every other window takes (`Ctrl+V`). Paste delivery leaves the text on the clipboard.
 
 **Keystrokes** is available under **Settings → Typing at the cursor** for windows that refuse a paste. It types character by character, with a leading Shift tap for the Wayland clients that swallow the first character and an adjustable delay (15 ms by default) for the ones that reorder fast input.
 
@@ -63,7 +63,7 @@ sudo pacman -S --needed wtype     # Wayland/Hyprland
 sudo pacman -S --needed xdotool   # X11
 ```
 
-On Windows nothing needs installing; Utterform uses `SendInput` directly, sending Unicode rather than scan codes so the active keyboard layout does not matter. Windows refuses input from a normal process to a window running as administrator, which is reported as a delivery warning.
+On Windows nothing needs installing; Utterform uses `SendInput` directly, sending characters as Unicode so the active keyboard layout does not matter, and the paste chord the way a keyboard would press it. Windows Terminal, the console host behind `cmd` and PowerShell, mintty, PuTTY, ConEmu, Alacritty, WezTerm, Hyper and Tabby are recognised as terminals; Windows Terminal still shows its own warning before a paste with more than one line unless that is turned off in its settings. Windows refuses input from a normal process to a window running as administrator, which is reported as a delivery warning.
 
 Typing at the cursor is not implemented on **macOS** yet.
 
@@ -87,7 +87,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.4.4 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.4):
+Download the [0.4.5 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.5):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -148,6 +148,7 @@ Global dictation is separate from these: see [Dictate from anywhere](#dictate-fr
 - The OpenAI API key is never written to `settings.json`; it is stored through the native OS keyring.
 - The last 100 completed texts are stored unencrypted on this device in `history.json`, including clipboard-only output. Titles are generated locally, without an AI call. Disable future storage or clear existing history in Settings; exported files and clipboard contents are not cleared.
 - Text history paths: Linux `~/.local/share/software.jli.utterform/history.json` (or `$XDG_DATA_HOME`), macOS `~/Library/Application Support/software.jli.utterform/history.json`, Windows `%LOCALAPPDATA%\\software.jli.utterform\\history.json`.
+- A log of cue, microphone and paste outcomes — no transcripts, no audio — is written next to the history as `utterform.log`, and starts over at one megabyte. Settings → Recording feedback shows the path.
 
 ## Development
 
