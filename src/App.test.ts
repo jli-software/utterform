@@ -49,6 +49,8 @@ const older: HistoryEntry = { ...latest, createdAtMs: new Date(2026, 8, 4, 9, 15
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // jsdom has no canvas renderer; actual pixels and motion are covered in Playwright.
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   listeners.clear();
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);

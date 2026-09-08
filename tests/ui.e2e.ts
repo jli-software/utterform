@@ -1,5 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { DEFAULT_SETTINGS } from "../src/lib/types";
+
+const ribbonPixels = (page: Page) => page.locator<HTMLCanvasElement>(".signal-field").evaluate((canvas) => canvas.toDataURL());
 
 // Exercise the production bundle, with synthetic IPC instead of microphones,
 // credentials, paid API calls, or the user's real clipboard/history.
@@ -111,15 +113,15 @@ test("pause freezes recording time and Space finishes even with Pause focused", 
   await page.goto("/");
   await page.getByRole("button", { name: "Start recording", exact: true }).click();
   await expect(page.locator(".timer")).toContainText("00:01");
-  const movingContour = await page.locator(".signal-field path").first().getAttribute("d");
-  await expect.poll(() => page.locator(".signal-field path").first().getAttribute("d")).not.toBe(movingContour);
+  const movingContour = await ribbonPixels(page);
+  await expect.poll(() => ribbonPixels(page)).not.toBe(movingContour);
   await page.getByRole("button", { name: "Pause recording", exact: true }).click();
   await expect(page.locator("main")).toHaveClass(/paused/);
   const time = await page.locator(".timer").textContent();
-  const pausedContour = await page.locator(".signal-field path").first().getAttribute("d");
+  const pausedContour = await ribbonPixels(page);
   await page.waitForTimeout(1200);
   expect(await page.locator(".timer").textContent()).toBe(time);
-  expect(await page.locator(".signal-field path").first().getAttribute("d")).toBe(pausedContour);
+  expect(await ribbonPixels(page)).toBe(pausedContour);
   expect(await page.evaluate(() => Reflect.get(window, "__finishCount"))).toBe(0);
   await expect(page.getByRole("button", { name: "Open settings" })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("paused-dark.png") });
@@ -254,9 +256,9 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
   await page.goto("/");
   await page.getByRole("button", { name: "Start recording", exact: true }).click();
   await expect(page.locator("main")).toHaveClass(/recording/);
-  const contour = await page.locator(".signal-field path").first().getAttribute("d");
+  const contour = await ribbonPixels(page);
   await page.waitForTimeout(160);
-  expect(await page.locator(".signal-field path").first().getAttribute("d")).toBe(contour);
+  expect(await ribbonPixels(page)).toBe(contour);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("compact-reduced-motion.png"), fullPage: true });
   await page.getByRole("button", { name: "Stop recording", exact: true }).press("Escape");
@@ -343,4 +345,73 @@ test("the dictation key and the typing method are reachable and readable in Sett
   expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
     typing_method: "keystrokes", typing_delay_ms: 15, global_hotkey: "Ctrl+Alt+K",
   });
+});
+
+for (const theme of ["dark", "light"]) {
+  test(`particle ribbon fills the compact recording width in ${theme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 640, height: 560 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    await page.evaluate((value) => document.documentElement.dataset.theme = value, theme);
+    await page.getByRole("button", { name: "Start recording", exact: true }).click();
+    await expect(page.locator("main")).toHaveClass(/recording/);
+    const measure = () => page.locator<HTMLCanvasElement>(".signal-field").evaluate((canvas) => {
+      const { width, height } = canvas;
+      const pixels = canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
+      let left = width, right = 0, count = 0;
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        if (pixels[(y * width + x) * 4 + 3] > 15) { left = Math.min(left, x); right = Math.max(right, x); count++; }
+      }
+      return { span: (right - left) / width, count, height: canvas.clientHeight };
+    });
+    const metrics = await measure();
+    expect(metrics.span).toBeGreaterThan(.9);
+    expect(metrics.count).toBeGreaterThan(3000);
+    expect(metrics.height).toBeGreaterThanOrEqual(140);
+    await page.screenshot({ path: testInfo.outputPath(`ribbon-640x560-${theme}.png`) });
+    await page.setViewportSize({ width: 360, height: 400 });
+    await expect.poll(async () => (await measure()).span).toBeGreaterThan(.85);
+    const canvas = await page.locator(".signal-field").boundingBox();
+    const controls = await page.locator(".recording-controls").boundingBox();
+    expect(canvas!.y + canvas!.height).toBeLessThanOrEqual(controls!.y);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(400);
+  });
+}
+
+test("ribbon stops when hidden, resumes, and repaints a paused theme and resize", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start recording", exact: true }).click();
+  const first = await ribbonPixels(page);
+  await expect.poll(() => ribbonPixels(page)).not.toBe(first);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hidden = await ribbonPixels(page);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).toBe(hidden);
+  await page.evaluate(() => {
+    delete (document as Partial<Document>).hidden;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => ribbonPixels(page)).not.toBe(hidden);
+  await page.getByRole("button", { name: "Pause recording", exact: true }).click();
+  const dark = await ribbonPixels(page);
+  await page.evaluate(() => document.documentElement.dataset.theme = "light");
+  await expect.poll(() => ribbonPixels(page)).not.toBe(dark);
+  await page.setViewportSize({ width: 640, height: 560 });
+  await expect.poll(() => page.locator<HTMLCanvasElement>(".signal-field").evaluate((canvas) => canvas.width)).toBe(600);
+  const resized = await ribbonPixels(page);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).toBe(resized);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Resume recording", exact: true }).click();
+  const still = await ribbonPixels(page);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).toBe(still);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(() => ribbonPixels(page)).not.toBe(still);
+  expect(errors).toEqual([]);
 });

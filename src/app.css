@@ -5,20 +5,20 @@
   --bg:#fcfcfa; --surface:#fcfcfa; --surface-solid:#fcfcfa; --text:#202425;
   --muted:#656d6e; --line:#dedfdb; --accent:#202425; --accent-two:#202425;
   --accent-soft:#f0f1ee; --inverse:#fcfcfa; --danger:#bd4034;
-  --shadow:0 12px 32px #15181612; --wave:#414748;
+  --shadow:0 12px 32px #15181612; --wave:#2b3433;
   color-scheme:light; color:var(--text); background:var(--bg);
 }
 :root[data-theme="dark"] {
   --bg:#121516; --surface:#121516; --surface-solid:#181c1d; --text:#eef0ec;
   --muted:#a3a9a9; --line:#303536; --accent:#eef0ec; --accent-two:#eef0ec;
   --accent-soft:#222728; --inverse:#121516; --danger:#ee7668;
-  --shadow:0 12px 32px #0005; --wave:#c8cfcc; color-scheme:dark;
+  --shadow:0 12px 32px #0005; --wave:#dce6e3; color-scheme:dark;
 }
 @media(prefers-color-scheme:dark) { :root[data-theme="system"] {
   --bg:#121516; --surface:#121516; --surface-solid:#181c1d; --text:#eef0ec;
   --muted:#a3a9a9; --line:#303536; --accent:#eef0ec; --accent-two:#eef0ec;
   --accent-soft:#222728; --inverse:#121516; --danger:#ee7668;
-  --shadow:0 12px 32px #0005; --wave:#c8cfcc; color-scheme:dark;
+  --shadow:0 12px 32px #0005; --wave:#dce6e3; color-scheme:dark;
 } }
 * { box-sizing:border-box; }
 html, body, #app { width:100%; min-height:100%; margin:0; }
@@ -26,7 +26,7 @@ body { min-height:100vh; color:var(--text); background:var(--bg); }
 button, select, input, textarea { font:inherit; color:inherit; }
 button { cursor:pointer; }
 button:disabled { cursor:default; opacity:.55; }
-main { min-height:100vh; display:flex; flex-direction:column; padding:0 32px; }
+main { height:100vh; min-height:400px; display:flex; flex-direction:column; padding:0 32px; }
 header { height:81px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
 .brand { display:flex; align-items:center; gap:11px; }
 .brand strong { font-size:22px; font-weight:600; letter-spacing:-.7px; }
@@ -51,10 +51,9 @@ select:focus, input:focus, textarea:focus { border-color:var(--accent); outline:
 .record-dot.visible { display:block; }
 .paused .record-dot { background:var(--muted); }
 .timer { margin-top:10px; font:36px/1.1 'Courier New',ui-monospace,monospace; letter-spacing:-1.7px; font-variant-numeric:tabular-nums; }
-.signal-field { width:100%; height:155px; flex-shrink:1; min-height:42px; color:var(--wave); overflow:visible; }
-.signal-field path { fill:none; stroke:currentColor; stroke-width:.8; }
+.signal-field { display:block; width:calc(100% + 24px); height:160px; flex-shrink:1; min-height:70px; margin:7px -12px 10px; color:var(--wave); pointer-events:none; }
 .signal-field.quiet { opacity:.5; }
-.recording-controls { display:flex; align-items:center; justify-content:center; gap:9px; }
+.recording-controls { flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:9px; }
 .mic-button { min-height:42px; padding:0 17px; border:1px solid var(--text); border-radius:5px; background:var(--text); color:var(--inverse); display:flex; align-items:center; justify-content:center; gap:11px; font-size:12px; font-weight:600; }
 .mic-button:hover:not(:disabled) { opacity:.85; }
 .mic-button svg { width:16px; height:16px; fill:currentColor; }
@@ -65,7 +64,7 @@ select:focus, input:focus, textarea:focus { border-color:var(--accent); outline:
 .pause-button:hover:not(:disabled) { background:var(--accent-soft); }
 .pause-button svg { width:13px; height:13px; fill:currentColor; }
 .pause-button kbd { display:none; }
-.recorder p { margin:13px 0 0; min-height:14px; max-width:100%; overflow-wrap:anywhere; text-align:center; color:var(--muted); font-size:11px; line-height:1.5; }
+.recorder p { flex-shrink:0; margin:13px 0 0; min-height:14px; max-width:100%; overflow-wrap:anywhere; text-align:center; color:var(--muted); font-size:11px; line-height:1.5; }
 .recorder p.error { color:var(--danger); }
 kbd { padding:3px 5px; border:1px solid var(--line); border-radius:3px; font:10px/1 ui-monospace,monospace; color:var(--muted); }
 .output-bar { width:min(620px,100%); margin:0 auto; padding:18px 0 0; border-top:1px solid var(--line); display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
@@ -238,7 +237,8 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .action-control .select-trigger, .engine-chip { min-height:40px; height:40px; padding:7px 12px; }
   .recorder, .result-expanded .recorder { min-height:180px; padding:15px 0 12px; }
   .timer { margin-top:6px; font-size:26px; }
-  .signal-field, .result-expanded .signal-field { height:62px; }
+  .signal-field { height:160px; }
+  .result-expanded .signal-field { height:95px; }
   .mic-button, .pause-button { min-height:36px; }
   .recorder p { margin-top:8px; font-size:10px; }
   .output-bar { padding-top:8px; }
@@ -250,6 +250,7 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
 @media(max-height:440px) {
   .recorder, .result-expanded .recorder { min-height:174px; }
   .record-status { font-size:9px; }
-  .signal-field, .result-expanded .signal-field { height:52px; }
+  .signal-field, .result-expanded .signal-field { height:100px; min-height:52px; margin:3px -12px 5px; }
+  .recorder, .result-expanded .recorder { padding:8px 0; }
   .recorder p { max-height:30px; overflow:auto; }
 }
