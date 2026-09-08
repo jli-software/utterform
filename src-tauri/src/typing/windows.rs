@@ -53,7 +53,7 @@ use crate::{diagnostics, domain::TypingMethod};
 /// enough that an ordinary transcript is a single, uninterruptible injection.
 const BATCH: usize = 512;
 
-fn unicode(unit: u16, up: bool) -> INPUT {
+pub(super) fn unicode(unit: u16, up: bool) -> INPUT {
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
@@ -98,7 +98,7 @@ fn virtual_key(key: VIRTUAL_KEY, up: bool) -> INPUT {
 /// when another thread has the input blocked. It is not fewer for a window
 /// that outranks Utterform — those events are dropped after being counted —
 /// which is why `insert` checks the window first.
-fn send(events: &[INPUT]) -> Result<(), String> {
+pub(super) fn send(events: &[INPUT]) -> Result<(), String> {
     if events.is_empty() {
         return Ok(());
     }
@@ -200,7 +200,7 @@ fn integrity_level(process: HANDLE) -> Option<u32> {
 }
 
 /// The window that will receive the text.
-struct FocusedWindow {
+pub(super) struct FocusedWindow {
     /// The window class, if Windows would say.
     class: Option<String>,
     /// The program behind it without the `.exe`, if the process could be
@@ -209,10 +209,10 @@ struct FocusedWindow {
     /// Whether the program runs at a higher integrity level than Utterform —
     /// as administrator, in practice — so that Windows will drop whatever
     /// Utterform types into it.
-    outranks_us: bool,
+    pub(super) outranks_us: bool,
 }
 
-fn focused_window() -> FocusedWindow {
+pub(super) fn focused_window() -> FocusedWindow {
     let mut found = FocusedWindow {
         class: None,
         program: None,

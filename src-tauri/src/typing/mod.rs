@@ -17,6 +17,9 @@ use tauri::{AppHandle, Runtime};
 
 use crate::domain::TypingMethod;
 
+mod live;
+pub use live::LiveTyper;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "windows")]
