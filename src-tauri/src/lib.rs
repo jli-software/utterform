@@ -8,6 +8,7 @@ mod domain;
 mod feedback;
 mod history;
 mod hotkey;
+mod live;
 mod models;
 mod output;
 mod platform;
@@ -58,6 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
+        .manage(live::LiveState::default())
         .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
         .manage(hotkey::Failure::default())
@@ -108,6 +110,8 @@ pub fn run() {
             commands::list_input_devices,
             commands::start_recording,
             commands::get_recording_status,
+            commands::get_live_status,
+            commands::live_support,
             commands::play_test_cues,
             commands::diagnostics_log_path,
             commands::set_recording_paused,

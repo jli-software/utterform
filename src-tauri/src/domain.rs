@@ -13,6 +13,14 @@ pub enum TranscriptionEngine {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudModel {
+    #[default]
+    GptTranscribe,
+    GptLiveTranscribe,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     #[default]
@@ -79,6 +87,7 @@ impl TextEffort {
 #[serde(default)]
 pub struct AppSettings {
     pub engine: TranscriptionEngine,
+    pub cloud_model: CloudModel,
     pub input_device: Option<String>,
     pub output_directory: Option<String>,
     pub copy_to_clipboard: bool,
@@ -122,6 +131,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             engine: TranscriptionEngine::OpenAi,
+            cloud_model: CloudModel::GptTranscribe,
             input_device: None,
             output_directory: None,
             copy_to_clipboard: true,

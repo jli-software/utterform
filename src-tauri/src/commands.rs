@@ -12,7 +12,7 @@ use crate::{
     },
     feedback::{self, Cue},
     history::{self, HistoryEntry},
-    models, output, secrets, settings, transcription, tray,
+    live, models, output, secrets, settings, transcription, tray,
 };
 
 /// The interface asks once it can act; an intent is delivered to one caller only.
@@ -78,6 +78,13 @@ pub async fn start_recording(
     local_model_id: Option<String>,
     action: String,
 ) -> Result<(), String> {
+    let current_settings = settings::load(&app)?;
+    if app.state::<live::LiveState>().active() {
+        return Err("A live recording is already active".into());
+    }
+    if engine == TranscriptionEngine::OpenAi && live::selected(&current_settings) {
+        return live::start(app, current_settings, input_device).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         begin_recording(
             &app,
@@ -202,6 +209,14 @@ pub fn get_recording_status(
 }
 
 #[tauri::command]
+pub fn get_live_status(state: State<'_, live::LiveState>) -> Option<live::LiveStatus> {
+    state.status()
+}
+
+#[tauri::command]
+pub fn live_support() -> live::Support { live::support() }
+
+#[tauri::command]
 pub fn set_recording_paused(
     state: State<'_, AudioCaptureState>,
     paused: bool,
@@ -210,7 +225,8 @@ pub fn set_recording_paused(
 }
 
 #[tauri::command]
-pub fn cancel_recording(app: AppHandle, state: State<'_, AudioCaptureState>) -> Result<(), String> {
+pub async fn cancel_recording(app: AppHandle, state: State<'_, AudioCaptureState>) -> Result<(), String> {
+    live::cancel(&app).await?;
     tray::set_recording(&app, false);
     audio::cancel_recording(&state)
 }
@@ -221,6 +237,9 @@ pub async fn finish_recording(
     state: State<'_, AudioCaptureState>,
     request: ProcessRequest,
 ) -> Result<ProcessResult, String> {
+    if app.state::<live::LiveState>().active() {
+        return live::finish(app, request).await;
+    }
     let current_settings = settings::load(&app)?;
     // Capture is over either way; the icon must not keep claiming otherwise.
     let artifact = audio::stop_recording(&state);
