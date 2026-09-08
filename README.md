@@ -4,11 +4,11 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.5.1 — Signal** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.5.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.5.1).
+> Utterform is under active development. **0.5.2 — Flow** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.5.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.5.2).
 
 ## Signal design
 
-A focused monochrome interface: white and graphite, a geometric U mark, crisp controls, and a broad, flowing pixel ribbon with fine interwoven filaments driven by your real microphone level. Light, dark, and system appearance apply across recording, settings and menus. The ribbon fills the available recording width, including compact windows. Pause freezes the ribbon; reduced-motion preferences keep it still, and hidden windows do no decorative animation work.
+A focused monochrome interface: white and graphite, a geometric U mark, crisp controls, and a broad, flowing pixel ribbon with fine interwoven filaments driven by your real microphone level. Light, dark, and system appearance apply across recording, settings and menus. The ribbon fills the available recording width, including compact windows. Particles flow independently in response to speech, transitions through processing stay smooth, and the ribbon settles gently over about 1.8 seconds after completion. Pause still freezes the ribbon immediately; reduced-motion preferences keep it still, and hidden windows do no decorative animation work.
 
 The new mark is included in the executable, tray, Windows setup/uninstaller, Linux desktop icon and macOS bundle. Reinstall using the normal installer to update the desktop integration; data and product identity stay the same. Linux refreshes its local icon cache, and Windows notifies Explorer after installation/removal.
 
@@ -93,7 +93,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.5.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.5.1):
+Download the [0.5.2 assets](https://github.com/jli-software/utterform/releases/tag/v0.5.2):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

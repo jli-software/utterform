@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2 — v0.5.2 · Flow
+
+- Let the ribbon settle softly over about 1.8 seconds after completion instead of stopping abruptly.
+- Smooth the visual transitions through processing, with independent particle flow responding to speech.
+- Preserve the broad monochrome ribbon and compact layout; pause still freezes immediately, while reduced-motion preferences and hidden windows stop decorative animation work.
+- Keep recording, transcription, prompts, output, shortcuts and user data unchanged.
+
+See [0.5.2 release notes](docs/releases/v0.5.2.md).
+
 ## 0.5.1 — v0.5.1 · Signal ribbon
 
 - Replace the narrow contour field with a broad monochrome pixel ribbon, fine interwoven filaments and scattered edge particles.
