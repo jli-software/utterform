@@ -6,7 +6,7 @@
 
 **Diagnosed from Jonas's report, not reproduced here.** The Windows failure — every recording ending with "Microphone stream failed: A buffer underrun or overrun occurred" after re-plugging a dock and microphone — was traced to cpal's WASAPI backend emitting `Xrun` on `AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`, which Utterform treated as fatal. The fix is in the one function that classifies stream errors; the unit test exercises it with constructed cpal errors. The Windows driver behaviour that sets the flag is not reproducible on this Linux machine.
 
-**Not exercised by anyone yet:** the tray dot on any platform, the louder start cue through a real speaker, and whether the inconsistent start click Jonas heard on Windows 0.4.3 was audibility or something in the WASAPI output path.
+**Confirmed on Windows by Jonas on 2026-09-08:** recording through the re-plugged dock and microphone works on 0.4.4, and the tray dot shows while recording. **The start click still does not sound on Windows, at the louder level,** while the stop click does through the same speaker. Audibility is therefore ruled out; the WASAPI output side of the start cue is the open question, with the bisection plan in [DEVELOPMENT.md](DEVELOPMENT.md). The Linux/AirPods start click is fixed and unaffected.
 
 ## 0.4.3 The start sound on speakers that suspend
 
