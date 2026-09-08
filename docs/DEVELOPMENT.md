@@ -9,6 +9,22 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.3
+
+0.4.3 is one fix: the start click was missing on AirPods. Jonas found it dictating with the window hidden, where that click is the only feedback there is.
+
+**The cause was not Bluetooth.** His microphone was the internal one, so no profile switch was involved. An idle output device suspends, and waking one costs a few hundred milliseconds before it makes any sound; `feedback.rs` gave the cue 500 ms and then closed the stream, which discards whatever the device still holds. The stop click survived because by then the speaker was awake. Confirmed by Jonas on 2026-09-08: playing a YouTube video first, so the sink was already running, made the start click appear every time.
+
+**The rule this leaves behind: a cue is finished when the device says so, not when a timer says so.** Every cue now has a 60 ms silent lead-in for a device that discards its first samples and a 300 ms tail for one that buffers, and `Playback::finish` waits for the callback to take all of it. Do not shorten the tail to make something feel snappier — that is the bug.
+
+**Capture now waits for the cue instead of the other way round.** The microphone opens first and discards through the `armed` gate until the start cue has played. That is what keeps the cue out of its own recording, now that the cue may take longer than the 500 ms it used to be allowed. The recording clock restarts at arming, so the ten-minute limit still counts kept audio.
+
+**Cue failures are reported.** `feedback::play` returns a reason, and the one that used to look like success — an output sample format we cannot write — is an error now. `announce_recording` in `commands.rs` raises a desktop notification only when the start cue could not be played at all; it is not a second confirmation channel, and adding one would defeat the point of a quiet click.
+
+Untested on real hardware other than Jonas's: the fix is platform-independent Rust and the same code runs everywhere, but the AirPods case that motivated it can only be confirmed on his machine.
+
+### Before 0.4.3
+
 ## Current handoff — 0.4.2
 
 0.4.2 hands the prompts to whoever installed the app. Jonas asked for it directly: the five shipped actions are fine as defaults, but the people who download Utterform must be able to adapt them.

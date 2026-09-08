@@ -35,6 +35,9 @@ pub struct AudioCaptureState {
 #[derive(Clone, Default)]
 struct CaptureSignals {
     level: Arc<AtomicU32>,
+    /// Whether captured audio is kept. False until the start cue has been
+    /// played, so the cue cannot end up in its own recording.
+    armed: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     overrun: Arc<AtomicBool>,
     stream_error: Arc<Mutex<Option<String>>>,
@@ -227,11 +230,55 @@ pub fn cleanup_stale_recordings() -> Result<(), String> {
     Ok(())
 }
 
+/// A recording whose microphone is open but whose audio is not yet kept.
+///
+/// The start cue is the only confirmation a hidden window gives, so it has to
+/// be heard before the user starts speaking — and an output device resuming
+/// from idle can take a few hundred milliseconds to make any sound at all.
+/// Capture therefore begins immediately and discards, and [`Self::arm`] admits
+/// audio once the cue has actually been played.
+pub struct StartedRecording {
+    pub session: Instant,
+    signals: CaptureSignals,
+    /// `None` when cues are switched off; otherwise the cue or the reason it
+    /// could not even be started, kept so `arm` can report it.
+    cue: Option<Result<feedback::Playback, String>>,
+}
+
+impl StartedRecording {
+    /// Waits for the start cue, then keeps what the microphone hears. Returns
+    /// why the cue was inaudible when it could not be played, so the caller can
+    /// confirm the recording some other way.
+    ///
+    /// Must not run on the thread that answers the interface: the wait is the
+    /// device wake-up, and nothing else should queue behind it.
+    pub fn arm(self, state: &AudioCaptureState) -> Result<(), String> {
+        let played = match self.cue {
+            None => Ok(()),
+            Some(Ok(playback)) => playback.finish(),
+            Some(Err(reason)) => Err(reason),
+        };
+        // The recording limit counts kept audio, so its clock starts here and
+        // not when the device was opened. A session that ended while the cue
+        // was playing is left alone.
+        if let Ok(mut guard) = state.inner.lock() {
+            match guard.active.as_mut() {
+                Some(active) if active.started_at == self.session => {
+                    active.clock = RecordingClock::new(Instant::now());
+                }
+                _ => {}
+            }
+        }
+        self.signals.armed.store(true, Ordering::Release);
+        played
+    }
+}
+
 pub fn start_recording(
     state: &AudioCaptureState,
     requested_device: Option<&str>,
     sound_enabled: bool,
-) -> Result<Instant, String> {
+) -> Result<StartedRecording, String> {
     let mut guard = state
         .inner
         .lock()
@@ -239,6 +286,12 @@ pub fn start_recording(
     if guard.active.is_some() || guard.completed.is_some() {
         return Err("A recording is already active".into());
     }
+
+    // First, because opening the stream is what resumes a suspended speaker:
+    // the wake-up then overlaps with opening the microphone instead of
+    // following it. Its failure is reported by `arm`, not here — a silent cue
+    // must not cost the recording.
+    let cue = sound_enabled.then(|| feedback::start(Cue::Start));
 
     let host = cpal::default_host();
     let device = select_device(&host, requested_device)?;
@@ -250,6 +303,7 @@ pub fn start_recording(
 
     let (sender, receiver) = sync_channel::<Vec<f32>>(CHANNEL_CAPACITY);
     let signals = CaptureSignals::default();
+    let started = signals.clone();
     let writer_config = config;
     let writer = thread::spawn(move || {
         let directory = recording_directory();
@@ -299,10 +353,6 @@ pub fn start_recording(
         sender.clone(),
         signals.clone(),
     )?;
-    // Never include the start cue in the captured audio.
-    if sound_enabled {
-        feedback::play(Cue::Start);
-    }
     stream
         .play()
         .map_err(|error| format!("Could not start the microphone: {error}"))?;
@@ -317,7 +367,11 @@ pub fn start_recording(
         signals,
         clock: RecordingClock::new(started_at),
     });
-    Ok(started_at)
+    Ok(StartedRecording {
+        session: started_at,
+        signals: started,
+        cue,
+    })
 }
 
 fn recording_directory() -> PathBuf {
@@ -413,7 +467,9 @@ fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
     drop(active.stream);
     drop(active.sender);
     if active.sound_enabled {
-        feedback::play(Cue::Stop);
+        // Detached: the cue confirms capture that has already ended, and a
+        // speaker waking from idle must not hold up transcription.
+        feedback::play_detached(Cue::Stop);
     }
     let artifact = active
         .writer
@@ -511,7 +567,7 @@ fn capture_chunk<T: Copy>(
     sender: &SyncSender<Vec<f32>>,
     signals: &CaptureSignals,
 ) {
-    if signals.paused.load(Ordering::Acquire) {
+    if !signals.armed.load(Ordering::Acquire) || signals.paused.load(Ordering::Acquire) {
         return;
     }
     let chunk = data.iter().copied().map(convert).collect::<Vec<f32>>();
@@ -588,8 +644,33 @@ mod tests {
     }
 
     #[test]
+    fn nothing_is_kept_until_the_start_cue_has_been_played() {
+        // The microphone is open while the cue plays, so that the recording is
+        // ready the moment the user hears it. Keeping those samples would put
+        // the cue into its own recording.
+        let signals = CaptureSignals::default();
+        let (sender, receiver) = sync_channel(4);
+        capture_chunk(
+            &[0.9; 500],
+            |_| panic!("Audio before the start cue must not be converted"),
+            &sender,
+            &signals,
+        );
+        signals.armed.store(true, Ordering::Release);
+        capture_chunk(&[0.1, 0.2], |sample| sample, &sender, &signals);
+        drop(sender);
+        assert_eq!(
+            receiver.into_iter().flatten().collect::<Vec<_>>(),
+            vec![0.1, 0.2]
+        );
+        // Discarding is not an overrun: nothing was dropped for want of room.
+        assert!(!signals.overrun.load(Ordering::Relaxed));
+    }
+
+    #[test]
     fn paused_audio_is_discarded_without_silence_or_conversion() {
         let signals = CaptureSignals::default();
+        signals.armed.store(true, Ordering::Release);
         let (sender, receiver) = sync_channel(4);
         capture_chunk(&[0.1, 0.2], |sample| sample, &sender, &signals);
         signals.paused.store(true, Ordering::Release);

@@ -5,7 +5,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 ## Boundaries
 
 - `audio.rs` — device discovery, CPAL capture, bounded handoff, RMS envelope, native cutoff, temporary WAV lifecycle, Whisper normalization
-- `feedback.rs` — best-effort synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output
+- `feedback.rs` — synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output, played to completion on outputs that suspend when idle
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `activation.rs` — the single way to reveal the one main window, and which tray gestures ask for it
 - `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives
@@ -45,7 +45,9 @@ Pause/resume is an explicit, idempotent `set_recording_paused` command returning
 
 A native watchdog checks the active session every 250 ms and finalizes capture at ten minutes of unpaused recording, even if the WebView is suspended. The completed artifact stays in native state until processing consumes it once. An event starts processing immediately when the WebView is running; status polling catches up after a hidden/suspended window resumes. Session identity prevents an old watchdog from stopping a later recording. The UI reads native elapsed time rather than incrementing a JS timer.
 
-Only a bounded RMS-derived envelope crosses IPC, at most 10 times per second while visible and recording; no raw audio reaches the frontend. The full-window violet/blue ambient field responds to this envelope behind stationary controls. Reduced-motion mode disables field movement. Start/stop cues are generated locally, quiet and short, before capture starts and after the stream stops. Speaker failures do not fail recording; cues can be disabled in Settings.
+Only a bounded RMS-derived envelope crosses IPC, at most 10 times per second while visible and recording; no raw audio reaches the frontend. The full-window violet/blue ambient field responds to this envelope behind stationary controls. Reduced-motion mode disables field movement. Cues are generated locally, quiet and short, and can be disabled in Settings.
+
+A cue is played to the end rather than for a fixed time. An output device that suspends when idle — Bluetooth, HDMI, most docks — needs a few hundred milliseconds to carry any sound and queues 150-250 ms more, and closing a CPAL stream discards what the device still holds. So every cue carries a 60 ms silent lead-in and a 300 ms silent tail, and the stream stays open until the device has taken all of it; the three-second deadline is a safety net, not the expected wait. The start cue's output stream is opened before the microphone, so waking the speaker overlaps with opening the microphone. Capture starts immediately and discards until that cue has been played, which is what keeps it out of its own recording and what the recording clock counts from. A speaker failure still never fails a recording, but it is reported rather than dropped: a start cue that could not be played raises a desktop notification in its place, because a hidden window offers nothing else.
 
 Omarchy is detected only in a Hyprland desktop session with an Omarchy installation/path. Native decorations are disabled before first showing the window. Other desktops, macOS, and Windows retain their standard decorations. No compositor config or automatic Omarchy theme integration is added.
 
@@ -85,7 +87,7 @@ One intent, two ways in. A compositor binding runs `utterform --toggle` and the 
 
 Key combinations are reserved only where the platform grants them: Windows, macOS, and Linux under X11. A Wayland session registers nothing — the compositor owns the keyboard — and Settings shows what to bind there instead. The plugin is installed from `setup` rather than at build time, so a host that refuses to create a hotkey manager costs the dictation key and not the application; a key another application already holds is reported in Settings, where it was entered, and the previously working key is released only after the new one parses.
 
-Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible.
+Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible. Because the start cue is the only sign the microphone is live, it is played to completion before capture keeps anything, and a notification stands in when no output device will play it.
 
 ## Delivery to the focused window
 

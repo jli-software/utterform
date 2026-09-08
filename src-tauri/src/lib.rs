@@ -53,6 +53,8 @@ pub fn run() {
             let _ = app.emit("remote-intent", intent);
         }))
         .plugin(tauri_plugin_dialog::init())
+        // Only ever used to stand in for a start cue no output device would play.
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
         .manage(StartupIntent::default())

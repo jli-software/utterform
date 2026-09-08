@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::{
     actions::{self, BuiltInAction},
@@ -83,11 +84,21 @@ pub fn start_recording(
         }
     }
     let current_settings = settings::load(&app)?;
-    let session = audio::start_recording(
+    let started = audio::start_recording(
         &state,
         input_device.as_deref(),
         current_settings.sound_enabled,
     )?;
+    let session = started.session;
+    // Off the answering thread: the wait is a speaker resuming from idle, which
+    // a Bluetooth headset can take a few hundred milliseconds over. The
+    // interface learns the recording began now, not once the cue was heard.
+    let cued = app.clone();
+    std::thread::spawn(move || {
+        if let Err(reason) = started.arm(&cued.state::<AudioCaptureState>()) {
+            announce_recording(&cued, &reason);
+        }
+    });
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -102,6 +113,19 @@ pub fn start_recording(
         }
     });
     Ok(())
+}
+
+/// Stand in for a start cue that could not be played. With the window hidden
+/// the cue is the user's only sign that the microphone is live, so its silence
+/// has to be replaced rather than merely logged.
+fn announce_recording(app: &AppHandle, reason: &str) {
+    eprintln!("utterform: the start sound could not be played: {reason}");
+    let _ = app
+        .notification()
+        .builder()
+        .title("Utterform is recording")
+        .body("The start sound could not be played on this output device.")
+        .show();
 }
 
 #[tauri::command]
