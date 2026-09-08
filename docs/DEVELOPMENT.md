@@ -19,7 +19,15 @@ Jonas tested 0.4.3 on Windows the same afternoon. Three findings, all fixed here
 
 **The tray shows recording.** `tray::set_recording` is called from the four places capture starts or ends in `commands.rs`: start, finish, cancel, and the limit watchdog. The badge is `recording_badge`, drawn over the app icon at runtime — a second icon file would drift. Linux goes through the ksni handle's `update`, which emits `NewIcon`; Windows and macOS through `tray_by_id(NATIVE_TRAY)`, which is why the native tray now has an id. Windows 11 hides new tray icons behind the overflow arrow until the user pins them; the README says so.
 
-**Still open on Windows:** Jonas also reported the start click arriving inconsistently on 0.4.3, before it was made louder. Whether that was audibility or the output path is not settled; if it persists at the new level, look at the WASAPI output side of `feedback::start` next, and consider logging the cue outcome unconditionally rather than only on failure.
+**Confirmed on Windows by Jonas on 2026-09-08, on 0.4.4:** recording through the re-plugged dock and microphone works again, and the tray dot shows. **The start click is still missing on Windows.** At the new level, so this is not audibility — the stop click, through the same speaker, is fine. That is where the next session starts.
+
+What is known: no notification appeared, so `arm` most likely returned `Ok` — the device took every sample and `finish` returned normally — and nothing was heard. Stop, through `play_detached`, works. The two cues differ in exactly three ways, and the job is to bisect them:
+
+1. **When the stream is opened.** Start's output stream is opened *before* the microphone, Stop's after capture has ended. Try Start through `play_detached` after `stream.play()` (accepting it may land in the recording for the experiment) — if it sounds, the answer is in what opening WASAPI capture does to a render stream opened moments earlier.
+2. **Which thread opens it.** Start is opened on the Tauri command thread and finished on a spawned one; Stop is opened and finished on one fresh thread. cpal initialises COM per thread; a WASAPI stream created on one thread and dropped on another is worth ruling out.
+3. **The waveform.** Different frequency, gain and length — least likely, since the Linux fix works with the same code.
+
+First step before any of that: log the outcome of `arm` unconditionally with the time `finish` took, so a Windows run says which branch it went down instead of leaving it to inference. The AirPods-on-Linux case is fixed and should not be regressed while doing this.
 
 ### Before 0.4.4
 
