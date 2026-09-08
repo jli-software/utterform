@@ -9,12 +9,86 @@
 
 use tauri::{
     AppHandle, Manager, Runtime,
+    image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
 };
 
 use crate::activation::{opens_main_window, reveal_main_window};
 use crate::audio;
+
+/// The id Tauri's tray is registered under, so it can be found again when the
+/// recording state changes.
+const NATIVE_TRAY: &str = "utterform";
+
+/// Show in the tray whether a recording is running. The sounds confirm it
+/// where the window is hidden, but a speaker that is asleep or muted can miss
+/// one, and an icon on the panel cannot.
+pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
+    #[cfg(target_os = "linux")]
+    if status_notifier_item::set_recording(app, recording) {
+        return;
+    }
+    let Some(tray) = app.tray_by_id(NATIVE_TRAY) else {
+        return;
+    };
+    let Some(icon) = app.default_window_icon() else {
+        return;
+    };
+    let shown = if recording {
+        Image::new_owned(
+            recording_badge(icon.rgba(), icon.width(), icon.height()),
+            icon.width(),
+            icon.height(),
+        )
+    } else {
+        icon.clone()
+    };
+    let _ = tray.set_icon(Some(shown));
+    let _ = tray.set_tooltip(Some(if recording {
+        "Utterform — recording"
+    } else {
+        "Utterform"
+    }));
+}
+
+/// The app icon with a red disc over its lower right quarter. Drawn rather
+/// than shipped so it cannot fall out of step with the icon it marks, and
+/// large enough to read at the 16 pixels a Windows tray gives it.
+fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = rgba.to_vec();
+    let side = width.min(height) as f32;
+    let radius = side * 0.28;
+    let ring = (side / 16.0).max(1.0);
+    let center = (width as f32 - radius - ring, height as f32 - radius - ring);
+    for y in 0..height {
+        for x in 0..width {
+            let distance =
+                ((x as f32 + 0.5 - center.0).powi(2) + (y as f32 + 0.5 - center.1).powi(2)).sqrt();
+            let coverage = (radius + ring - distance).clamp(0.0, 1.0);
+            if coverage == 0.0 {
+                continue;
+            }
+            // A white ring separates the disc from an icon of similar colour.
+            let (r, g, b) = if distance > radius {
+                (255.0, 255.0, 255.0)
+            } else {
+                (229.0, 72.0, 77.0)
+            };
+            let index = ((y * width + x) * 4) as usize;
+            let Some(pixel) = pixels.get_mut(index..index + 4) else {
+                continue;
+            };
+            let blend =
+                |under: u8, over: f32| (under as f32 * (1.0 - coverage) + over * coverage) as u8;
+            pixel[0] = blend(pixel[0], r);
+            pixel[1] = blend(pixel[1], g);
+            pixel[2] = blend(pixel[2], b);
+            pixel[3] = blend(pixel[3], 255.0);
+        }
+    }
+    pixels
+}
 
 /// Quitting stops capture first so a recording never outlives the app.
 fn quit<R: Runtime>(app: &AppHandle<R>) {
@@ -47,7 +121,7 @@ fn native<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit_item])?;
-    let mut tray = TrayIconBuilder::new()
+    let mut tray = TrayIconBuilder::with_id(NATIVE_TRAY)
         .menu(&menu)
         .show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon() {
@@ -96,6 +170,8 @@ mod status_notifier_item {
     pub struct UtterformTray<A: TrayActions> {
         actions: A,
         icon: Vec<Icon>,
+        recording_icon: Vec<Icon>,
+        recording: bool,
     }
 
     impl<A: TrayActions> ksni::Tray for UtterformTray<A> {
@@ -108,7 +184,11 @@ mod status_notifier_item {
         }
 
         fn icon_pixmap(&self) -> Vec<Icon> {
-            self.icon.clone()
+            if self.recording {
+                self.recording_icon.clone()
+            } else {
+                self.icon.clone()
+            }
         }
 
         /// A left click on the tray icon. This is the whole reason Utterform
@@ -155,26 +235,55 @@ mod status_notifier_item {
     pub fn spawn<A: TrayActions>(
         actions: A,
         icon: Vec<Icon>,
+        recording_icon: Vec<Icon>,
     ) -> Result<ksni::blocking::Handle<UtterformTray<A>>, ksni::Error> {
-        UtterformTray { actions, icon }.spawn()
+        UtterformTray {
+            actions,
+            icon,
+            recording_icon,
+            recording: false,
+        }
+        .spawn()
+    }
+
+    fn pixmap(width: u32, height: u32, rgba: &[u8]) -> Vec<Icon> {
+        vec![Icon {
+            width: width as i32,
+            height: height as i32,
+            data: rgba_to_argb32(rgba),
+        }]
     }
 
     pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), ksni::Error> {
-        let icon = app
+        let (icon, recording_icon) = app
             .default_window_icon()
             .map(|image| {
-                vec![Icon {
-                    width: image.width() as i32,
-                    height: image.height() as i32,
-                    data: rgba_to_argb32(image.rgba()),
-                }]
+                let (width, height) = (image.width(), image.height());
+                (
+                    pixmap(width, height, image.rgba()),
+                    pixmap(
+                        width,
+                        height,
+                        &super::recording_badge(image.rgba(), width, height),
+                    ),
+                )
             })
             .unwrap_or_default();
-        let handle = spawn(AppActions(app.clone()), icon)?;
+        let handle = spawn(AppActions(app.clone()), icon, recording_icon)?;
         // The tray service re-registers itself when the panel restarts, but it
         // stops as soon as this handle is dropped.
         app.manage(handle);
         Ok(())
+    }
+
+    /// Swap the icon; `update` has ksni tell the host it changed. False when
+    /// this session fell back to the native tray instead.
+    pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) -> bool {
+        let Some(handle) = app.try_state::<ksni::blocking::Handle<UtterformTray<AppActions<R>>>>()
+        else {
+            return false;
+        };
+        handle.update(|tray| tray.recording = recording).is_some()
     }
 
     #[cfg(test)]
@@ -286,6 +395,7 @@ mod status_notifier_item {
                     shown: Arc::clone(&shown),
                 },
                 Vec::new(),
+                Vec::new(),
             )
             .expect("the tray should register with the watcher");
 
@@ -315,5 +425,61 @@ mod status_notifier_item {
                 "a left click should have opened Utterform exactly once"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::recording_badge;
+
+    fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+        let index = ((y * width + x) * 4) as usize;
+        rgba[index..index + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn the_badge_is_a_red_disc_in_the_lower_right_and_leaves_the_rest_alone() {
+        let (width, height) = (32, 32);
+        let grey = [90, 90, 90, 255];
+        let plain: Vec<u8> = grey
+            .iter()
+            .copied()
+            .cycle()
+            .take((width * height * 4) as usize)
+            .collect();
+        let badged = recording_badge(&plain, width, height);
+        assert_eq!(badged.len(), plain.len());
+        // Icon untouched away from the badge.
+        assert_eq!(pixel(&badged, width, 0, 0), grey);
+        assert_eq!(pixel(&badged, width, 31, 0), grey);
+        assert_eq!(pixel(&badged, width, 0, 31), grey);
+        assert_eq!(pixel(&badged, width, 12, 12), grey);
+        // Solid red at the disc's centre, and opaque even on a transparent icon.
+        let centre = pixel(&badged, width, 22, 22);
+        assert_eq!(centre, [229, 72, 77, 255]);
+        let clear = vec![0; (width * height * 4) as usize];
+        assert_eq!(
+            pixel(&recording_badge(&clear, width, height), width, 22, 22)[3],
+            255
+        );
+    }
+
+    #[test]
+    fn the_badge_reads_at_windows_tray_size() {
+        // 16 pixels: the disc must still be several pixels across.
+        let plain = vec![0; 16 * 16 * 4];
+        let badged = recording_badge(&plain, 16, 16);
+        let red = (0..16 * 16)
+            .filter(|i| badged[i * 4] == 229 && badged[i * 4 + 3] == 255)
+            .count();
+        assert!(red >= 12, "{red} solid red pixels");
+    }
+
+    #[test]
+    fn a_short_buffer_does_not_panic() {
+        // Wrong dimensions must degrade to a partial badge, never a crash in
+        // the tray path.
+        let badged = recording_badge(&[0; 8], 32, 32);
+        assert_eq!(badged.len(), 8);
     }
 }

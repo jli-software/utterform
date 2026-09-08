@@ -9,6 +9,20 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.4
+
+Jonas tested 0.4.3 on Windows the same afternoon. Three findings, all fixed here; the first was a blocker.
+
+**An Xrun is a glitch, not a failure.** After re-plugging a docking station and microphone, every recording ended with "Microphone stream failed: A buffer underrun or overrun occurred." cpal's WASAPI backend emits `ErrorKind::Xrun` whenever a capture packet carries `AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY` — a note that a few milliseconds are missing from a stream that carries on. `build_input_stream`'s error callback stored every error as fatal, and `finalize` discarded the recording over it. `note_stream_error` in `audio.rs` now counts an Xrun and fails only on the rest. macOS raises the same kind from a processor-overload listener, so this was waiting there too. Do not turn the glitch count into a UI warning: some Windows drivers set the flag on every recording and the warning would be noise.
+
+**The start click was too quiet for a laptop speaker.** Calibrated at 0.12 for headphones; now 0.26 and 70 ms, about 6 dB over Stop, with a slower decay. Stop and Done are unchanged on purpose — Jonas hears them fine and the contrast is the point.
+
+**The tray shows recording.** `tray::set_recording` is called from the four places capture starts or ends in `commands.rs`: start, finish, cancel, and the limit watchdog. The badge is `recording_badge`, drawn over the app icon at runtime — a second icon file would drift. Linux goes through the ksni handle's `update`, which emits `NewIcon`; Windows and macOS through `tray_by_id(NATIVE_TRAY)`, which is why the native tray now has an id. Windows 11 hides new tray icons behind the overflow arrow until the user pins them; the README says so.
+
+**Still open on Windows:** Jonas also reported the start click arriving inconsistently on 0.4.3, before it was made louder. Whether that was audibility or the output path is not settled; if it persists at the new level, look at the WASAPI output side of `feedback::start` next, and consider logging the cue outcome unconditionally rather than only on failure.
+
+### Before 0.4.4
+
 ## Current handoff — 0.4.3
 
 0.4.3 is one fix: the start click was missing on AirPods. Jonas found it dictating with the window hidden, where that click is the only feedback there is.

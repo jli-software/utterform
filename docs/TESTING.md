@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.4 A gap is not a failure, and a dot on the tray
+
+79 native and 53 interface tests. New native coverage: a buffer under- or overrun report being counted while the stream error stays clear, and a lost device still ending the recording; the start cue peaking well above Stop and staying audible for longer, while remaining a click rather than an alarm; the recording badge being a solid red disc in the lower right that leaves the rest of the icon untouched, opaque even over a transparent icon, still several pixels across at the 16 pixels a Windows tray gives it, and never panicking on a buffer of the wrong size. The ksni tray test now spawns with both icons.
+
+**Diagnosed from Jonas's report, not reproduced here.** The Windows failure — every recording ending with "Microphone stream failed: A buffer underrun or overrun occurred" after re-plugging a dock and microphone — was traced to cpal's WASAPI backend emitting `Xrun` on `AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`, which Utterform treated as fatal. The fix is in the one function that classifies stream errors; the unit test exercises it with constructed cpal errors. The Windows driver behaviour that sets the flag is not reproducible on this Linux machine.
+
+**Not exercised by anyone yet:** the tray dot on any platform, the louder start cue through a real speaker, and whether the inconsistent start click Jonas heard on Windows 0.4.3 was audibility or something in the WASAPI output path.
+
 ## 0.4.3 The start sound on speakers that suspend
 
 74 native and 53 interface tests. New native coverage: every cue opening with silence a waking device can swallow and the tone still beginning the moment that lead-in ends rather than being pushed later by it; every cue ending in at least 250 ms of silence, which is what stands between a buffered output and a cue nobody hears; and only sample formats that can actually be written being accepted, since silently reporting success for the others is what made a cue disappear with no way to find out why. On the capture side, nothing being kept until the start cue has been played, so the cue cannot land in its own recording.

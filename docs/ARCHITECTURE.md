@@ -8,7 +8,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `feedback.rs` — synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output, played to completion on outputs that suspend when idle
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `activation.rs` — the single way to reveal the one main window, and which tray gestures ask for it
-- `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives
+- `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives; both show a red dot while recording
 - `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
@@ -40,6 +40,8 @@ The frontend never receives an API key or temporary audio path. Network calls or
 ## Background capture & feedback
 
 Capture is owned by Rust/CPAL, not the WebView. Focus changes, minimization, and closing the window to tray do not stop a recording. Explicit Stop processes it, Escape discards it, and tray Quit discards active audio before exiting. No microphone capture starts merely by launching the app. The in-window keys stay focused-window shortcuts; global dictation is a separate path described below.
+
+A backend's buffer under- or overrun report (`ErrorKind::Xrun`) is a gap in a stream that keeps running — Windows raises it through `AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY`, macOS through a processor-overload listener — and is counted, not fatal. Only an error meaning the stream is gone ends a recording. `note_stream_error` is the one place that decides.
 
 Pause/resume is an explicit, idempotent `set_recording_paused` command returning native recording status. CPAL stays open for cross-platform reliability; an atomic gate discards paused callbacks before conversion/allocation/writing. No silent gap is inserted. The OS may continue to show its microphone-use indicator. A native clock excludes paused intervals from elapsed time and the cutoff while keeping session identity unchanged. Stop can consume paused audio; Escape and tray Quit still discard it. The UI serializes pause commands, ignores stale polling responses, and handles a watchdog-completion race without processing twice.
 
@@ -87,7 +89,7 @@ One intent, two ways in. A compositor binding runs `utterform --toggle` and the 
 
 Key combinations are reserved only where the platform grants them: Windows, macOS, and Linux under X11. A Wayland session registers nothing — the compositor owns the keyboard — and Settings shows what to bind there instead. The plugin is installed from `setup` rather than at build time, so a host that refuses to create a hotkey manager costs the dictation key and not the application; a key another application already holds is reported in Settings, where it was entered, and the previously working key is released only after the new one parses.
 
-Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible. Because the start cue is the only sign the microphone is live, it is played to completion before capture keeps anything, and a notification stands in when no output device will play it.
+Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible. Because the start cue is the only sign the microphone is live, it is played to completion before capture keeps anything, and a notification stands in when no output device will play it. The tray icon carries a red dot for as long as a recording runs, set from the same commands that start and end capture, so there is a confirmation that does not depend on a speaker at all.
 
 ## Delivery to the focused window
 

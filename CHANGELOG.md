@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4 — v0.4.4
+
+- A buffer under- or overrun no longer fails the recording. Windows and macOS report one on a stream that keeps running, to say a few milliseconds went missing; treating it as fatal threw away every recording made through a microphone Windows had just re-enumerated after a dock was plugged back in, with "Microphone stream failed: A buffer underrun or overrun occurred." Gaps are counted and logged; only a lost device ends a recording.
+- The start click is louder — about 6 dB above the stop click — and longer, so a laptop speaker in a room with other noise still gets it across.
+- The tray icon shows a red dot while recording, on Windows, macOS and Linux, with a matching tooltip on Windows and macOS. A confirmation that does not depend on a speaker being awake.
+
+See [0.4.4 release notes](docs/releases/v0.4.4.md).
+
 ## 0.4.3 — v0.4.3
 
 - The start click is heard on speakers that suspend when idle — Bluetooth headsets, HDMI displays, docks. The output device is now woken before the microphone is opened, every cue carries a silent lead-in and a 300 ms tail, and the stream stays open until the device has taken all of it instead of being cut off after 500 ms.

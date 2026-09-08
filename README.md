@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.3** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.3.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.3).
+> Utterform is under active development. **0.4.4** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.4.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.4).
 
 ## Install on Omarchy / Arch Linux
 
@@ -46,7 +46,7 @@ The command line works on every platform, from any launcher, script or panel but
 
 If Utterform is not running yet, the command starts it and still records.
 
-Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**.
+Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**. The tray icon shows a red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow.
 
 ## Typing at the cursor
 
@@ -87,7 +87,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.4.3 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.3):
+Download the [0.4.4 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.4):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

@@ -40,10 +40,13 @@ const DEADLINE: Duration = Duration::from_secs(3);
 
 /// How long the audible part of a cue lasts.
 fn tone_seconds(cue: Cue) -> f32 {
-    if matches!(cue, Cue::Done) {
-        0.155
-    } else {
-        0.045
+    match cue {
+        // Longer and louder than Stop: it is the one cue the user is waiting
+        // for, often through a laptop speaker in a room with other noise, and
+        // a tick that can be missed is no confirmation.
+        Cue::Start => 0.07,
+        Cue::Stop => 0.045,
+        Cue::Done => 0.155,
     }
 }
 
@@ -114,19 +117,20 @@ fn sample(cue: Cue, position: usize, sample_rate: u32) -> f32 {
         let envelope = (local / 0.004).min(1.0) * ((0.065 - local) / 0.025).min(1.0);
         return (std::f32::consts::TAU * frequency * local).sin() * envelope * 0.08;
     }
-    if t >= 0.045 {
+    let length = tone_seconds(cue);
+    if t >= length {
         return 0.0;
     }
-    let frequency = match cue {
-        Cue::Start => 1450.0,
-        Cue::Stop => 820.0,
+    let (frequency, gain, decay) = match cue {
+        Cue::Start => (1450.0, 0.26, 60.0),
+        Cue::Stop => (820.0, 0.12, 115.0),
         Cue::Done => unreachable!(),
     };
     let attack = (t / 0.0015).min(1.0);
-    let release = ((0.045 - t) / 0.008).min(1.0);
+    let release = ((length - t) / 0.008).min(1.0);
     let tone = (std::f32::consts::TAU * frequency * t).sin()
         + 0.35 * (std::f32::consts::TAU * frequency * 2.7 * t).sin();
-    tone * attack * release * (-t * 115.0).exp() * 0.12
+    tone * attack * release * (-t * decay).exp() * gain
 }
 
 /// Hands `cue` to the default output device and returns without waiting for it.
@@ -268,16 +272,38 @@ mod tests {
     }
 
     #[test]
-    fn cues_are_short_quiet_and_distinct() {
+    fn cues_are_short_and_distinct() {
         for cue in [Cue::Start, Cue::Stop] {
             assert_eq!(sample(cue, 0, 48000), 0.0);
-            assert_eq!(sample(cue, 2400, 48000), 0.0);
-            assert!((0..4800).all(|i| sample(cue, i, 48000).abs() < 0.17));
+            assert_eq!(sample(cue, 4800, 48000), 0.0);
+            assert!((0..4800).all(|i| sample(cue, i, 48000).abs() < 0.4));
         }
         assert_ne!(
             sample(Cue::Start, 100, 48000),
             sample(Cue::Stop, 100, 48000)
         );
+    }
+
+    #[test]
+    fn the_start_cue_is_the_one_that_has_to_be_noticed() {
+        let peak = |cue| {
+            (0..4800)
+                .map(|i| sample(cue, i, 48000).abs())
+                .fold(0.0_f32, f32::max)
+        };
+        let audible_for = |cue| {
+            (0..4800)
+                .rev()
+                .find(|i| sample(cue, *i, 48000).abs() > 0.02)
+                .unwrap_or(0) as f32
+                / 48000.0
+        };
+        // Roughly 6 dB above Stop, and audible for longer, so a laptop speaker
+        // in a room with other noise still gets it across.
+        assert!(peak(Cue::Start) > peak(Cue::Stop) * 1.8);
+        assert!(audible_for(Cue::Start) > audible_for(Cue::Stop) * 1.3);
+        // Still a click, not an alarm.
+        assert!(peak(Cue::Start) < 0.35);
     }
 
     #[test]
