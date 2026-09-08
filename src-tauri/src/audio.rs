@@ -40,6 +40,9 @@ struct CaptureSignals {
     armed: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     overrun: Arc<AtomicBool>,
+    /// Buffer under- or overruns the backend reported while the stream kept
+    /// running: a short gap in the audio, counted rather than fatal.
+    glitches: Arc<AtomicU32>,
     stream_error: Arc<Mutex<Option<String>>>,
 }
 
@@ -488,6 +491,10 @@ fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
     if active.signals.overrun.load(Ordering::Relaxed) {
         return Err("The microphone produced audio faster than it could be stored".into());
     }
+    let glitches = active.signals.glitches.load(Ordering::Relaxed);
+    if glitches > 0 {
+        eprintln!("utterform: the microphone reported {glitches} gap(s) during the recording");
+    }
     if artifact.sample_count == 0 {
         return Err("The recording is empty".into());
     }
@@ -531,18 +538,14 @@ fn build_input_stream(
     macro_rules! stream {
         ($sample:ty, $convert:expr) => {{
             let signals = signals.clone();
-            let stream_error = signals.stream_error.clone();
+            let errors = signals.clone();
             let sender = sender.clone();
             device.build_input_stream(
                 *config,
                 move |data: &[$sample], _| {
                     capture_chunk(data, $convert, &sender, &signals);
                 },
-                move |error| {
-                    if let Ok(mut slot) = stream_error.lock() {
-                        *slot = Some(format!("Microphone stream failed: {error}"));
-                    }
-                },
+                move |error| note_stream_error(error, &errors),
                 None,
             )
         }};
@@ -559,6 +562,23 @@ fn build_input_stream(
         }
     };
     result.map_err(|error| format!("Could not open the microphone: {error}"))
+}
+
+/// What the backend reports about the stream while it runs.
+///
+/// A buffer under- or overrun is not one of the stream's failures: Windows and
+/// macOS raise it on a stream that carries on, to say a few milliseconds went
+/// missing. Treating it as fatal threw away every recording made through a
+/// microphone Windows had just re-enumerated after a dock was plugged back in.
+/// Only an error that means the stream is gone ends the recording.
+fn note_stream_error(error: cpal::Error, signals: &CaptureSignals) {
+    if error.kind() == cpal::ErrorKind::Xrun {
+        signals.glitches.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if let Ok(mut slot) = signals.stream_error.lock() {
+        *slot = Some(format!("Microphone stream failed: {error}"));
+    }
 }
 
 fn capture_chunk<T: Copy>(
@@ -665,6 +685,22 @@ mod tests {
         );
         // Discarding is not an overrun: nothing was dropped for want of room.
         assert!(!signals.overrun.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn a_gap_in_the_audio_is_counted_and_only_a_lost_device_ends_the_recording() {
+        let signals = CaptureSignals::default();
+        note_stream_error(cpal::Error::from(cpal::ErrorKind::Xrun), &signals);
+        note_stream_error(cpal::Error::from(cpal::ErrorKind::Xrun), &signals);
+        assert_eq!(signals.glitches.load(Ordering::Relaxed), 2);
+        assert!(signals.stream_error.lock().unwrap().is_none());
+
+        note_stream_error(
+            cpal::Error::from(cpal::ErrorKind::DeviceNotAvailable),
+            &signals,
+        );
+        let error = signals.stream_error.lock().unwrap().clone();
+        assert!(error.is_some_and(|error| error.starts_with("Microphone stream failed")));
     }
 
     #[test]

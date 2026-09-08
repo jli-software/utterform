@@ -11,7 +11,7 @@ use crate::{
     },
     feedback::{self, Cue},
     history::{self, HistoryEntry},
-    models, output, secrets, settings, transcription,
+    models, output, secrets, settings, transcription, tray,
 };
 
 /// The interface asks once it can act; an intent is delivered to one caller only.
@@ -90,6 +90,7 @@ pub fn start_recording(
         current_settings.sound_enabled,
     )?;
     let session = started.session;
+    tray::set_recording(&app, true);
     // Off the answering thread: the wait is a speaker resuming from idle, which
     // a Bluetooth headset can take a few hundred milliseconds over. The
     // interface learns the recording began now, not once the cue was heard.
@@ -105,6 +106,7 @@ pub fn start_recording(
             match audio::check_limit(&app.state::<AudioCaptureState>(), session) {
                 Ok(audio::LimitCheck::Waiting) => {}
                 Ok(audio::LimitCheck::Stopped) => {
+                    tray::set_recording(&app, false);
                     let _ = app.emit("recording-limit-reached", ());
                     break;
                 }
@@ -144,7 +146,8 @@ pub fn set_recording_paused(
 }
 
 #[tauri::command]
-pub fn cancel_recording(state: State<'_, AudioCaptureState>) -> Result<(), String> {
+pub fn cancel_recording(app: AppHandle, state: State<'_, AudioCaptureState>) -> Result<(), String> {
+    tray::set_recording(&app, false);
     audio::cancel_recording(&state)
 }
 
@@ -155,7 +158,10 @@ pub async fn finish_recording(
     request: ProcessRequest,
 ) -> Result<ProcessResult, String> {
     let current_settings = settings::load(&app)?;
-    let artifact = audio::stop_recording(&state)?;
+    // Capture is over either way; the icon must not keep claiming otherwise.
+    let artifact = audio::stop_recording(&state);
+    tray::set_recording(&app, false);
+    let artifact = artifact?;
     let duration_ms = artifact.duration_ms();
     let transcript = transcription::transcribe(&app, &artifact, &current_settings).await?;
     let mut warnings = Vec::new();
