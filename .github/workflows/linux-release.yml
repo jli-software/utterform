@@ -55,6 +55,11 @@ jobs:
           test -f "$notes"
           read -r title < "$notes"
           title="${title#\# }"
+          # The notes file opens with the title as a heading, for the docs.
+          # GitHub shows the title above the body itself, so publishing the
+          # file as-is put it there twice. Publish the body without it.
+          body="$(mktemp)"
+          tail -n +2 "$notes" | sed '1{/^$/d}' > "$body"
           flags=()
           latest=true
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
@@ -64,5 +69,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" release/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag --draft "${flags[@]}" \
-            --title "$title" --notes-file "$notes"
+            --title "$title" --notes-file "$body"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
