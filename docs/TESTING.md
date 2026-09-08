@@ -1,5 +1,9 @@
 # Validation
 
+## 0.4.6 A window running as administrator is named, not typed into
+
+81 native and 53 interface tests, unchanged: the integrity-level check is Windows API code with no seam a Linux test can reach. **Diagnosed from Jonas's 0.4.5 log, not reproduced here.** The log showed Utterform recognising Windows Terminal and sending Shift+Insert on four recordings with nothing arriving, and Jonas confirmed the terminal runs as administrator; that is UIPI, and `SendInput` counting dropped events as delivered is documented behaviour. The Windows build is verified through Actions → Desktop builds. Not yet seen by anyone: the warning text on a real elevated window, and whether an elevated Utterform pastes into an elevated terminal.
+
 ## 0.4.5 Paste into a Windows terminal, cues on their own threads, and a log
 
 81 native and 53 interface tests. New native coverage: a Windows terminal being recognised by its window class or by the program behind it — Windows Terminal, the console host under any shell, Electron terminals by program — while VS Code, browsers, Word and Notepad keep the ordinary paste; and the tray dot being small, soft-edged and confined to the lower right corner while still solid at 16 pixels. The badge tests replace the 0.4.4 ones.
