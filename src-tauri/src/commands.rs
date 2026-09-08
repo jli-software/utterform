@@ -156,7 +156,7 @@ fn begin_recording(
 /// Stand in for a start cue that could not be played. With the window hidden
 /// the cue is the user's only sign that the microphone is live, so its silence
 /// has to be replaced rather than merely logged.
-fn announce_recording(app: &AppHandle, reason: &str) {
+pub(crate) fn announce_recording(app: &AppHandle, reason: &str) {
     diagnostics::log(format!(
         "the start sound could not be played, raising a notification instead: {reason}"
     ));
@@ -214,7 +214,9 @@ pub fn get_live_status(state: State<'_, live::LiveState>) -> Option<live::LiveSt
 }
 
 #[tauri::command]
-pub fn live_support() -> live::Support { live::support() }
+pub fn live_support() -> live::Support {
+    live::support()
+}
 
 #[tauri::command]
 pub fn set_recording_paused(
@@ -225,7 +227,10 @@ pub fn set_recording_paused(
 }
 
 #[tauri::command]
-pub async fn cancel_recording(app: AppHandle, state: State<'_, AudioCaptureState>) -> Result<(), String> {
+pub async fn cancel_recording(
+    app: AppHandle,
+    state: State<'_, AudioCaptureState>,
+) -> Result<(), String> {
     live::cancel(&app).await?;
     tray::set_recording(&app, false);
     audio::cancel_recording(&state)

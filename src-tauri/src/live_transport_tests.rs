@@ -75,7 +75,7 @@ async fn final_transcript_case(suffix: &str) {
         let session = test_session();
         let (audio_tx, audio_rx) = mpsc::channel(4);
         let (input_tx, input_rx) = input_queue::sync_channel(16);
-        let pcm = vec![0x34, 0x12].repeat(2_400);
+        let pcm = [0x34, 0x12].repeat(2_400);
         audio_tx.send(pcm.clone()).await.unwrap();
         let transport = stream(socket, audio_rx, input_tx, || None, &session);
         let server = async {

@@ -66,8 +66,8 @@ pub fn run() {
         .setup(|app| {
             diagnostics::install(app.handle());
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
-            app.state::<StartupIntent>()
-                .set(cli::intent_from(std::env::args()));
+            let startup_intent = cli::intent_from(std::env::args());
+            app.state::<StartupIntent>().set(startup_intent);
             // Best-effort on purpose: a session that will not grant a global
             // shortcut, or a key another application already holds, must cost
             // the dictation key and not the application. The reason is kept so
@@ -87,7 +87,9 @@ pub fn run() {
                 if platform::use_borderless_window() {
                     window.set_decorations(false)?;
                 }
-                window.show()?;
+                if startup_intent.raises_window() {
+                    window.show()?;
+                }
             }
             tray::install(app.handle())?;
             Ok(())

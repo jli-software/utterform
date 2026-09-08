@@ -4,7 +4,41 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.5.2 — Flow** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.5.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.5.2).
+> Utterform is under active development. **0.6.0 — Live Dictation** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.6.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.0).
+
+## Live dictation — Windows and Omarchy
+
+In **Settings → Voice → Cloud transcription model**, choose **GPT Live Transcribe**.
+The existing **GPT Transcribe** option keeps the complete-recording workflow unchanged.
+Both cloud models use your saved OpenAI key, language hints, vocabulary and recording context.
+
+Focus a text field in another application, press your dictation key, speak, then press
+it again to finish. Text is appended at the current cursor while you speak — Plain
+transcription only, with no automatic corrections or final full-text paste. Start Live
+from the target with the shortcut, not by clicking Record inside Utterform.
+
+- **Windows:** native Unicode input; no helper installation. Elevated programs cannot
+  receive Live input from an ordinary Utterform process.
+- **Omarchy / Hyprland:** keep the compositor binding documented below. Live uses a
+  persistent Wayland virtual keyboard and Hyprland focus events; it does not need
+  `wtype`. The existing finished-text typing option still uses `wtype`.
+- **macOS and other desktops:** keep using GPT Transcribe or Local Whisper. Live support
+  for macOS is deferred to a separate future release.
+
+Window focus loss permanently pauses insertion for that recording, while transcription
+can continue inside Utterform. Finish and recover the transcript there, or start a new
+recording from your target. No automatic replay on return. Line breaks become spaces;
+Live never presses Enter, Tab or Backspace. Clipboard/File options apply only on finish.
+
+Do not move the cursor, change tabs/fields or type concurrently while dictating. Window
+observation cannot identify every in-app focus change, and native key acceptance does not
+prove an application inserted the text. A revised final transcript stays in Utterform;
+it does not rewrite already typed words. The Copy action copies the **whole** transcript,
+so check existing text before pasting it after a partial delivery.
+
+This first Live release is intended for real-world testing on Windows and Omarchy.
+Automated checks do not replace microphone-to-field testing in your applications.
+See the [0.6.0 release notes](docs/releases/v0.6.0.md) for scope and test limitations.
 
 ## Signal design
 
@@ -93,7 +127,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.5.2 assets](https://github.com/jli-software/utterform/releases/tag/v0.5.2):
+Download the [0.6.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.6.0):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

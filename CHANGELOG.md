@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 — v0.6.0 · Live Dictation
+
+- Add GPT Live Transcribe alongside the unchanged GPT Transcribe cloud option.
+- Stream native microphone audio and append text at the cursor on Windows and Omarchy/Hyprland.
+- Preserve vocabulary, language hints and recording context; Live is Plain-only.
+- Stop insertion on observed focus loss; retain transcripts without automatic corrections, replay or Enter keys.
+- Keep Local Whisper, existing batch transformations and animation unchanged. macOS Live is deferred.
+
+See [0.6.0 release notes](docs/releases/v0.6.0.md).
+
 ## 0.5.2 — v0.5.2 · Flow
 
 - Let the ribbon settle softly over about 1.8 seconds after completion instead of stopping abruptly.
