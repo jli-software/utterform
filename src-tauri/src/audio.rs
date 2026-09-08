@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     io::BufWriter,
     path::PathBuf,
     sync::{
@@ -24,6 +25,8 @@ use serde::Serialize;
 
 const CHANNEL_CAPACITY: usize = 64;
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
+const LIVE_SAMPLE_RATE: u32 = 24_000;
+const LIVE_CHUNK_SAMPLES: usize = 480; // 20 ms, independent of microphone callbacks.
 const RECORDING_DIRECTORY: &str = "utterform";
 const STALE_RECORDING_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_RECORDING_DURATION: Duration = Duration::from_secs(10 * 60);
@@ -45,12 +48,16 @@ struct CaptureSignals {
     /// running: a short gap in the audio, counted rather than fatal.
     glitches: Arc<AtomicU32>,
     stream_error: Arc<Mutex<Option<String>>>,
+    live_enabled: bool,
+    live_failure: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(Default)]
 struct CaptureInner {
     active: Option<ActiveRecording>,
     completed: Option<Result<RecordingArtifact, String>>,
+    // Retained through stop/limit so the transport can still observe a final flush error.
+    live_signals: Option<CaptureSignals>,
 }
 
 #[derive(Serialize)]
@@ -289,6 +296,71 @@ pub fn start_recording(
     requested_device: Option<&str>,
     sound_enabled: bool,
 ) -> Result<StartedRecording, String> {
+    start_recording_inner(state, requested_device, sound_enabled, None)
+}
+
+/// Opens the same recording path, additionally tapping bounded 24 kHz mono
+/// PCM16 little-endian packets on its writer thread. The caller must drain the
+/// receiver concurrently, including while stopping the recording.
+pub fn start_recording_live(
+    state: &AudioCaptureState,
+    requested_device: Option<&str>,
+    sound_enabled: bool,
+    live_sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+) -> Result<StartedRecording, String> {
+    start_recording_inner(state, requested_device, sound_enabled, Some(live_sender))
+}
+
+/// A latched failure is retained until the next successful recording start.
+/// No network or UI work runs in the microphone callback.
+pub fn live_error(state: &AudioCaptureState) -> Option<String> {
+    let guard = match state.inner.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Some("Audio state is unavailable".into()),
+    };
+    guard.live_signals.as_ref().and_then(capture_live_error)
+}
+
+fn capture_live_error(signals: &CaptureSignals) -> Option<String> {
+    if !signals.live_enabled {
+        return None;
+    }
+    if let Ok(slot) = signals.live_failure.lock()
+        && slot.is_some()
+    {
+        return slot.clone();
+    }
+    if let Ok(slot) = signals.stream_error.lock()
+        && slot.is_some()
+    {
+        return slot.clone();
+    }
+    if signals.overrun.load(Ordering::Relaxed) {
+        return Some(
+            "Live recording stopped: microphone audio could not be stored fast enough".into(),
+        );
+    }
+    if signals.glitches.load(Ordering::Relaxed) > 0 {
+        return Some("Live recording stopped: the microphone reported a gap in the audio".into());
+    }
+    None
+}
+
+fn latch_live_error(signals: &CaptureSignals, error: String) {
+    if signals.live_enabled
+        && let Ok(mut slot) = signals.live_failure.lock()
+        && slot.is_none()
+    {
+        *slot = Some(error);
+    }
+}
+
+fn start_recording_inner(
+    state: &AudioCaptureState,
+    requested_device: Option<&str>,
+    sound_enabled: bool,
+    live_sender: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+) -> Result<StartedRecording, String> {
     let mut guard = state
         .inner
         .lock()
@@ -308,48 +380,77 @@ pub fn start_recording(
     let device_name = device.to_string();
 
     let (sender, receiver) = sync_channel::<Vec<f32>>(CHANNEL_CAPACITY);
-    let signals = CaptureSignals::default();
+    let signals = CaptureSignals {
+        live_enabled: live_sender.is_some(),
+        ..CaptureSignals::default()
+    };
     let started = signals.clone();
+    let writer_signals = signals.clone();
     let writer_config = config;
     let writer = thread::spawn(move || {
-        let directory = recording_directory();
-        std::fs::create_dir_all(&directory)
-            .map_err(|error| format!("Could not create the recording directory: {error}"))?;
-        let temporary = tempfile::Builder::new()
-            .prefix("utterform-")
-            .suffix(".wav")
-            .tempfile_in(directory)
-            .map_err(|error| format!("Could not create a temporary recording: {error}"))?;
-        let (file, path) = temporary
-            .keep()
-            .map_err(|error| format!("Could not retain the temporary recording: {error}"))?;
-        let temporary = TemporaryRecording::new(path);
-        let spec = hound::WavSpec {
-            channels: writer_config.channels,
-            sample_rate: writer_config.sample_rate,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-        let mut wav = hound::WavWriter::new(BufWriter::new(file), spec)
-            .map_err(|error| format!("Could not initialize the recording: {error}"))?;
-        let mut sample_count = 0_u64;
-        while let Ok(chunk) = receiver.recv() {
-            for sample in chunk {
-                let normalized = sample.clamp(-1.0, 1.0);
-                let pcm = (normalized * f32::from(i16::MAX)).round() as i16;
-                wav.write_sample(pcm)
-                    .map_err(|error| format!("Could not write the recording: {error}"))?;
-                sample_count += 1;
+        let result: Result<RecordingArtifact, String> = (|| {
+            let mut live = live_sender.map(|sender| {
+                LiveTap::new(sender, writer_config.sample_rate, writer_config.channels)
+            });
+            let directory = recording_directory();
+            std::fs::create_dir_all(&directory)
+                .map_err(|error| format!("Could not create the recording directory: {error}"))?;
+            let temporary = tempfile::Builder::new()
+                .prefix("utterform-")
+                .suffix(".wav")
+                .tempfile_in(directory)
+                .map_err(|error| format!("Could not create a temporary recording: {error}"))?;
+            let (file, path) = temporary
+                .keep()
+                .map_err(|error| format!("Could not retain the temporary recording: {error}"))?;
+            let temporary = TemporaryRecording::new(path);
+            let spec = hound::WavSpec {
+                channels: writer_config.channels,
+                sample_rate: writer_config.sample_rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut wav = hound::WavWriter::new(BufWriter::new(file), spec)
+                .map_err(|error| format!("Could not initialize the recording: {error}"))?;
+            let mut sample_count = 0_u64;
+            while let Ok(chunk) = receiver.recv() {
+                if let Some(tap) = live.as_mut() {
+                    let result = match capture_live_error(&writer_signals) {
+                        Some(error) => Err(error),
+                        None => tap.push(&chunk),
+                    };
+                    if let Err(error) = result {
+                        latch_live_error(&writer_signals, error);
+                        live = None;
+                    }
+                }
+                for sample in chunk {
+                    let normalized = sample.clamp(-1.0, 1.0);
+                    let pcm = (normalized * f32::from(i16::MAX)).round() as i16;
+                    wav.write_sample(pcm)
+                        .map_err(|error| format!("Could not write the recording: {error}"))?;
+                    sample_count += 1;
+                }
             }
+            if let Some(mut tap) = live
+                && let Err(error) =
+                    capture_live_error(&writer_signals).map_or_else(|| tap.finish(), Err)
+            {
+                latch_live_error(&writer_signals, error);
+            }
+            wav.finalize()
+                .map_err(|error| format!("Could not finalize the recording: {error}"))?;
+            Ok(RecordingArtifact {
+                path: temporary.into_path()?,
+                sample_rate: writer_config.sample_rate,
+                channels: writer_config.channels,
+                sample_count,
+            })
+        })();
+        if let Err(error) = &result {
+            latch_live_error(&writer_signals, error.clone());
         }
-        wav.finalize()
-            .map_err(|error| format!("Could not finalize the recording: {error}"))?;
-        Ok(RecordingArtifact {
-            path: temporary.into_path()?,
-            sample_rate: writer_config.sample_rate,
-            channels: writer_config.channels,
-            sample_count,
-        })
+        result
     });
 
     let stream = build_input_stream(
@@ -378,6 +479,7 @@ pub fn start_recording(
     let cue = sound_enabled.then(|| feedback::start(Cue::Start));
 
     let started_at = Instant::now();
+    guard.live_signals = signals.live_enabled.then(|| signals.clone());
     guard.active = Some(ActiveRecording {
         started_at,
         sound_enabled,
@@ -496,6 +598,9 @@ fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
         .join()
         .map_err(|_| "The audio writer stopped unexpectedly".to_string())??;
 
+    if let Some(error) = capture_live_error(&active.signals) {
+        return Err(error);
+    }
     if let Some(error) = active
         .signals
         .stream_error
@@ -628,6 +733,197 @@ fn visual_level(samples: &[f32]) -> f32 {
     (rms * 5.0).sqrt().clamp(0.0, 1.0)
 }
 
+/// Incremental, centred windowed-sinc resampling. Channel frames and the
+/// rational output clock persist across callback boundaries. The small lookahead
+/// provides an anti-alias low-pass filter, with edge extension only at start/end.
+/// History is bounded to the FIR footprint, not the recording duration.
+struct LiveResampler {
+    source_rate: u32,
+    channels: usize,
+    channel_sum: f64,
+    channel_count: usize,
+    frames: VecDeque<f64>,
+    first_frame: f64,
+    base_frame: u64,
+    total_frames: u64,
+    output_index: u64,
+    cutoff: f64,
+    radius: i64,
+}
+
+impl LiveResampler {
+    fn new(source_rate: u32, channels: u16) -> Self {
+        let source_rate = source_rate.max(1);
+        let ratio = (f64::from(LIVE_SAMPLE_RATE) / f64::from(source_rate)).min(1.0);
+        Self {
+            source_rate,
+            channels: usize::from(channels.max(1)),
+            channel_sum: 0.0,
+            channel_count: 0,
+            frames: VecDeque::new(),
+            first_frame: 0.0,
+            base_frame: 0,
+            total_frames: 0,
+            output_index: 0,
+            cutoff: ratio * 0.90,
+            radius: (32.0 / ratio).ceil() as i64,
+        }
+    }
+
+    fn push(
+        &mut self,
+        samples: &[f32],
+        mut emit: impl FnMut(i16) -> Result<(), String>,
+    ) -> Result<(), String> {
+        for &sample in samples {
+            // A bad floating point sample must not contaminate filter history.
+            self.channel_sum += if sample.is_finite() {
+                f64::from(sample.clamp(-1.0, 1.0))
+            } else {
+                0.0
+            };
+            self.channel_count += 1;
+            if self.channel_count == self.channels {
+                let mono = self.channel_sum / self.channels as f64;
+                if self.total_frames == 0 {
+                    self.first_frame = mono;
+                }
+                self.frames.push_back(mono);
+                self.total_frames += 1;
+                self.channel_sum = 0.0;
+                self.channel_count = 0;
+                self.emit_ready(false, &mut emit)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, mut emit: impl FnMut(i16) -> Result<(), String>) -> Result<(), String> {
+        if self.channel_count != 0 {
+            return Err("Live recording ended with an incomplete microphone channel frame".into());
+        }
+        self.emit_ready(true, &mut emit)
+    }
+
+    fn emit_ready(
+        &mut self,
+        finishing: bool,
+        emit: &mut impl FnMut(i16) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let output_count =
+            self.total_frames * u64::from(LIVE_SAMPLE_RATE) / u64::from(self.source_rate);
+        while self.output_index < output_count {
+            let numerator = self.output_index * u64::from(self.source_rate);
+            let centre = (numerator / u64::from(LIVE_SAMPLE_RATE)) as i64;
+            if !finishing && centre + self.radius >= self.total_frames as i64 {
+                break;
+            }
+            let fraction =
+                (numerator % u64::from(LIVE_SAMPLE_RATE)) as f64 / f64::from(LIVE_SAMPLE_RATE);
+            let mut weighted = 0.0;
+            let mut weight_sum = 0.0;
+            for index in centre - self.radius + 1..=centre + self.radius {
+                let distance = index as f64 - centre as f64 - fraction;
+                let scaled = distance * self.cutoff;
+                let sinc = if scaled.abs() < 1e-12 {
+                    1.0
+                } else {
+                    (std::f64::consts::PI * scaled).sin() / (std::f64::consts::PI * scaled)
+                };
+                let window =
+                    0.5 + 0.5 * (std::f64::consts::PI * distance / self.radius as f64).cos();
+                let weight = sinc * window;
+                let sample = if index < 0 {
+                    self.first_frame
+                } else if index >= self.total_frames as i64 {
+                    *self.frames.back().unwrap_or(&0.0)
+                } else {
+                    self.frames[(index as u64 - self.base_frame) as usize]
+                };
+                weighted += sample * weight;
+                weight_sum += weight;
+            }
+            let normalized = (weighted / weight_sum).clamp(-1.0, 1.0);
+            emit((normalized * f64::from(i16::MAX)).round() as i16)?;
+            self.output_index += 1;
+            let next_centre =
+                self.output_index * u64::from(self.source_rate) / u64::from(LIVE_SAMPLE_RATE);
+            let retain_from = next_centre.saturating_sub(self.radius as u64);
+            while self.base_frame < retain_from && !self.frames.is_empty() {
+                self.frames.pop_front();
+                self.base_frame += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct LiveTap {
+    resampler: LiveResampler,
+    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    pending: Vec<u8>,
+}
+
+impl LiveTap {
+    fn new(sender: tokio::sync::mpsc::Sender<Vec<u8>>, source_rate: u32, channels: u16) -> Self {
+        Self {
+            resampler: LiveResampler::new(source_rate, channels),
+            sender,
+            pending: Vec::with_capacity(LIVE_CHUNK_SAMPLES * 2),
+        }
+    }
+
+    fn push(&mut self, samples: &[f32]) -> Result<(), String> {
+        let Self {
+            resampler,
+            sender,
+            pending,
+        } = self;
+        resampler.push(samples, |sample| Self::append(sender, pending, sample))
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        let Self {
+            resampler,
+            sender,
+            pending,
+        } = self;
+        resampler.finish(|sample| Self::append(sender, pending, sample))?;
+        if !pending.is_empty() {
+            Self::flush(sender, pending)?;
+        }
+        Ok(())
+    }
+
+    fn append(
+        sender: &tokio::sync::mpsc::Sender<Vec<u8>>,
+        pending: &mut Vec<u8>,
+        sample: i16,
+    ) -> Result<(), String> {
+        pending.extend_from_slice(&sample.to_le_bytes());
+        if pending.len() == LIVE_CHUNK_SAMPLES * 2 {
+            Self::flush(sender, pending)?;
+        }
+        Ok(())
+    }
+
+    fn flush(
+        sender: &tokio::sync::mpsc::Sender<Vec<u8>>,
+        pending: &mut Vec<u8>,
+    ) -> Result<(), String> {
+        let packet = std::mem::replace(pending, Vec::with_capacity(LIVE_CHUNK_SAMPLES * 2));
+        sender.try_send(packet).map_err(|error| match error {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                "Live recording stopped: the connection could not keep up with microphone audio"
+                    .into()
+            }
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                "Live recording stopped: the audio connection was closed".into()
+            }
+        })
+    }
+}
+
 fn resample_linear(input: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
     if input.is_empty() || source_rate == 0 || target_rate == 0 {
         return Vec::new();
@@ -653,6 +949,169 @@ fn resample_linear(input: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live_pcm(input: &[f32], rate: u32, channels: u16, partition: usize) -> Vec<i16> {
+        let mut resampler = LiveResampler::new(rate, channels);
+        let mut output = Vec::new();
+        for chunk in input.chunks(partition) {
+            resampler
+                .push(chunk, |sample| {
+                    output.push(sample);
+                    Ok(())
+                })
+                .unwrap();
+            assert!(resampler.frames.len() <= (resampler.radius * 2 + 4) as usize);
+        }
+        resampler
+            .finish(|sample| {
+                output.push(sample);
+                Ok(())
+            })
+            .unwrap();
+        output
+    }
+
+    #[test]
+    fn live_resampling_is_invariant_to_callback_and_channel_boundaries() {
+        let input = (0..8_820)
+            .map(|i| (i as f32 * 0.03).sin() * 0.8)
+            .collect::<Vec<_>>();
+        for rate in [16_000, 24_000, 44_100, 48_000, 96_000] {
+            let expected = live_pcm(&input, rate, 2, input.len());
+            assert_eq!(
+                expected.len(),
+                input.len() / 2 * LIVE_SAMPLE_RATE as usize / rate as usize
+            );
+            for partition in [1, 3, 127, 960] {
+                assert_eq!(
+                    live_pcm(&input, rate, 2, partition),
+                    expected,
+                    "rate {rate}, partition {partition}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn live_stereo_downmix_preserves_dc_and_filters_above_nyquist() {
+        let stereo = [0.75, -0.25].repeat(4_800);
+        let output = live_pcm(&stereo, 48_000, 2, 31);
+        assert_eq!(output.len(), 2_400);
+        assert!(output.iter().all(|&sample| sample == 8_192));
+        let high = (0..4_800)
+            .map(|i| (std::f32::consts::TAU * 18_000.0 * i as f32 / 48_000.0).sin())
+            .collect::<Vec<_>>();
+        let low = (0..4_800)
+            .map(|i| (std::f32::consts::TAU * 1_000.0 * i as f32 / 48_000.0).sin())
+            .collect::<Vec<_>>();
+        let rms = |pcm: Vec<i16>| {
+            (pcm[100..pcm.len() - 100]
+                .iter()
+                .map(|&v| f64::from(v).powi(2))
+                .sum::<f64>()
+                / (pcm.len() - 200) as f64)
+                .sqrt()
+        };
+        assert!(rms(live_pcm(&high, 48_000, 1, 97)) < 100.0);
+        assert!(rms(live_pcm(&low, 48_000, 1, 97)) > 20_000.0);
+    }
+
+    #[test]
+    fn live_empty_nonfinite_and_incomplete_frames_are_handled() {
+        assert!(live_pcm(&[], 48_000, 1, 1).is_empty());
+        assert!(
+            live_pcm(
+                &[f32::NAN, f32::INFINITY, f32::NEG_INFINITY].repeat(100),
+                24_000,
+                1,
+                1
+            )
+            .iter()
+            .all(|&sample| sample == 0)
+        );
+        assert!(
+            live_pcm(&[2.0; 100], 24_000, 1, 7)
+                .iter()
+                .all(|&sample| sample == i16::MAX)
+        );
+        let mut resampler = LiveResampler::new(48_000, 2);
+        resampler.push(&[0.5], |_| Ok(())).unwrap();
+        assert!(
+            resampler
+                .finish(|_| Ok(()))
+                .unwrap_err()
+                .contains("incomplete")
+        );
+    }
+
+    #[test]
+    fn live_packets_flush_final_tail_then_close() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+        let mut tap = LiveTap::new(sender, 24_000, 1);
+        tap.push(&[0.25; 1_001]).unwrap();
+        tap.finish().unwrap();
+        drop(tap);
+        let mut sizes = Vec::new();
+        while let Ok(chunk) = receiver.try_recv() {
+            sizes.push(chunk.len());
+            assert!(
+                chunk
+                    .chunks_exact(2)
+                    .all(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]) == 8_192)
+            );
+        }
+        assert_eq!(sizes, [960, 960, 82]);
+        assert!(receiver.is_closed());
+    }
+
+    #[test]
+    fn live_backpressure_disconnect_and_capture_errors_are_visible_and_latched() {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        let mut tap = LiveTap::new(sender, 24_000, 1);
+        let error = tap.push(&[0.0; 2_000]).unwrap_err();
+        assert!(error.contains("could not keep up"));
+        let signals = CaptureSignals {
+            live_enabled: true,
+            ..CaptureSignals::default()
+        };
+        latch_live_error(&signals, error.clone());
+        latch_live_error(&signals, "later".into());
+        let state = AudioCaptureState::default();
+        state.inner.lock().unwrap().live_signals = Some(signals);
+        assert_eq!(live_error(&state), Some(error));
+
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        drop(receiver);
+        let mut tap = LiveTap::new(sender, 24_000, 1);
+        tap.push(&[0.0; 10]).unwrap();
+        assert!(tap.finish().unwrap_err().contains("closed"));
+
+        let signals = CaptureSignals {
+            live_enabled: true,
+            ..CaptureSignals::default()
+        };
+        signals.overrun.store(true, Ordering::Relaxed);
+        assert!(
+            capture_live_error(&signals)
+                .unwrap()
+                .contains("stored fast enough")
+        );
+        let signals = CaptureSignals {
+            live_enabled: true,
+            ..CaptureSignals::default()
+        };
+        note_stream_error(cpal::Error::from(cpal::ErrorKind::Xrun), &signals);
+        assert!(capture_live_error(&signals).unwrap().contains("gap"));
+        note_stream_error(
+            cpal::Error::from(cpal::ErrorKind::DeviceNotAvailable),
+            &signals,
+        );
+        assert!(
+            capture_live_error(&signals)
+                .unwrap()
+                .contains("Microphone stream failed")
+        );
+    }
 
     #[test]
     fn clock_excludes_repeated_pauses_and_keeps_the_active_time_limit() {
