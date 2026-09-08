@@ -1056,8 +1056,10 @@ mod tests {
             sizes.push(chunk.len());
             assert!(
                 chunk
-                    .chunks_exact(2)
-                    .all(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]) == 8_192)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .all(|bytes| i16::from_le_bytes(*bytes) == 8_192)
             );
         }
         assert_eq!(sizes, [960, 960, 82]);
