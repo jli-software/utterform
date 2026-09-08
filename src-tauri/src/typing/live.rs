@@ -16,11 +16,13 @@ mod platform;
 /// A fail-closed session: once stopped, a return to the original window does
 /// not allow more input. The original error is retained for a useful UI status.
 #[derive(Default)]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 pub(super) struct StopLatch {
     error: Option<String>,
     cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 impl StopLatch {
     pub(super) fn check(&mut self) -> Result<(), String> {
         if self
@@ -123,5 +125,23 @@ mod tests {
         assert_eq!(latch.check(), Err("Focus changed".into()));
         assert_eq!(latch.stop("A later error"), "Focus changed");
         assert_eq!(latch.check(), Err("Focus changed".into()));
+    }
+
+    #[test]
+    fn cancellation_is_latched_even_if_caller_clears_the_flag() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut latch = StopLatch {
+            error: None,
+            cancel: Some(flag.clone()),
+        };
+        assert!(latch.check().is_ok());
+        flag.store(true, Ordering::Release);
+        assert!(latch.check().is_err());
+        flag.store(false, Ordering::Release);
+        assert!(latch.check().is_err());
     }
 }

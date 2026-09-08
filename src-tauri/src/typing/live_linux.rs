@@ -251,10 +251,15 @@ impl FocusGuard {
 
     fn drain_events(&mut self) -> Result<(), String> {
         let mut buffer = [0u8; 4096];
+        let mut total = 0;
         loop {
             match self.events.read(&mut buffer) {
                 Ok(0) => return Err("Hyprland focus observer disconnected".into()),
                 Ok(count) => {
+                    total += count;
+                    if total > MAX_EVENTS {
+                        return Err("Hyprland focus event rate exceeded its limit".into());
+                    }
                     self.pending.extend_from_slice(&buffer[..count]);
                     if self.pending.len() > MAX_EVENTS {
                         return Err("Hyprland focus event buffer overflowed".into());
@@ -291,12 +296,13 @@ impl FocusGuard {
 /// ONE_LEVEL avoids capitalization/AltGr transforms; only literal Unicode
 /// keysyms are mapped, so no Return, Backspace, Tab, or shortcut key exists.
 fn keymap_for(characters: &[char]) -> String {
-    let mut map =
-        String::from("xkb_keymap { xkb_keycodes \"utterform\" { minimum = 8; maximum = 255;\n");
+    let mut map = String::from(
+        "xkb_keymap { xkb_keycodes \"utterform\" { minimum = 8; maximum = 255; <INIT> = 8;\n",
+    );
     for (index, _) in characters.iter().enumerate() {
         map.push_str(&format!("<K{index}> = {};\n", index + 9));
     }
-    map.push_str("}; xkb_types \"utterform\" { type \"ONE_LEVEL\" { modifiers = None; map[None] = Level1; level_name[Level1] = \"Any\"; }; }; xkb_compatibility \"utterform\" {}; xkb_symbols \"utterform\" {\n");
+    map.push_str("}; xkb_types \"utterform\" { type \"ONE_LEVEL\" { modifiers = None; map[None] = Level1; level_name[Level1] = \"Any\"; }; }; xkb_compatibility \"utterform\" {}; xkb_symbols \"utterform\" { key <INIT> { type[Group1] = \"ONE_LEVEL\", [ NoSymbol ] };\n");
     for (index, character) in characters.iter().enumerate() {
         map.push_str(&format!(
             "key <K{index}> {{ type[Group1] = \"ONE_LEVEL\", [ U{:04X} ] }};\n",
@@ -363,7 +369,18 @@ impl LiveTyper {
             .map_err(|_| "Could not write the live Unicode keymap")?;
         self.keyboard.keymap(1, file.as_fd(), map.len() as u32);
         self.keyboard.modifiers(0, 0, 0, 0);
-        sync(&self.connection, &mut self.queue, &mut self.state)
+        sync(&self.connection, &mut self.queue, &mut self.state)?;
+        self.check_target()?;
+        // Some clients discard the first event after a virtual keyboard/keymap
+        // appears. Prime with reserved key 0 mapped to NoSymbol, never a real
+        // character, modifier, or editing key. Do not "fix" missing text by
+        // retrying a character whose application-level delivery is unknowable.
+        let time = self.epoch.elapsed().as_millis() as u32;
+        self.keyboard.key(time, 0, 1);
+        self.keyboard.key(time, 0, 0);
+        sync(&self.connection, &mut self.queue, &mut self.state)?;
+        thread::sleep(Duration::from_millis(5));
+        self.check_target()
     }
 
     pub(super) fn check_target(&mut self) -> Result<(), String> {
@@ -448,6 +465,59 @@ mod tests {
         assert!(map.ends_with('\0'));
         assert!(!map.contains("Return"));
         assert!(!map.contains("include"));
+    }
+
+    #[test]
+    fn unicode_keymap_roundtrips_through_the_real_xkb_parser() {
+        // Load the compositor's ubiquitous runtime library without introducing
+        // a development-header/linker dependency into release builds.
+        unsafe {
+            let library = libc::dlopen(c"libxkbcommon.so.0".as_ptr(), libc::RTLD_NOW);
+            assert!(
+                !library.is_null(),
+                "libxkbcommon runtime is needed for this Linux test"
+            );
+            type NewContext = unsafe extern "C" fn(u32) -> *mut libc::c_void;
+            type NewMap = unsafe extern "C" fn(
+                *mut libc::c_void,
+                *const libc::c_char,
+                u32,
+                u32,
+            ) -> *mut libc::c_void;
+            type NewState = unsafe extern "C" fn(*mut libc::c_void) -> *mut libc::c_void;
+            type Utf32 = unsafe extern "C" fn(*mut libc::c_void, u32) -> u32;
+            type Unref = unsafe extern "C" fn(*mut libc::c_void);
+            let context_new: NewContext =
+                std::mem::transmute(libc::dlsym(library, c"xkb_context_new".as_ptr()));
+            let map_new: NewMap =
+                std::mem::transmute(libc::dlsym(library, c"xkb_keymap_new_from_string".as_ptr()));
+            let state_new: NewState =
+                std::mem::transmute(libc::dlsym(library, c"xkb_state_new".as_ptr()));
+            let utf32: Utf32 =
+                std::mem::transmute(libc::dlsym(library, c"xkb_state_key_get_utf32".as_ptr()));
+            let context_unref: Unref =
+                std::mem::transmute(libc::dlsym(library, c"xkb_context_unref".as_ptr()));
+            let map_unref: Unref =
+                std::mem::transmute(libc::dlsym(library, c"xkb_keymap_unref".as_ptr()));
+            let state_unref: Unref =
+                std::mem::transmute(libc::dlsym(library, c"xkb_state_unref".as_ptr()));
+            let context = context_new(0);
+            assert!(!context.is_null());
+            let characters = [' ', 'A', 'ä', '中', '😀', '\u{301}'];
+            let source = keymap_for(&characters);
+            let map = map_new(context, source.as_ptr().cast(), 1, 0);
+            assert!(!map.is_null(), "generated keymap must parse");
+            let state = state_new(map);
+            assert!(!state.is_null());
+            assert_eq!(utf32(state, 8), 0, "initialization key produces no text");
+            for (index, character) in characters.iter().enumerate() {
+                assert_eq!(utf32(state, index as u32 + 9), *character as u32);
+            }
+            state_unref(state);
+            map_unref(map);
+            context_unref(context);
+            libc::dlclose(library);
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Unicode SendInput with an out-of-context WinEvent observer on the owning
 //! worker thread. Pumping the message queue delivers even away-and-back events.
-use super::super::windows::{focused_window, send, unicode};
+use super::super::windows::{send, unicode, verify_live_integrity};
 use super::StopLatch;
 use std::{
     cell::RefCell,
@@ -134,9 +134,7 @@ impl LiveTyper {
                     .into(),
             );
         }
-        if focused_window().outranks_us {
-            return Err("Live typing cannot reach a program running as administrator".into());
-        }
+        verify_live_integrity(session.window)?;
         session.child = gui_focus()?.hwndFocus;
         OBSERVATION.with(|slot| {
             *slot.borrow_mut() = Some(Observation {

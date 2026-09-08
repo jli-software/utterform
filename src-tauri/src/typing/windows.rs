@@ -200,7 +200,7 @@ fn integrity_level(process: HANDLE) -> Option<u32> {
 }
 
 /// The window that will receive the text.
-pub(super) struct FocusedWindow {
+struct FocusedWindow {
     /// The window class, if Windows would say.
     class: Option<String>,
     /// The program behind it without the `.exe`, if the process could be
@@ -209,10 +209,10 @@ pub(super) struct FocusedWindow {
     /// Whether the program runs at a higher integrity level than Utterform —
     /// as administrator, in practice — so that Windows will drop whatever
     /// Utterform types into it.
-    pub(super) outranks_us: bool,
+    outranks_us: bool,
 }
 
-pub(super) fn focused_window() -> FocusedWindow {
+fn focused_window() -> FocusedWindow {
     let mut found = FocusedWindow {
         class: None,
         program: None,
@@ -250,6 +250,28 @@ pub(super) fn focused_window() -> FocusedWindow {
     }
     unsafe { CloseHandle(process) };
     found
+}
+
+/// Unlike optional batch-delivery diagnostics, live delivery fails closed when
+/// process integrity cannot be inspected. SendInput cannot confirm app receipt.
+pub(super) fn verify_live_integrity(
+    window: windows_sys::Win32::Foundation::HWND,
+) -> Result<(), String> {
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(window, &mut pid) };
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return Err("Windows cannot verify the target application's input permissions".into());
+    }
+    let theirs = integrity_level(process);
+    unsafe { CloseHandle(process) };
+    match (theirs, integrity_level(unsafe { GetCurrentProcess() })) {
+        (Some(theirs), Some(ours)) if theirs <= ours => Ok(()),
+        (Some(_), Some(_)) => {
+            Err("Live typing cannot reach a program running as administrator".into())
+        }
+        _ => Err("Windows cannot verify the target application's input permissions".into()),
+    }
 }
 
 /// Press the paste chord the focused window listens for, and say which.
