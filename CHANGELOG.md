@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 — v0.5.1 · Signal ribbon
+
+- Replace the narrow contour field with a broad monochrome pixel ribbon, fine interwoven filaments and scattered edge particles.
+- Keep the ribbon wide and detailed in compact windows, with light and dark appearances matching the existing Signal interface.
+- Drive movement from the real microphone envelope; retain pause freeze, reduced-motion support and suspended animation while hidden.
+- Keep recording, transcription, prompts, output, shortcuts and user data unchanged.
+
+See [0.5.1 release notes](docs/releases/v0.5.1.md).
+
 ## 0.5.0 — v0.5.0 · Signal
 
 - New white/graphite visual system throughout recording, settings, action menus and history; crisp controls and an angular U identity.
