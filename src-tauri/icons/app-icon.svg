@@ -1,22 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="surface" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#25233f"/><stop offset="1" stop-color="#101522"/>
-    </linearGradient>
-    <linearGradient id="voice" x1="184" y1="108" x2="330" y2="324" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#987bff"/><stop offset=".48" stop-color="#785ef5"/><stop offset="1" stop-color="#4a9bff"/>
-    </linearGradient>
-    <linearGradient id="orbit" x1="80" y1="80" x2="440" y2="416" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#987bff"/><stop offset="1" stop-color="#4a9bff"/>
-    </linearGradient>
-  </defs>
-  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#surface)"/>
-  <rect x="17" y="17" width="478" height="478" rx="119" fill="none" stroke="#ffffff" stroke-opacity=".10" stroke-width="2"/>
-  <ellipse cx="256" cy="256" rx="190" ry="163" transform="rotate(-32 256 256)" fill="none" stroke="url(#orbit)" stroke-opacity=".22" stroke-width="3"/>
-  <rect x="199" y="110" width="114" height="202" rx="57" fill="url(#voice)"/>
-  <path d="M221 163a35 35 0 0 1 35-31" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="8" stroke-linecap="round"/>
-  <g fill="none" stroke="#f4f3ff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M157 251v12a99 99 0 0 0 198 0v-12"/>
-    <path d="M256 362v40m-46 0h92"/>
+  <!-- Signal: a restrained tile stays legible on both light and dark desktops. -->
+  <rect x="16" y="16" width="480" height="480" rx="64" fill="#121516"/>
+  <rect x="17" y="17" width="478" height="478" rx="63" fill="none" stroke="#858b89" stroke-width="2"/>
+  <!-- The same angular U and central signal stroke as the in-app brand. -->
+  <g transform="translate(128 100) scale(8)" fill="#f3f5f1">
+    <path d="M3 3h6v20l7 7 7-7V3h6v23L19 36h-6L3 26Z"/>
+    <path d="M13 3h6v19l-3 3-3-3Z"/>
   </g>
 </svg>

@@ -27,7 +27,8 @@
   import { api } from "./lib/api";
   import SelectMenu from "./lib/SelectMenu.svelte";
   import { version } from "../package.json";
-  import brandIcon from "../src-tauri/icons/app-icon.svg";
+  import Brand from "./lib/Brand.svelte";
+  import SignalField from "./lib/SignalField.svelte";
   import { formatHistoryTime, fullHistoryDate, historyTimestamp } from "./lib/history-time";
   import { modalFocus } from "./lib/modal-focus";
 
@@ -143,6 +144,7 @@
   $: typingNote = settings.typing_method === "paste"
     ? "The whole text moves at once, so nothing can be dropped or reordered on the way — terminals included. It is left on the clipboard."
     : "The text is typed one character at a time. Windows that receive it faster than a person could type may drop letters; raise the delay if characters go missing.";
+  $: todaySeconds = Math.round(history.filter((entry) => new Date(historyTimestamp(entry) ?? NaN).toDateString() === new Date(now).toDateString()).reduce((total, entry) => total + entry.durationMs, 0) / 1000);
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
 
   onMount(async () => {
@@ -712,22 +714,18 @@
   }
 </script>
 
-<svelte:head><meta name="theme-color" content="#f5f5f8" /></svelte:head>
+<svelte:head><meta name="theme-color" content={settings.theme === "dark" ? "#121516" : "#fcfcfa"} /></svelte:head>
 
-<main inert={showSettings} class:has-result={!!displayedText} class:paused={phase === "paused"} class:recording={phase === "recording"} class:processing={phase === "processing"} style={`--energy: ${audioLevel}`}>
-  <div class="ambience" aria-hidden="true">
-    <div class="ambient-field"><div class="aurora aurora-one"></div><div class="aurora aurora-two"></div><div class="aurora aurora-three"></div>
-      <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
-    </div>
-  </div>
+<main inert={showSettings} class:result-expanded={resultExpanded} class:has-result={!!displayedText} class:paused={phase === "paused"} class:recording={phase === "recording"} class:processing={phase === "processing"}>
   <header>
     <div class="brand">
-      <img class="brand-mark" src={brandIcon} alt="" aria-hidden="true" />
-      <div><strong>Utterform</strong><small>Speak once. Shape the text.</small></div>
+      <Brand />
+      <strong>utterform</strong>
     </div>
+    <div class="header-tools"><span class="app-version">{version}</span>
     <button class="icon-button settings-trigger" aria-label="Open settings" title="Settings" disabled={controlsLocked} onclick={openSettings}>
       <svg class="settings-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m6 0h5M4 17h9m6 0h1"/><circle cx="12" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg>
-    </button>
+    </button></div>
   </header>
 
   <section class="controls" aria-label="Transcription settings">
@@ -735,13 +733,17 @@
       <span class="control-label">Action</span>
       <SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />
     </div>
+    <div class="engine-control"><span class="control-label">Transcription</span>
     <div class="engine-chip" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}>
-      <span class:local={settings.engine === "local_whisper"}></span>
       {settings.engine === "open_ai" ? "GPT Transcribe" : "Local Whisper"}
-    </div>
+      <small>{settings.engine === "open_ai" ? "↗ Cloud" : "On device"}</small>
+    </div></div>
   </section>
 
-  <section class="recorder" aria-live="polite">
+  <section class="recorder" aria-label="Recording">
+    <div class="record-status" aria-hidden="true"><span class="record-dot" class:visible={recordingActive}></span>{phase === "recording" ? "Recording" : phase === "paused" ? "Paused" : phase === "processing" ? "Processing" : phase === "starting" ? "Preparing" : phase === "error" ? "Attention" : "Ready"}</div>
+    <div class="timer">{formatTime(elapsedSeconds)}</div>
+    <SignalField phase={phase} level={audioLevel} />
     <div class="recording-controls" class:capturing={recordingActive}>
     <button
       class="mic-button"
@@ -758,6 +760,8 @@
       {:else}
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5a3.5 3.5 0 1 0-7 0v6a3.5 3.5 0 0 0 3.5 3.5Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.09A6 6 0 0 0 18 11Z"/></svg>
       {/if}
+      <span>{phase === "starting" ? "Preparing" : phase === "processing" ? "Processing" : recordingActive ? "Finish" : "Record"}</span>
+      <kbd>Space</kbd>
     </button>
     {#if recordingActive}
       <button class="pause-button" aria-label={phase === "paused" ? "Resume recording" : "Pause recording"} aria-keyshortcuts="P" disabled={changingPause} onclick={togglePause}>
@@ -766,23 +770,21 @@
       </button>
     {/if}
     </div>
-    <div class="timer" class:visible={recordingActive}><span class="record-dot" aria-hidden="true"></span>{formatTime(elapsedSeconds)}</div>
-    <p class:error={phase === "error"}>{message}</p>
-    <div class="shortcut"><kbd>Space</kbd><span>{recordingActive ? "Finish" : "Start"}</span></div>
+    <p role="status" class:error={phase === "error"}>{phase === "recording" && message === "Listening…" ? "Keeps recording when you switch apps" : message}</p>
   </section>
 
   <section class="output-bar" aria-label="Output selection">
     <span class="output-label">Send to</span>
-    <button class:enabled={settings.copy_to_clipboard} onclick={() => (settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard })} disabled={controlsLocked} title="Copy to clipboard">
-      <svg viewBox="0 0 24 24"><path d="M8 5V3h8v2h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2Zm2 0h4V4h-4v1Zm-4 2v13h12V7h-2v1H8V7H6Z"/></svg>
+    <button class:enabled={settings.copy_to_clipboard} aria-pressed={settings.copy_to_clipboard} onclick={() => (settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard })} disabled={controlsLocked} title="Copy to clipboard">
+      <span class="output-check" aria-hidden="true">✓</span>
       <span class="output-name">Clipboard</span> <kbd>C</kbd>
     </button>
-    <button class:enabled={settings.save_to_file} onclick={() => (settings = { ...settings, save_to_file: !settings.save_to_file })} disabled={controlsLocked} title="Save to file">
-      <svg viewBox="0 0 24 24"><path d="M4 2h12l4 4v16H4V2Zm2 2v16h12V7h-3V4H6Zm2 9h8v5H8v-5Zm1-8h4v4H9V5Z"/></svg>
+    <button class:enabled={settings.save_to_file} aria-pressed={settings.save_to_file} onclick={() => (settings = { ...settings, save_to_file: !settings.save_to_file })} disabled={controlsLocked} title="Save to file">
+      <span class="output-check" aria-hidden="true">✓</span>
       <span class="output-name">File</span> <kbd>F</kbd>
     </button>
-    <button class:enabled={settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked} title="Type the finished text into whatever window has focus">
-      <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 2h2v2H7V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9Zm3 0h2v2h-2V9ZM7 12h2v2H7v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm3 0h2v2h-2v-2Zm-7 3h6v2H9v-2Z"/></svg>
+    <button class:enabled={settings.type_at_cursor} aria-pressed={settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked} title="Type the finished text into whatever window has focus">
+      <span class="output-check" aria-hidden="true">✓</span>
       <span class="output-name">Type</span> <kbd>T</kbd>
     </button>
     <SelectMenu id="format" label="File format" value={settings.output_format}
@@ -822,13 +824,13 @@
   {/if}
   {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
 
-  <footer><span>1–5 select an action</span><span>{phase === "paused" ? "Paused · P resumes · Esc discards" : phase === "recording" ? "Keeps recording in other apps · Esc discards" : "Esc discards a recording"}</span></footer>
+  <footer><span>{recordingActive ? "P " + (phase === "paused" ? "resumes" : "pauses") + " · Esc discards" : "1–6 select an action"}</span><span title="Audio duration in today’s retained history entries (up to 100 texts)">{formatTime(todaySeconds)} saved audio today</span></footer>
 </main>
 
 {#if showSettings}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelSettings()}>
     <div class="settings-modal" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="settings-title" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSettings(); } }}>
-      <div class="modal-header"><div class="settings-brand"><img src={brandIcon} alt="" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2><p>Make room for your way of working.</p></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="modal-header"><div class="settings-brand"><Brand className="settings-mark" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2><p>Make room for your way of working.</p></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
 
       <div class="settings-body">
         <div class="settings-rail" role="tablist" aria-label="Settings sections" aria-orientation="vertical">

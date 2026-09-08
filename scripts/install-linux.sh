@@ -2,14 +2,15 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v0.4.6}"
+version="${UTTERFORM_VERSION:-v0.5.0}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
 asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
 install_root="${prefix}/share/utterform"
 bin_dir="${prefix}/bin"
 applications_dir="${prefix}/share/applications"
-icons_dir="${prefix}/share/icons/hicolor/256x256/apps"
+icon_theme_dir="${prefix}/share/icons/hicolor"
+icons_dir="${icon_theme_dir}/256x256/apps"
 launcher="${bin_dir}/utterform"
 
 fail() {
@@ -84,7 +85,10 @@ mv "$launcher_tmp" "$launcher"
 
 icon_source="${install_root}/share/utterform.png"
 if [ -f "$icon_source" ]; then
-  cp "$icon_source" "${icons_dir}/utterform.png"
+  # Replace the previous logo atomically, including when reinstalling a version.
+  icon_tmp="${icons_dir}/utterform.png.tmp.$$"
+  cp "$icon_source" "$icon_tmp"
+  mv "$icon_tmp" "${icons_dir}/utterform.png"
 fi
 
 desktop_file="${applications_dir}/software.jli.utterform.desktop"
@@ -107,6 +111,11 @@ mv "$desktop_tmp" "$desktop_file"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$applications_dir" >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  # A user-local hicolor directory need not contain its own index.theme (-t).
+  # Refresh only this install prefix; never remove a desktop's shared caches.
+  gtk-update-icon-cache -f -t "$icon_theme_dir" >/dev/null 2>&1 || true
 fi
 
 printf '\nUtterform %s was installed successfully.\n' "$version"

@@ -49,6 +49,7 @@ const older: HistoryEntry = { ...latest, createdAtMs: new Date(2026, 8, 4, 9, 15
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   listeners.clear();
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.takeStartupIntent).mockResolvedValue(null);
@@ -60,7 +61,7 @@ beforeEach(() => {
   vi.mocked(api.getRecordingStatus).mockImplementation(async () => status());
   vi.mocked(api.setRecordingPaused).mockImplementation(async (value) => { paused = value; return status(); });
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 /// Settings opens on Voice; everything else lives one tab away.
 async function showSettingsTab(view: Screen, tab: string) {

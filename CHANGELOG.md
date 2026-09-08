@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — v0.5.0 · Signal
+
+- New white/graphite visual system throughout recording, settings, action menus and history; crisp controls and an angular U identity.
+- Microphone-responsive monochrome contour animation, frozen while paused and static for reduced-motion preferences; animation suspends in hidden windows.
+- New native icons for Windows, Linux and macOS, including setup/uninstaller and tray. Linux reinstalls replace the icon atomically and refresh the local cache; Windows notifies Explorer without deleting shell caches.
+- Existing dictation, prompts, engines, delivery, shortcuts and retained data remain unchanged.
+
+See [0.5.0 release notes](docs/releases/v0.5.0.md).
+
 ## 0.4.6 — v0.4.6
 
 - A focused window running as administrator is reported instead of typed into. Windows drops input from an ordinary program to an elevated window and `SendInput` still counts it as delivered, so 0.4.5 pasted into an elevated Windows Terminal, claimed success, and nothing arrived. Utterform now compares the window's integrity level with its own first and delivers a warning naming the program, with the text still on the clipboard.

@@ -4,7 +4,13 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.4.6** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.4.6.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.4.6).
+> Utterform is under active development. **0.5.0 — Signal** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.5.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.5.0).
+
+## Signal design
+
+A focused monochrome interface: white and graphite, a geometric U mark, crisp controls, and a flowing contour field driven by your microphone level. Light, dark, and system appearance apply across recording, settings and menus. Pause freezes the field; reduced-motion preferences keep it still, and hidden windows do no decorative animation work.
+
+The new mark is included in the executable, tray, Windows setup/uninstaller, Linux desktop icon and macOS bundle. Reinstall using the normal installer to update the desktop integration; data and product identity stay the same. Linux refreshes its local icon cache, and Windows notifies Explorer after installation/removal.
 
 ## Install on Omarchy / Arch Linux
 
@@ -87,7 +93,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.4.6 assets](https://github.com/jli-software/utterform/releases/tag/v0.4.6):
+Download the [0.5.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.5.0):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -114,7 +120,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - Single instance: launching Utterform again reveals the running window instead of starting a second one
 - Tray left click opens the window on every platform, double click on Windows and macOS, middle click on Linux; right click keeps the menu
 - Background recording across app switches and close-to-tray, with a native ten-minute cutoff
-- Microphone-responsive violet/blue ambient motion and optional start/stop clicks plus a distinct completion chime after successful processing and delivery
+- Signal interface in white and graphite, with a microphone-responsive monochrome contour field, optional start/stop clicks and a distinct completion chime after successful processing and delivery
 - Borderless window on Omarchy; standard window controls elsewhere
 - Pause/resume without finishing or adding silence; automatic processing after 10 minutes of active recording
 - Floating-friendly layout down to 360 × 400; grouped Stop/Pause controls

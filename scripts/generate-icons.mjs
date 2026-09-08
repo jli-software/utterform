@@ -1,4 +1,5 @@
-// One SVG drives both the in-app brand and every desktop bundle/tray icon.
+// Signal's native SVG tile drives every desktop bundle, installer and tray icon.
+// The UI uses the same angular U without the tile so it can follow the theme.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

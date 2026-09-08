@@ -98,7 +98,7 @@ test("production UI records, restores history, and keeps themed menus usable", a
   await page.getByRole("option", { name: /Ideas for the next release/ }).click();
   await page.keyboard.press("Control+Shift+C");
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__copiedText"))).toContain("A previous thought");
-  await page.getByRole("button", { name: "File F", exact: true }).click();
+  await page.getByRole("button", { name: "File", exact: true }).click();
   await page.getByRole("combobox", { name: "File format" }).click();
   await page.getByRole("option", { name: /Markdown/ }).click();
   await expect(page.getByRole("combobox", { name: "File format" })).toContainText("Markdown");
@@ -111,11 +111,15 @@ test("pause freezes recording time and Space finishes even with Pause focused", 
   await page.goto("/");
   await page.getByRole("button", { name: "Start recording", exact: true }).click();
   await expect(page.locator(".timer")).toContainText("00:01");
+  const movingContour = await page.locator(".signal-field path").first().getAttribute("d");
+  await expect.poll(() => page.locator(".signal-field path").first().getAttribute("d")).not.toBe(movingContour);
   await page.getByRole("button", { name: "Pause recording", exact: true }).click();
   await expect(page.locator("main")).toHaveClass(/paused/);
   const time = await page.locator(".timer").textContent();
+  const pausedContour = await page.locator(".signal-field path").first().getAttribute("d");
   await page.waitForTimeout(1200);
   expect(await page.locator(".timer").textContent()).toBe(time);
+  expect(await page.locator(".signal-field path").first().getAttribute("d")).toBe(pausedContour);
   expect(await page.evaluate(() => Reflect.get(window, "__finishCount"))).toBe(0);
   await expect(page.getByRole("button", { name: "Open settings" })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("paused-dark.png") });
@@ -132,10 +136,10 @@ test("pause freezes recording time and Space finishes even with Pause focused", 
 test("settings share branding, themed model controls and a keyboard-safe dialog", async ({ page }, testInfo) => {
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "Open settings" });
-  const icon = await page.locator(".brand-mark").getAttribute("src");
+  const icon = await page.locator(".brand-mark").innerHTML();
   await trigger.click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  await expect(page.locator(".settings-brand img")).toHaveAttribute("src", icon!);
+  expect(await page.locator(".settings-mark").innerHTML()).toBe(icon);
   await expect(page.getByRole("button", { name: "Close settings" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Save settings" })).toBeFocused();
@@ -250,7 +254,9 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
   await page.goto("/");
   await page.getByRole("button", { name: "Start recording", exact: true }).click();
   await expect(page.locator("main")).toHaveClass(/recording/);
-  expect(await page.locator(".aurora-one").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
+  const contour = await page.locator(".signal-field path").first().getAttribute("d");
+  await page.waitForTimeout(160);
+  expect(await page.locator(".signal-field path").first().getAttribute("d")).toBe(contour);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("compact-reduced-motion.png"), fullPage: true });
   await page.getByRole("button", { name: "Stop recording", exact: true }).press("Escape");

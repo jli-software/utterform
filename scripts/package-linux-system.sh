@@ -33,7 +33,7 @@ fi
 
 mkdir -p "$staging_dir/$package_name/bin" "$staging_dir/$package_name/share"
 install -m 755 "$binary" "$staging_dir/$package_name/bin/utterform"
-install -m 644 "$repo_root/src-tauri/icons/icon.png" "$staging_dir/$package_name/share/utterform.png"
+install -m 644 "$repo_root/src-tauri/icons/128x128@2x.png" "$staging_dir/$package_name/share/utterform.png"
 
 mkdir -p "$output_dir"
 tar -C "$staging_dir" -czf "$output_dir/$package_name.tar.gz" "$package_name"
