@@ -253,3 +253,11 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .recorder, .result-expanded .recorder { padding:8px 0; }
   .recorder p { max-height:30px; overflow:auto; }
 }
+
+/* Live dictation adds a readable preview without changing the recording animation. */
+.live-preview { width: min(620px, 100%); align-self: center; margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; }
+.live-recovery-note { padding: 0 1rem; font-size: .75rem; line-height: 1.4; color: var(--muted); }
+.live-preview p.error { color: var(--danger); }
+.live-preview p, .live-help { font-size: .8rem; line-height: 1.5; }
+.live-preview .transcript { max-height: 11rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-preview small { display: block; margin-top: .6rem; }

@@ -19,6 +19,8 @@
     HistoryEntry,
     HotkeySupport,
     LocalModel,
+    LiveStatus,
+    LiveSupport,
     ProcessResult,
     RemoteIntent,
     TextEffort,
@@ -80,6 +82,10 @@
   let hotkeyError = "";
   let elapsedSeconds = 0;
   let audioLevel = 0;
+  let liveStatus: LiveStatus | null = null;
+  let liveSupport: LiveSupport = { supported: false, explanation: "Live dictation requires the Windows or Omarchy desktop app." };
+  let liveStatusError = "";
+  let liveFailurePending = false;
   let polling = false;
   let changingPause = false;
   let recordingRevision = 0;
@@ -107,9 +113,16 @@
   let busyModel: string | null = null;
   let unlistenProgress: UnlistenFn | null = null;
   let unlistenLimit: UnlistenFn | null = null;
+  let unlistenLiveFailed: UnlistenFn | null = null;
   let unlistenIntent: UnlistenFn | null = null;
   let destroyed = false;
 
+  $: liveMode = settings.engine === "open_ai" && settings.cloud_model === "gpt_live_transcribe";
+  $: effectiveAction = liveMode ? "plain" : selectedAction;
+  $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
+    : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
+      ? `Place the cursor in your text field, then press ${settings.global_hotkey} to start and finish live dictation.`
+      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → Output.";
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
   // Number keys follow the list, so a renamed or added action still has one.
@@ -136,7 +149,7 @@
   $: recordingActive = phase === "recording" || phase === "paused";
   $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
   $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
-  $: canRecord = settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
+  $: canRecord = liveMode || settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
   // A key that could not be reserved at startup had nowhere to report; the
   // field it belongs to is where the user finds out. Derived rather than read
   // once, so a Settings dialog opened before the backend answered still shows it.
@@ -159,14 +172,16 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
         api.hasOpenAiApiKey(),
         api.globalHotkeySupport(),
         api.listBuiltInActions(),
+        api.liveSupport().catch(() => ({ supported: false, explanation: "Live dictation support could not be checked. Restart Utterform to try again." })),
       ]);
+      settings = { ...DEFAULT_SETTINGS, ...settings, cloud_model: settings.cloud_model ?? "gpt_transcribe" };
       applyTheme(settings.theme);
       // Load independently: a damaged history must not disable microphone/settings setup.
       try {
@@ -188,6 +203,12 @@
     unlistenLimit = await listen("recording-limit-reached", () => {
       if (recordingActive && !changingPause) void finishRecording();
     });
+    unlistenLiveFailed = await listen("live-failed", () => {
+      if (liveMode && recordingActive) {
+        liveFailurePending = true;
+        if (!changingPause) void finishRecording();
+      }
+    });
     unlistenIntent = await listen<RemoteIntent>("remote-intent", (event) => {
       void applyIntent(event.payload);
     });
@@ -198,6 +219,7 @@
     if (destroyed) {
       unlistenProgress?.();
       unlistenLimit?.();
+      unlistenLiveFailed?.();
       unlistenIntent?.();
       unlistenCueTest?.();
       return;
@@ -222,6 +244,7 @@
     if (copyReset) clearTimeout(copyReset);
     unlistenProgress?.();
     unlistenLimit?.();
+    unlistenLiveFailed?.();
     unlistenIntent?.();
     unlistenCueTest?.();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -234,10 +257,10 @@
     switch (intent) {
       case "toggle":
         if (recordingActive) await finishRecording();
-        else if (phase !== "starting" && phase !== "processing") await startRecording();
+        else if (phase !== "starting" && phase !== "processing") await startRecording(true);
         break;
       case "start":
-        if (!recordingActive && phase !== "starting" && phase !== "processing") await startRecording();
+        if (!recordingActive && phase !== "starting" && phase !== "processing") await startRecording(true);
         break;
       case "stop":
         if (recordingActive) await finishRecording();
@@ -291,14 +314,14 @@
     }
     if (phase === "idle" || phase === "done" || phase === "error") {
       const action = resolvedActions.find((item) => item.key === event.key);
-      if (action) selectedAction = action.id;
+      if (action && !liveMode) selectedAction = action.id;
       if (event.key.toLowerCase() === "c") {
         settings = { ...settings, copy_to_clipboard: !settings.copy_to_clipboard };
       }
       if (event.key.toLowerCase() === "f") {
         settings = { ...settings, save_to_file: !settings.save_to_file };
       }
-      if (event.key.toLowerCase() === "t") {
+      if (!liveMode && event.key.toLowerCase() === "t") {
         settings = { ...settings, type_at_cursor: !settings.type_at_cursor };
       }
     }
@@ -343,10 +366,16 @@
       message = `Could not change pause: ${String(error)}`;
     } finally {
       changingPause = false;
+      if (liveFailurePending && recordingActive) void finishRecording();
     }
   }
 
-  async function startRecording() {
+  async function startRecording(fromTarget = false) {
+    if (showSettings) return;
+    if (liveMode && (!fromTarget || !liveSupport.supported)) {
+      message = liveStartHint;
+      return;
+    }
     if (!canRecord) {
       setError("Select Clipboard, File, or both as an output.");
       return;
@@ -355,7 +384,7 @@
       setError("Choose a default output folder in Settings before saving files.");
       return;
     }
-    const requiresApiKey = settings.engine === "open_ai" || selectedAction !== "plain";
+    const requiresApiKey = settings.engine === "open_ai" || effectiveAction !== "plain";
     if (requiresApiKey && !hasApiKey) {
       setError("Add an OpenAI API key in Settings before recording with this configuration.");
       return;
@@ -369,8 +398,11 @@
     }
     try {
       resetCopyFeedback();
+      liveStatus = null;
+      liveStatusError = "";
+      liveFailurePending = false;
       phase = "starting";
-      message = "Preparing the microphone…";
+      message = liveMode ? "Connecting GPT Live Transcribe…" : "Preparing the microphone…";
       await api.saveSettings(settings);
       // Drain a preceding manual copy before a new session can deliver its result.
       await copyPending?.catch(() => {});
@@ -378,14 +410,15 @@
         settings.input_device,
         settings.engine,
         settings.local_model_id,
-        selectedAction.startsWith("custom:") ? "custom" : selectedAction,
+        effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
       );
       elapsedSeconds = 0;
       phase = "recording";
-      message = "Listening…";
+      message = liveMode ? "Listening — text streams at your cursor" : "Listening…";
       // Only visual/status polling lives in JS. Native capture and its ten-minute
       // cutoff do not depend on focus or WebView timer scheduling.
       timer = setInterval(() => void pollRecording(), 100);
+      if (liveMode) void pollRecording();
     } catch (error) {
       setError(error);
     }
@@ -400,12 +433,22 @@
     polling = true;
     const revision = recordingRevision;
     try {
-      const status = await api.getRecordingStatus();
+      const [status, snapshot] = await Promise.all([
+        api.getRecordingStatus(),
+        liveMode ? api.getLiveStatus().catch(() => {
+          liveStatusError = "Live preview is temporarily unavailable. You can still stop the recording.";
+          return undefined;
+        }) : Promise.resolve(undefined),
+      ]);
       if (!recordingActive || changingPause || revision !== recordingRevision) return;
+      if (snapshot !== undefined) {
+        liveStatus = snapshot;
+        liveStatusError = "";
+      }
       elapsedSeconds = status.elapsedSeconds;
       phase = status.paused ? "paused" : "recording";
       audioLevel = status.paused ? 0 : Math.max(0, Math.min(1, status.level));
-      if (status.limitReached) await finishRecording();
+      if (status.limitReached || liveStatus?.phase === "failed") await finishRecording();
     } catch {
       // Metering is non-critical. Keep capture running and Stop available.
       audioLevel = 0;
@@ -418,18 +461,21 @@
     if ((phase !== "recording" && phase !== "paused") || changingPause) return;
     stopTimer();
     phase = "processing";
-    message = settings.engine === "open_ai" ? "Transcribing with GPT Transcribe…" : "Transcribing locally…";
+    message = liveMode ? "Finishing live transcript…" : settings.engine === "open_ai" ? "Transcribing with GPT Transcribe…" : "Transcribing locally…";
     try {
       result = await api.finishRecording({
-        action: selectedAction.startsWith("custom:") ? "custom" : selectedAction,
-        customPrompt: selectedAction.startsWith("custom:")
+        action: effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
+        customPrompt: effectiveAction.startsWith("custom:")
           ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
           : null,
         copyToClipboard: settings.copy_to_clipboard,
         saveToFile: settings.save_to_file,
-        typeAtCursor: settings.type_at_cursor,
+        typeAtCursor: liveMode ? false : settings.type_at_cursor,
         outputFormat: settings.output_format,
       });
+      if (liveMode) {
+        try { liveStatus = await api.getLiveStatus() ?? liveStatus; } catch { /* Keep the previous snapshot. */ }
+      }
       now = Date.now();
       resultTimestamp = now;
       if (result.historyEntry) {
@@ -443,6 +489,7 @@
       phase = "done";
       message = completionMessage(result);
     } catch (error) {
+      if (liveMode) await recoverLiveText();
       setError(error);
     }
   }
@@ -453,12 +500,29 @@
     phase = "starting";
     try {
       await api.cancelRecording();
+      if (liveMode) await recoverLiveText();
       phase = "idle";
       elapsedSeconds = 0;
-      message = "Recording discarded";
+      message = liveMode ? "Live dictation stopped. Text already inserted is unchanged; the transcript remains available to copy." : "Recording discarded";
     } catch (error) {
+      if (liveMode) await recoverLiveText();
       setError(error);
     }
+  }
+
+  async function recoverLiveText() {
+    try { liveStatus = await api.getLiveStatus() ?? liveStatus; } catch { /* Keep the last visible snapshot. */ }
+    if (!liveStatus?.text) return;
+    result = {
+      text: liveStatus.text, historyEntry: null, savedPath: null,
+      durationMs: elapsedSeconds * 1000, engine: "open_ai",
+      copiedToClipboard: false, typedAtCursor: false,
+      deliveryWarnings: liveStatus.warning ? [liveStatus.warning] : [],
+    };
+    resultTimestamp = Date.now();
+    selectedHistoryId = "";
+    resultExpanded = true;
+    resetCopyFeedback();
   }
 
   function stopTimer() {
@@ -731,11 +795,12 @@
   <section class="controls" aria-label="Transcription settings">
     <div class="action-control">
       <span class="control-label">Action</span>
-      <SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />
+      {#if liveMode}<div class="engine-chip">Plain <small>Live · append only</small></div>
+      {:else}<SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />{/if}
     </div>
     <div class="engine-control"><span class="control-label">Transcription</span>
     <div class="engine-chip" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}>
-      {settings.engine === "open_ai" ? "GPT Transcribe" : "Local Whisper"}
+      {liveMode ? "GPT Live Transcribe" : settings.engine === "open_ai" ? "GPT Transcribe" : "Local Whisper"}
       <small>{settings.engine === "open_ai" ? "↗ Cloud" : "On device"}</small>
     </div></div>
   </section>
@@ -761,7 +826,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5a3.5 3.5 0 1 0-7 0v6a3.5 3.5 0 0 0 3.5 3.5Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.09A6 6 0 0 0 18 11Z"/></svg>
       {/if}
       <span>{phase === "starting" ? "Preparing" : phase === "processing" ? "Processing" : recordingActive ? "Finish" : "Record"}</span>
-      <kbd>Space</kbd>
+      {#if !liveMode || recordingActive}<kbd>Space</kbd>{/if}
     </button>
     {#if recordingActive}
       <button class="pause-button" aria-label={phase === "paused" ? "Resume recording" : "Pause recording"} aria-keyshortcuts="P" disabled={changingPause} onclick={togglePause}>
@@ -770,8 +835,20 @@
       </button>
     {/if}
     </div>
-    <p role="status" class:error={phase === "error"}>{phase === "recording" && message === "Listening…" ? "Keeps recording when you switch apps" : message}</p>
+    {#if liveMode && !controlsLocked}<p class="live-help">{liveStartHint}</p>{/if}
+    <p role="status" class:error={phase === "error"}>{liveMode && phase === "recording" && liveStatus?.deliveryPaused ? "Listening — insertion paused; transcript retained" : phase === "recording" && message === "Listening…" ? "Keeps recording when you switch apps" : message}</p>
   </section>
+
+  {#if liveMode && controlsLocked}
+    <section class="live-preview" aria-label="Live dictation">
+      <strong>Live transcript</strong>
+      <p role="status" class:error={liveStatus?.deliveryPaused || liveStatus?.phase === "failed" || !!liveStatusError}>
+        {liveStatusError || liveStatus?.warning || (liveStatus?.deliveryPaused ? "Insertion paused. Finish, then copy the transcript; insertion will not resume automatically." : phase === "processing" ? "Finishing transcript…" : "Text is appended at the cursor. No automatic corrections.")}
+      </p>
+      <div class="transcript" role="region" aria-label="Live transcript">{liveStatus?.text || "Waiting for speech…"}</div>
+      {#if liveStatus?.deliveryPaused}<small>Some text may already be inserted. Copying the full transcript can duplicate it.</small>{/if}
+    </section>
+  {/if}
 
   <section class="output-bar" aria-label="Output selection">
     <span class="output-label">Send to</span>
@@ -783,9 +860,9 @@
       <span class="output-check" aria-hidden="true">✓</span>
       <span class="output-name">File</span> <kbd>F</kbd>
     </button>
-    <button class:enabled={settings.type_at_cursor} aria-pressed={settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked} title="Type the finished text into whatever window has focus">
+    <button class:enabled={liveMode || settings.type_at_cursor} aria-pressed={liveMode || settings.type_at_cursor} onclick={() => (settings = { ...settings, type_at_cursor: !settings.type_at_cursor })} disabled={controlsLocked || liveMode} title={liveMode ? "Live text is inserted as you speak; it is never typed again on finish" : "Type the finished text into whatever window has focus"}>
       <span class="output-check" aria-hidden="true">✓</span>
-      <span class="output-name">Type</span> <kbd>T</kbd>
+      <span class="output-name">{liveMode ? "Live" : "Type"}</span> {#if !liveMode}<kbd>T</kbd>{/if}
     </button>
     <SelectMenu id="format" label="File format" value={settings.output_format}
       onchange={(value) => settings = { ...settings, output_format: value as AppSettings["output_format"] }}
@@ -795,6 +872,7 @@
 
   {#if displayedText}
     <section class="result-card" aria-label="Saved text">
+      {#if liveStatus?.text && displayedText === liveStatus.text && liveStatus.insertedText}<p class="live-recovery-note">Copy includes the full transcript, including text already inserted. Check your target field before pasting.</p>{/if}
       <div class="result-heading">
         <button class="result-toggle" aria-expanded={resultExpanded} aria-controls="result-details" onclick={() => resultExpanded = !resultExpanded}>
           <svg viewBox="0 0 20 20" aria-hidden="true" class:expanded={resultExpanded}><path d="m7 4 6 6-6 6" /></svg>
@@ -824,7 +902,7 @@
   {/if}
   {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
 
-  <footer><span>{recordingActive ? "P " + (phase === "paused" ? "resumes" : "pauses") + " · Esc discards" : "1–6 select an action"}</span><span title="Audio duration in today’s retained history entries (up to 100 texts)">{formatTime(todaySeconds)} saved audio today</span></footer>
+  <footer><span>{recordingActive ? "P " + (phase === "paused" ? "resumes" : "pauses") + (liveMode ? " · Esc stops" : " · Esc discards") : liveMode ? "Live dictation · Plain only" : "1–6 select an action"}</span><span title="Audio duration in today’s retained history entries (up to 100 texts)">{formatTime(todaySeconds)} saved audio today</span></footer>
 </main>
 
 {#if showSettings}
@@ -850,9 +928,21 @@
           <button class:active={settings.engine === "open_ai"} onclick={() => (settings = { ...settings, engine: "open_ai" })}>GPT Transcribe</button>
           <button class:active={settings.engine === "local_whisper"} onclick={() => (settings = { ...settings, engine: "local_whisper" })}>Local Whisper</button>
         </div>
+        {#if settings.engine === "open_ai"}
+          <div class="field"><span>Cloud transcription model</span>
+            <SelectMenu id="cloud-model" label="Cloud transcription model" value={settings.cloud_model}
+              options={[{ value: "gpt_transcribe", label: "GPT Transcribe", hint: "Finished text after recording · all actions" }, { value: "gpt_live_transcribe", label: "GPT Live Transcribe", hint: "Live at cursor · Windows and Omarchy" }]}
+              onchange={(value) => settings = { ...settings, cloud_model: value as AppSettings["cloud_model"] }} />
+          </div>
+          {#if liveMode}
+            <p class="privacy-note">Live streams audio to OpenAI while you speak and appends text at your cursor. Plain only: no Clean, Polish or other rewriting. Start from your target text field with the dictation shortcut. Window focus loss stops insertion for the rest of the recording; it does not resume automatically.</p>
+            <p class="privacy-note">Do not move the cursor, switch text fields or type while dictating. Changes within the same window cannot always be detected. Line breaks become spaces; live dictation never presses Enter.</p>
+            {#if !liveSupport.supported}<p class="setting-error" role="status">{liveSupport.explanation}</p>{/if}
+          {/if}
+        {/if}
         <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
         <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label>
-        <p class="privacy-note">GPT Transcribe sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
+        <p class="privacy-note">Cloud transcription sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
 
         <div class="setting-group"><div class="group-heading"><h3>Vocabulary</h3><span class="section-badge">Both engines</span></div>
           <p class="section-description">Names, products and spellings the model would otherwise guess at. One per line.</p>
@@ -860,7 +950,7 @@
           {#if rejectedTerms.length}
             <p class="setting-error" role="alert">Not sent, because the transcription API refuses a term containing &lt; or &gt;: {rejectedTerms.join(", ")}</p>
           {/if}
-          <label class="field"><span>Recording context <small>optional, GPT Transcribe only</small></span><textarea rows="2" placeholder="A standup about the billing rewrite." value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })}></textarea></label>
+          <label class="field"><span>Recording context <small>optional, cloud only</small></span><textarea rows="2" placeholder="A standup about the billing rewrite." value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })}></textarea></label>
           <p class="privacy-note">GPT Transcribe takes the words as keywords; local Whisper is given them as the text it starts from. They are hints either way — the model still transcribes what it hears.</p>
         </div>
 
@@ -885,6 +975,7 @@
         {/if}
 
         {#if settingsTab === "prompts"}
+        {#if liveMode}<p class="privacy-note">Live dictation uses Plain only. These prompts remain available when you switch back to GPT Transcribe or Local Whisper.</p>{/if}
         <div class="setting-group prompts-group"><div class="group-heading"><h3>Prompts</h3><button onclick={addCustomAction}>Add prompt</button></div>
           <p class="section-description">Every prompt Utterform ships with is a starting point. Rewrite any of them — Reset brings the original back.</p>
           <div class="prompt-workbench">
@@ -959,6 +1050,7 @@
           {/if}
         </div>
 
+        {#if liveMode}<p class="privacy-note">Live dictation always inserts text as you speak. The settings below apply only to finished-text dictation. Clipboard and File outputs run after you finish, without typing the transcript again.</p>{/if}
         <div class="setting-group"><h3>Typing at the cursor</h3><div class="segmented">
           <button class:active={settings.typing_method === "paste"} onclick={() => (settings = { ...settings, typing_method: "paste" })}>Paste</button>
           <button class:active={settings.typing_method === "keystrokes"} onclick={() => (settings = { ...settings, typing_method: "keystrokes" })}>Keystrokes</button>

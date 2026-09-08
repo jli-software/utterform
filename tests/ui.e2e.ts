@@ -20,10 +20,12 @@ test.beforeEach(async ({ page }) => {
       { id: "small", name: "Whisper Small", description: "More accurate · requires more memory and time", sizeBytes: 487601967, downloaded: false },
     ];
     let counter = 0;
+    const eventHandlers = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
     Object.assign(window, {
       isTauri: true,
       __copiedText: "",
+      __emitRemoteIntent: (intent: string) => callbacks.get(eventHandlers.get("remote-intent") ?? -1)?.({ payload: intent }),
       __finishCount: 0,
       __savedSettings: null,
       __appliedHotkey: undefined,
@@ -33,6 +35,8 @@ test.beforeEach(async ({ page }) => {
         invoke: async (command: string, args: Record<string, unknown>) => {
           switch (command) {
             case "take_startup_intent": return null;
+            case "live_support": return { supported: true, explanation: "" };
+            case "get_live_status": return { text: "Live words at the cursor", insertedText: "Live words ", deliveryPaused: true, warning: "Focus changed. Insertion is paused.", phase: "streaming" };
             case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
             case "list_built_in_actions": return [
@@ -64,7 +68,7 @@ test.beforeEach(async ({ page }) => {
             case "cancel_recording": started = 0; pausedAt = 0; return;
             case "get_recording_status": return recordingStatus();
             case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
-            case "plugin:event|listen": return ++counter;
+            case "plugin:event|listen": eventHandlers.set(args.event as string, args.handler as number); return ++counter;
             case "plugin:event|unlisten": return;
             default: throw new Error(`Unexpected IPC command: ${command}`);
           }
@@ -493,4 +497,28 @@ test("processing remains fluid until delayed transcription completes", async ({ 
   const rest = await ribbonPixels(page);
   await page.waitForTimeout(150);
   expect(await ribbonPixels(page)).toBe(rest);
+});
+
+
+test("live settings and blocked transcript remain usable in the production bundle", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("combobox", { name: "Cloud transcription model" }).click();
+  await page.getByRole("option", { name: /GPT Live Transcribe/ }).click();
+  await page.screenshot({ path: testInfo.outputPath("live-settings.png") });
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("combobox", { name: "Action", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Place the cursor in your text field/)).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("start"));
+  await expect(page.getByRole("region", { name: "Live transcript", exact: true })).toContainText("Live words at the cursor");
+  await expect(page.getByText("Focus changed. Insertion is paused.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop recording", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("live-focus-paused.png") });
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("cancel"));
+  await expect(page.getByRole("region", { name: "Transcript", exact: true })).toContainText("Live words at the cursor");
+  await page.getByRole("button", { name: /^Copy/ }).click();
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__copiedText"))).toBe("Live words at the cursor");
+  expect(errors).toEqual([]);
 });

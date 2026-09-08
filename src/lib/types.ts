@@ -1,3 +1,4 @@
+export type CloudModel = "gpt_transcribe" | "gpt_live_transcribe";
 export type Engine = "open_ai" | "local_whisper";
 export type OutputFormat = "txt" | "md";
 export type Theme = "light" | "dark" | "system";
@@ -12,6 +13,7 @@ export type RemoteIntent = "show" | "toggle" | "start" | "stop" | "cancel";
 
 export interface AppSettings {
   engine: Engine;
+  cloud_model: CloudModel;
   input_device: string | null;
   output_directory: string | null;
   copy_to_clipboard: boolean;
@@ -119,6 +121,7 @@ export interface DownloadProgress {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   engine: "open_ai",
+  cloud_model: "gpt_transcribe",
   input_device: null,
   output_directory: null,
   copy_to_clipboard: true,
@@ -176,3 +179,16 @@ export function isActionEdited(id: string, overrides: Record<string, ActionOverr
 /// A keyword carrying one of these is refused by the transcription API, and the
 /// whole request goes with it, so Settings never lets one through.
 export const FORBIDDEN_IN_KEYWORD = /[<>]/;
+
+export interface LiveSupport {
+  supported: boolean;
+  explanation: string;
+}
+
+export interface LiveStatus {
+  text: string;
+  insertedText: string;
+  deliveryPaused: boolean;
+  warning: string | null;
+  phase: "connecting" | "streaming" | "finishing" | "completed" | "failed";
+}

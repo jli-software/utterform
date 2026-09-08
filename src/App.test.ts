@@ -28,6 +28,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   listBuiltInActions: vi.fn(),
+  liveSupport: vi.fn(), getLiveStatus: vi.fn(),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
@@ -55,6 +56,8 @@ beforeEach(() => {
   listeners.clear();
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.takeStartupIntent).mockResolvedValue(null);
+  vi.mocked(api.liveSupport).mockResolvedValue({ supported: true, explanation: "" });
+  vi.mocked(api.getLiveStatus).mockResolvedValue(null);
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
   vi.mocked(api.listBuiltInActions).mockResolvedValue(structuredClone(SHIPPED_ACTIONS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
@@ -559,5 +562,98 @@ describe("vocabulary", () => {
       target: { value: "Careum\n<tagged>" },
     });
     expect(view.getByRole("alert").textContent).toContain("<tagged>");
+  });
+});
+
+describe("live dictation", () => {
+  const snapshot = { text: "Hello live world", insertedText: "Hello ", deliveryPaused: true, warning: "Focus changed. Insertion is paused.", phase: "streaming" as const };
+
+  function useLive() {
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), cloud_model: "gpt_live_transcribe", copy_to_clipboard: false, save_to_file: false, type_at_cursor: false });
+    vi.mocked(api.getLiveStatus).mockResolvedValue(snapshot);
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: snapshot.text, durationMs: 12000, engine: "open_ai", savedPath: null, copiedToClipboard: false, typedAtCursor: true, deliveryWarnings: [snapshot.warning] });
+  }
+
+  it("migrates old settings to batch transcription and persists the live choice", async () => {
+    const { cloud_model: _oldMissingField, ...oldSettings } = DEFAULT_SETTINGS;
+    vi.mocked(api.getSettings).mockResolvedValue(oldSettings as typeof DEFAULT_SETTINGS);
+    const view = await renderExpanded();
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    expect(view.getByRole("combobox", { name: "Cloud transcription model" }).textContent).toContain("GPT Transcribe");
+    await fireEvent.click(view.getByRole("combobox", { name: "Cloud transcription model" }));
+    await fireEvent.click(view.getByRole("option", { name: /GPT Live Transcribe/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ cloud_model: "gpt_live_transcribe" })));
+    expect(view.queryByRole("combobox", { name: "Action" })).toBeNull();
+    expect(view.queryByText(/Place the cursor in your text field/)).not.toBeNull();
+  });
+
+  it("explains target-field startup, streams on remote start, and never batch-types on finish", async () => {
+    useLive();
+    const view = await renderExpanded();
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    expect(api.startRecording).not.toHaveBeenCalled();
+    await fireEvent.keyDown(window, { key: "2" });
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryByRole("region", { name: "Live transcript" })?.textContent).toBe(snapshot.text));
+    expect(api.startRecording).toHaveBeenCalledWith(null, "open_ai", "base", "plain");
+    expect(view.queryByText(snapshot.warning)).not.toBeNull();
+    expect(view.queryByText(/Some text may already be inserted/)).not.toBeNull();
+    await remoteIntent("stop");
+    await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(snapshot.text));
+    expect(api.finishRecording).toHaveBeenCalledWith(expect.objectContaining({ action: "plain", customPrompt: null, typeAtCursor: false }));
+    await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+    expect(api.copyText).toHaveBeenLastCalledWith(snapshot.text);
+  });
+
+  it("rejects remote starts on unsupported platforms without breaking batch mode", async () => {
+    useLive();
+    vi.mocked(api.liveSupport).mockResolvedValue({ supported: false, explanation: "Live dictation is not supported on macOS yet." });
+    const view = await renderExpanded();
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryAllByText(/not supported on macOS/).length).toBeGreaterThan(0));
+    expect(api.startRecording).not.toHaveBeenCalled();
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await fireEvent.click(view.getByRole("combobox", { name: "Cloud transcription model" }));
+    await fireEvent.click(view.getByRole("option", { name: /^GPT Transcribe / }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    expect(view.queryByRole("combobox", { name: "Action" })).not.toBeNull();
+  });
+
+  it("keeps cancelled live text available for recovery without pretending to remove inserted text", async () => {
+    useLive();
+    const view = await renderExpanded();
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await remoteIntent("cancel");
+    await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(snapshot.text));
+    await waitFor(() => expect(view.queryByText(/Text already inserted is unchanged/)).not.toBeNull());
+    expect(view.queryByText(/Copy includes the full transcript/)).not.toBeNull();
+    expect(api.finishRecording).not.toHaveBeenCalled();
+  });
+
+  it("finalizes a failed stream from the native event, including when hidden", async () => {
+    useLive();
+    const view = await renderExpanded();
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    listeners.get("live-failed")!({ payload: "Connection lost" });
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(snapshot.text));
+    vi.restoreAllMocks();
+  });
+
+  it("recovers the last live transcript when finishing fails", async () => {
+    useLive();
+    vi.mocked(api.finishRecording).mockRejectedValueOnce(new Error("Connection lost"));
+    const view = await renderExpanded();
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await remoteIntent("stop");
+    await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(snapshot.text));
+    await waitFor(() => expect(view.queryByText("Connection lost")).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
+    expect(api.copyText).toHaveBeenLastCalledWith(snapshot.text);
   });
 });

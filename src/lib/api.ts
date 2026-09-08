@@ -7,6 +7,8 @@ import type {
   HistoryEntry,
   HotkeySupport,
   LocalModel,
+  LiveStatus,
+  LiveSupport,
   OutputFormat,
   ProcessResult,
   RecordingStatus,
@@ -14,6 +16,8 @@ import type {
 } from "./types";
 
 export const api = {
+  liveSupport: () => invoke<LiveSupport>("live_support"),
+  getLiveStatus: () => invoke<LiveStatus | null>("get_live_status"),
   // Delivered once: the intent Utterform was launched with, for a hotkey that
   // had to start the app first.
   takeStartupIntent: () => invoke<RemoteIntent | null>("take_startup_intent"),
