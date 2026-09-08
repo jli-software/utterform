@@ -204,9 +204,9 @@
       if (recordingActive && !changingPause) void finishRecording();
     });
     unlistenLiveFailed = await listen("live-failed", () => {
-      if (liveMode && recordingActive) {
+      if (liveMode && (phase === "starting" || recordingActive)) {
         liveFailurePending = true;
-        if (!changingPause) void finishRecording();
+        if (recordingActive && !changingPause) void finishRecording();
       }
     });
     unlistenIntent = await listen<RemoteIntent>("remote-intent", (event) => {
@@ -418,7 +418,10 @@
       // Only visual/status polling lives in JS. Native capture and its ten-minute
       // cutoff do not depend on focus or WebView timer scheduling.
       timer = setInterval(() => void pollRecording(), 100);
-      if (liveMode) void pollRecording();
+      // The worker can fail before start IPC resolves. Hidden WebViews skip
+      // polling, so retain the native event through the starting phase.
+      if (liveMode && liveFailurePending) await finishRecording();
+      else if (liveMode) void pollRecording();
     } catch (error) {
       setError(error);
     }

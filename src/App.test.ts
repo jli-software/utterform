@@ -644,6 +644,26 @@ describe("live dictation", () => {
     vi.restoreAllMocks();
   });
 
+  it("retains an early failure while start IPC is pending in a hidden WebView", async () => {
+    useLive();
+    let resolveStart!: () => void;
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((resolve) => { resolveStart = resolve; }));
+    const view = await renderExpanded();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    try {
+      await remoteIntent("start");
+      await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+      listeners.get("live-failed")!({ payload: "Connection lost before start returned" });
+      expect(api.finishRecording).not.toHaveBeenCalled();
+      resolveStart();
+      await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+      await waitFor(() => expect(view.getByRole("region", { name: "Transcript" }).textContent).toBe(snapshot.text));
+      expect(api.getRecordingStatus).not.toHaveBeenCalled();
+    } finally {
+      hidden.mockRestore();
+    }
+  });
+
   it("recovers the last live transcript when finishing fails", async () => {
     useLive();
     vi.mocked(api.finishRecording).mockRejectedValueOnce(new Error("Connection lost"));
