@@ -52,7 +52,6 @@ select:focus, input:focus, textarea:focus { border-color:var(--accent); outline:
 .paused .record-dot { background:var(--muted); }
 .timer { margin-top:10px; font:36px/1.1 'Courier New',ui-monospace,monospace; letter-spacing:-1.7px; font-variant-numeric:tabular-nums; }
 .signal-field { display:block; width:calc(100% + 24px); height:160px; flex-shrink:1; min-height:70px; margin:7px -12px 10px; color:var(--wave); pointer-events:none; }
-.signal-field.quiet { opacity:.5; }
 .recording-controls { flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:9px; }
 .mic-button { min-height:42px; padding:0 17px; border:1px solid var(--text); border-radius:5px; background:var(--text); color:var(--inverse); display:flex; align-items:center; justify-content:center; gap:11px; font-size:12px; font-weight:600; }
 .mic-button:hover:not(:disabled) { opacity:.85; }

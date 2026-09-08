@@ -415,3 +415,82 @@ test("ribbon stops when hidden, resumes, and repaints a paused theme and resize"
   await expect.poll(() => ribbonPixels(page)).not.toBe(still);
   expect(errors).toEqual([]);
 });
+
+test("Finish delivers immediately while the ribbon softly settles, then stops", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start recording", exact: true }).click();
+  await expect(page.locator(".timer")).toContainText("00:01");
+  await page.getByRole("button", { name: "Stop recording", exact: true }).click();
+  // Output and next-record controls do not wait for the decorative release.
+  await expect(page.getByText("Copied to clipboard", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start recording", exact: true })).toBeEnabled();
+  const released = await ribbonPixels(page);
+  const opacity = () => page.locator(".signal-field").evaluate((canvas) => Number(getComputedStyle(canvas).opacity));
+  expect(await opacity()).toBeGreaterThan(.8);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).not.toBe(released);
+  expect(await opacity()).toBeGreaterThan(.5);
+  await expect.poll(opacity).toBe(.5);
+  const rest = await ribbonPixels(page);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).toBe(rest);
+});
+
+test("a new recording interrupts the release and hidden completion has no replay", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start recording", exact: true }).click();
+  await expect(page.locator(".timer")).toContainText("00:01");
+  await page.getByRole("button", { name: "Stop recording", exact: true }).click();
+  await page.getByRole("button", { name: "Start recording", exact: true }).click();
+  await expect(page.locator("main")).toHaveClass(/recording/);
+  const restarted = await ribbonPixels(page);
+  await expect.poll(() => ribbonPixels(page)).not.toBe(restarted);
+  await page.getByRole("button", { name: "Stop recording", exact: true }).click();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hidden = await ribbonPixels(page);
+  await page.waitForTimeout(150);
+  expect(await ribbonPixels(page)).toBe(hidden);
+  await page.evaluate(() => {
+    delete (document as Partial<Document>).hidden;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => page.locator(".signal-field").evaluate((canvas) => getComputedStyle(canvas).opacity)).toBe("0.5");
+  const restored = await ribbonPixels(page);
+  await page.waitForTimeout(200);
+  expect(await ribbonPixels(page)).toBe(restored);
+});
+
+test("processing remains fluid until delayed transcription completes", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const ipc = Reflect.get(window, "__TAURI_INTERNALS__");
+    const invoke = ipc.invoke;
+    ipc.invoke = async (command: string, args: Record<string, unknown>) => {
+      if (command === "finish_recording") await new Promise<void>((resolve) => Reflect.set(window, "__completeTranscription", resolve));
+      return invoke(command, args);
+    };
+  });
+  await page.getByRole("button", { name: "Start recording", exact: true }).click();
+  await expect(page.locator(".timer")).toContainText("00:01");
+  await page.getByRole("button", { name: "Pause recording", exact: true }).click();
+  const paused = await ribbonPixels(page);
+  await page.getByRole("button", { name: "Stop recording", exact: true }).click();
+  await expect(page.locator("main")).toHaveClass(/processing/);
+  await expect.poll(() => ribbonPixels(page)).not.toBe(paused);
+  await page.waitForTimeout(750);
+  const processing = await ribbonPixels(page);
+  await page.waitForTimeout(150);
+  expect(await ribbonPixels(page)).not.toBe(processing);
+  await page.evaluate(() => Reflect.get(window, "__completeTranscription")());
+  await expect(page.getByText("Copied to clipboard", { exact: true })).toBeVisible();
+  const released = await ribbonPixels(page);
+  await page.waitForTimeout(150);
+  expect(await ribbonPixels(page)).not.toBe(released);
+  await expect.poll(() => page.locator(".signal-field").evaluate((canvas) => getComputedStyle(canvas).opacity)).toBe("0.5");
+  const rest = await ribbonPixels(page);
+  await page.waitForTimeout(150);
+  expect(await ribbonPixels(page)).toBe(rest);
+});

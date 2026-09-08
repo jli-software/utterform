@@ -8,7 +8,9 @@ const particles = Array.from({ length: 54 }, (_, row) =>
     const seed = noise(row, column);
     return {
       p: column / 186, k: (row - 26.5) / 26.5,
-      speed: .009 + .003 * noise(row, 2),
+      speed: .018 + .018 * noise(row, column + 71),
+      phase: seed * Math.PI * 2,
+      orbit: .7 + noise(row + 17, column) * 1.3,
       brightness: .45 + .55 * seed,
       size: seed > .97 ? 1.65 : seed > .72 ? 1.05 : .65,
       include: noise(row + 91, column) <= .91,
@@ -16,18 +18,20 @@ const particles = Array.from({ length: 54 }, (_, row) =>
   }).filter((particle) => particle.include),
 ).flat();
 const grains = Array.from({ length: 360 }, (_, index) => ({
-  p: noise(index, 7), k: (noise(index, 9) * 2 - 1) * 1.8,
+  p: noise(index, 7), speed: .025 + .025 * noise(index, 3), phase: noise(index, 4) * Math.PI * 2, k: (noise(index, 9) * 2 - 1) * 1.8,
   spread: (noise(index, 13) - .5) * .27,
   alpha: .12 + .38 * noise(index, 11), size: noise(index, 12) > .9 ? 1.8 : 1,
 }));
 
 export function drawSignal(
   ctx: CanvasRenderingContext2D, width: number, height: number,
-  time: number, energy: number, ink: string,
+  time: number, energy: number, ink: string, travel = time, activity = 0,
 ) {
   if (width <= 0 || height <= 0) return;
   const t = Number.isFinite(time) ? time : 2.4;
   const volume = Number.isFinite(energy) ? Math.max(0, Math.min(1, energy)) : .35;
+  const flow = Number.isFinite(travel) ? travel : t;
+  const response = Number.isFinite(activity) ? Math.max(0, Math.min(1, activity)) : 0;
   function point(p: number, k: number) {
     const envelope = Math.sin(Math.PI * p) ** .65;
     const twist = p * 8.7 - t * .5;
@@ -58,14 +62,20 @@ export function drawSignal(
     ctx.stroke();
   }
   for (const particle of particles) {
-    const v = point(fract(particle.p + t * particle.speed), particle.k);
+    const p = fract(particle.p + flow * particle.speed);
+    const orbit = flow * particle.orbit + particle.phase;
+    const v = point(p, particle.k + Math.sin(orbit) * response * .2);
+    // Individual trajectories stay attached to the broad coherent silhouette.
+    const dx = Math.cos(orbit * .8) * response * 5 * v.envelope;
+    const dy = Math.sin(orbit * 1.3) * response * height * .045 * v.envelope;
     ctx.globalAlpha = (.14 + .65 * (v.depth * .5 + .5)) * (.3 + .7 * v.envelope) * particle.brightness;
-    ctx.fillRect(v.x, v.y, particle.size, particle.size);
+    ctx.fillRect(v.x + dx, v.y + dy, particle.size, particle.size);
   }
   for (const grain of grains) {
-    const v = point(fract(grain.p + t * .013), grain.k);
+    const v = point(fract(grain.p + flow * grain.speed), grain.k);
+    const orbit = Math.sin(flow * 1.4 + grain.phase) * response * height * .09 * v.envelope;
     ctx.globalAlpha = grain.alpha * v.envelope;
-    ctx.fillRect(v.x, v.y + grain.spread * height * v.envelope, grain.size, grain.size);
+    ctx.fillRect(v.x, v.y + grain.spread * height * v.envelope + orbit, grain.size, grain.size);
   }
   ctx.globalAlpha = 1;
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { drawSignal } from "./signal";
+  import { SignalMotion } from "./signal-motion";
 
   export let level = 0;
   export let phase = "idle";
@@ -11,8 +12,7 @@
   let visible = true;
   let frame = 0;
   let previous = 0;
-  let time = 2.4;
-  let energy = .35;
+  const motion = new SignalMotion();
   let ink = "#414748";
   let width = 0;
   let height = 0;
@@ -28,31 +28,36 @@
       field.height = pixelHeight;
     }
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawSignal(context, width, height, time, energy, ink);
+    field.style.opacity = String(motion.pose.opacity);
+    drawSignal(context, width, height, motion.time, motion.pose.energy, ink, motion.travel, motion.pose.activity);
   }
   function tick(stamp: number) {
     frame = 0;
-    // At most 30fps. Idle, paused and hidden windows have no animation loop.
+    // At most 30fps, including the finite visible-window release tail.
     if (!previous || stamp - previous >= 1000 / 30) {
-      const elapsed = previous ? Math.min((stamp - previous) / 1000, .1) : 0;
+      const elapsed = previous ? (stamp - previous) / 1000 : 0;
       previous = stamp;
-      time += elapsed;
-      const envelope = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
-      const target = phase === "recording" ? .55 + envelope * .4 : .72;
-      energy += (target - energy) * .18;
+      motion.advance(elapsed, level);
       draw();
     }
-    frame = requestAnimationFrame(tick);
+    if (motion.moving) frame = requestAnimationFrame(tick);
   }
   function sync(current: string, reduceMotion: boolean, isVisible: boolean) {
     if (!mounted || !context) return;
-    const active = current === "recording" || current === "processing" || current === "starting";
-    const moving = active && !reduceMotion && isVisible;
-    if (moving && !frame) { previous = 0; frame = requestAnimationFrame(tick); }
-    if (!moving) {
+    motion.setPhase(current);
+    if (reduceMotion || !isVisible || current === "paused") {
       cancelAnimationFrame(frame);
       frame = 0;
-      if (current !== "paused") energy = active ? .8 : .35;
+      // Pausing freezes exactly. Hidden active motion resumes from where it was;
+      // completed tails are discarded while hidden, without a timer or redraw.
+      if (reduceMotion || (!isVisible && current !== "recording" && current !== "processing" && current !== "starting")) motion.settleImmediately();
+      draw();
+      return;
+    }
+    if (motion.moving && !frame) {
+      previous = 0;
+      frame = requestAnimationFrame(tick);
+    } else if (!motion.moving) {
       draw();
     }
   }
@@ -96,4 +101,4 @@
   });
 </script>
 
-<canvas bind:this={field} class="signal-field" class:quiet={phase !== "recording" && phase !== "paused"} aria-hidden="true"></canvas>
+<canvas bind:this={field} class="signal-field" style="opacity: .5" aria-hidden="true"></canvas>
