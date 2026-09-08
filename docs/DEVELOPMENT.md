@@ -11,6 +11,12 @@
 
 ## Current handoff — 0.4.6
 
+**Confirmed on Windows by Jonas on 2026-09-08, on 0.4.6.** Paste into Windows Terminal works, the administrator warning shows, changing the dictation key to `Alt+C` works, and his verdict on Windows overall was "sensationell". Nothing is open on Windows from his side. What remains unconfirmed in words is only the start click with the window in the background (see below); the 0.4.5 log shows it playing.
+
+**Jonas's Windows setup, for the next diagnosis:** Windows Terminal started as administrator; a Jabra Link 390 headset as the output; a Logitech C270 webcam as the microphone at 48 kHz stereo F32; the log lives at `%LOCALAPPDATA%\software.jli.utterform\utterform.log` and he sends it when asked. Ask for it before theorising: the 0.4.5 round was settled by one log line.
+
+**How this was found, for whoever debugs Windows next:**
+
 Jonas tested 0.4.5 on Windows within the hour. Paste into Windows Terminal still failed, and his log settled why: `pasting into window class "CASCADIA_HOSTING_WINDOW_CLASS" of program "WindowsTerminal" with Shift+Insert` on every attempt — recognition and chord were right — and his terminal runs as administrator. That is UIPI: a medium-integrity process cannot inject input into a high-integrity window, and `SendInput` still returns the full count, so 0.4.5's "Windows blocked the keystrokes" warning could never fire. `typing/windows.rs` now reads both processes' integrity levels from their tokens (`TokenIntegrityLevel`, last SID sub-authority: 0x2000 medium, 0x3000 high) and refuses with a warning naming the program when the window outranks Utterform. Do not try to work around UIPI: the only sanctioned route is a code-signed binary with `uiAccess="true"` installed under Program Files, and the Windows builds are unsigned. The user's options are an elevated Utterform or an unelevated terminal.
 
 **The start click may already be fixed.** The same log shows `start cue played on "Kopfhörer (Jabra Link 390)" … device took the whole cue after ~500 ms` on all five recordings, with `recording armed ~525 ms after the microphone opened`. Not yet known: whether Utterform's window was in the background for those, which is the case that was silent on 0.4.4. Ask before closing the story.
@@ -105,19 +111,19 @@ Keystrokes stay selectable, with the two documented fixes: a leading `Shift_L` p
 
 ### Platform reality — do not assume parity
 
-Only Linux has been exercised by a person. The rest is compilation, not evidence. The Windows paths in this release are type-checked against the real `windows-sys` API for `x86_64-pc-windows-msvc` and were never run.
+Linux and Windows have been exercised by a person; macOS is compilation, not evidence. Windows cannot be compiled on the Linux development machine (`ring`'s build script needs a C compiler for the target), so every change to `cfg(target_os = "windows")` code is verified through Actions → Desktop builds on the branch before it is tagged.
 
 | | Linux / Omarchy | macOS | Windows |
 | --- | --- | --- | --- |
-| Typing at the cursor, as a paste | **works, confirmed 2026-09-07** | **not implemented** | implemented, **never run** |
-| Typing at the cursor, as keystrokes | 0.4.0 worked; not re-tested since the Shift tap and delay | **not implemented** | implemented, **never run** |
-| Reserved dictation key | n/a under Wayland, by design | implemented, **never run** | implemented, **never run** |
-| `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried |
+| Typing at the cursor, as a paste | **works, confirmed 2026-09-07** | **not implemented** | **works, confirmed 2026-09-08 (0.4.6)**, Windows Terminal included; elevated windows are refused with a warning |
+| Typing at the cursor, as keystrokes | 0.4.0 worked; not re-tested since the Shift tap and delay | **not implemented** | implemented, never tried by a person |
+| Reserved dictation key | n/a under Wayland, by design | implemented, **never run** | **works, confirmed 2026-09-08**, including changing it in Settings (`Alt+C`) |
+| `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried — the key is what Jonas uses |
 | Binding it to a key | `bind =` in hyprland.conf | Settings → Dictation key | Settings → Dictation key |
-| Tray click opens the window | works, confirmed | never tried | never tried |
-| Recording, transcription, clipboard, file | works, confirmed | never tried interactively | never tried interactively |
+| Tray click opens the window | works, confirmed | never tried | the recording dot is confirmed (0.4.4, smaller since 0.4.5); the click was not mentioned |
+| Recording, transcription, clipboard, file | works, confirmed | never tried interactively | **works, confirmed 2026-09-08** (dock and webcam microphone, Jabra headset) |
 
-Jonas said on 2026-09-07 that he will test Windows later. What to ask him then: whether `Ctrl+Alt+D` is free on his machine, whether the key toggles a recording without the window coming forward, and whether the text lands in the focused window. If a paste does not arrive in some window, the fallback is Settings → Typing at the cursor → Keystrokes; the chord guess lives in `typing::is_terminal_class`.
+Jonas tested Windows on 2026-09-08 across 0.4.4 to 0.4.6; the answers are in the handoffs above. If a paste does not arrive in some window, read the `pasting into window class …` line in the log first: it names the class, the program and the chord. An elevated window is refused by design; an unrecognised terminal is added to `typing::TERMINALS`; the last fallback is Settings → Typing at the cursor → Keystrokes.
 
 The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS still reports that typing at the cursor is not available there, which is now true rather than misleading.
 

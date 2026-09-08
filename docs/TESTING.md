@@ -2,6 +2,8 @@
 
 ## 0.4.6 A window running as administrator is named, not typed into
 
+**Confirmed on Windows by Jonas on 2026-09-08, on 0.4.6:** typing at the cursor reaches Windows Terminal, the administrator warning appears where it should, and changing the dictation key in Settings — to `Alt+C` — works. His words: it works "sensationell". This closes the Windows story that started with 0.4.3: recording through a re-plugged dock (0.4.4), the paste chord (0.4.5), the elevated window (0.4.6). Not separately put into words: whether the start click was heard with the window in the background, the case that was silent on 0.4.4; his 0.4.5 log shows the cue playing to the end on every recording.
+
 81 native and 53 interface tests, unchanged: the integrity-level check is Windows API code with no seam a Linux test can reach. **Diagnosed from Jonas's 0.4.5 log, not reproduced here.** The log showed Utterform recognising Windows Terminal and sending Shift+Insert on four recordings with nothing arriving, and Jonas confirmed the terminal runs as administrator; that is UIPI, and `SendInput` counting dropped events as delivered is documented behaviour. The Windows build is verified through Actions → Desktop builds. Not yet seen by anyone: the warning text on a real elevated window, and whether an elevated Utterform pastes into an elevated terminal.
 
 ## 0.4.5 Paste into a Windows terminal, cues on their own threads, and a log

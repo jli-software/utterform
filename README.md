@@ -93,7 +93,7 @@ Download the [0.4.6 assets](https://github.com/jli-software/utterform/releases/t
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
-The dictation key and typing at the cursor are new on these platforms since 0.4.1 and have been built and tested automatically, but not yet used by anyone on a real Windows or macOS machine. Linux is the platform exercised by hand. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
+Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS has been built and tested automatically but not yet used by anyone on a real machine. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
 
 On macOS drag Utterform into Applications. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
