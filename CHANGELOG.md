@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.3 — v0.4.3
+
+- The start click is heard on speakers that suspend when idle — Bluetooth headsets, HDMI displays, docks. The output device is now woken before the microphone is opened, every cue carries a silent lead-in and a 300 ms tail, and the stream stays open until the device has taken all of it instead of being cut off after 500 ms.
+- Recording begins when the start cue has actually been played, not before it. The microphone opens immediately and discards until then, so the click means what it says and can never land in its own recording.
+- A cue that could not be played is reported rather than discarded, including an output device whose sample format Utterform cannot write, which used to look like success. When the start sound cannot be played at all, a desktop notification stands in for it.
+- The stop click plays in full on its own instead of delaying transcription.
+
+See [0.4.3 release notes](docs/releases/v0.4.3.md).
+
 ## 0.4.2 — v0.4.2
 
 - Rewrite any prompt Utterform ships with. Clean, Polish, Summarize and Prompt now show the instructions they actually run, in a Settings tab of their own, with the original one click away and a Reset that brings it back. Only what differs from the shipped text is stored, so a renamed action still follows a later, better default.

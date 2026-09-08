@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.3 The start sound on speakers that suspend
+
+74 native and 53 interface tests. New native coverage: every cue opening with silence a waking device can swallow and the tone still beginning the moment that lead-in ends rather than being pushed later by it; every cue ending in at least 250 ms of silence, which is what stands between a buffered output and a cue nobody hears; and only sample formats that can actually be written being accepted, since silently reporting success for the others is what made a cue disappear with no way to find out why. On the capture side, nothing being kept until the start cue has been played, so the cue cannot land in its own recording.
+
+**Diagnosed on real hardware, not in a test.** Jonas reported on 2026-09-08 that Super+D on his MacBook Air under Linux produced no start click through AirPods, while the stop click always came. The microphone was the internal one, so no Bluetooth profile switch was involved. Playing a YouTube video first — waking the sink — made the start click appear every time, which is what identified the cold start as the cause. No automated test can reach this: it needs a device that suspends.
+
+**Not exercised by anyone yet:** the notification that stands in for a cue no output device will play, and the fix on macOS or Windows speakers. The code is shared and platform-independent, but only the Linux/AirPods case has been seen.
+
 ## 0.4.2 Prompts anyone can rewrite, and words the model gets right
 
 70 native and 53 interface tests, plus 11 production Chromium scenarios. New coverage: a shipped prompt running until it is replaced, a replacement winning, a blank replacement falling back rather than failing the recording that used it, and a renamed action still following our instructions; every built-in but Plain carrying a prompt and the ids staying unique; a 0.4.1 settings file gaining the new fields while its custom actions survive, and an edited prompt surviving a save and a reload; a keyword carrying `<`, `>`, a carriage return or a line feed being dropped rather than sent, because the API refuses the whole request over one of them; and the vocabulary reaching Whisper as prior text.
