@@ -145,6 +145,10 @@ footer { width:min(620px,100%); margin:13px auto 0; display:flex; justify-conten
 .history-notice { width:min(620px,100%); margin:10px auto 0; font-size:11px; line-height:1.5; color:var(--muted); }
 .toggle-field { display:flex; align-items:center; gap:10px; font-size:12px; }
 .toggle-field input { width:16px; height:16px; min-height:0; accent-color:var(--accent); }
+.cue-test { margin:12px 8px 0 0; padding:8px 11px; border:1px solid var(--line); border-radius:9px; background:transparent; color:var(--text); font-size:11px; }
+.cue-test:disabled { opacity:.6; }
+.cue-report { margin:10px 2px 0; padding:8px 10px; border-radius:9px; background:var(--accent-soft); color:var(--muted); font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+.privacy-note code { font-size:10px; word-break:break-all; }
 .clear-history { margin:12px 8px 0 0; padding:8px 11px; border:1px solid var(--line); border-radius:9px; background:transparent; color:var(--danger); font-size:11px; }
 button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 @keyframes menu-in { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }

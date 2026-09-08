@@ -5,6 +5,7 @@ use tauri_plugin_notification::NotificationExt;
 use crate::{
     actions::{self, BuiltInAction},
     audio::{self, AudioCaptureState},
+    diagnostics,
     domain::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
         TranscriptionEngine,
@@ -61,14 +62,41 @@ pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
     audio::list_input_devices()
 }
 
+/// Open the microphone and play the start cue.
+///
+/// Asynchronous so the work leaves the main thread: a synchronous command runs
+/// on the thread that owns the window, and opening an audio device there
+/// stalls the interface for as long as the device takes — and on Windows put
+/// the start cue's stream on the WebView2 thread, the one place it should not
+/// have been. The interface learns the recording began as soon as the
+/// microphone is open, not once the cue has been heard.
 #[tauri::command]
-pub fn start_recording(
+pub async fn start_recording(
     app: AppHandle,
-    state: State<'_, AudioCaptureState>,
     input_device: Option<String>,
     engine: TranscriptionEngine,
     local_model_id: Option<String>,
     action: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        begin_recording(
+            &app,
+            input_device.as_deref(),
+            engine,
+            local_model_id,
+            &action,
+        )
+    })
+    .await
+    .map_err(|error| format!("Could not start the recording: {error}"))?
+}
+
+fn begin_recording(
+    app: &AppHandle,
+    input_device: Option<&str>,
+    engine: TranscriptionEngine,
+    local_model_id: Option<String>,
+    action: &str,
 ) -> Result<(), String> {
     if engine == TranscriptionEngine::OpenAi || action != actions::PLAIN {
         secrets::openai_api_key()?;
@@ -77,37 +105,38 @@ pub fn start_recording(
         let model_id = local_model_id
             .as_deref()
             .ok_or_else(|| "Select a local Whisper model in Settings".to_string())?;
-        if !models::model_path(&app, model_id)?.is_file() {
+        if !models::model_path(app, model_id)?.is_file() {
             return Err(format!(
                 "The {model_id} Whisper model is not downloaded. Open Settings to download it."
             ));
         }
     }
-    let current_settings = settings::load(&app)?;
+    let current_settings = settings::load(app)?;
     let started = audio::start_recording(
-        &state,
-        input_device.as_deref(),
+        &app.state::<AudioCaptureState>(),
+        input_device,
         current_settings.sound_enabled,
     )?;
     let session = started.session;
-    tray::set_recording(&app, true);
-    // Off the answering thread: the wait is a speaker resuming from idle, which
-    // a Bluetooth headset can take a few hundred milliseconds over. The
-    // interface learns the recording began now, not once the cue was heard.
+    tray::set_recording(app, true);
+    // Off this thread too: the wait is a speaker resuming from idle, which a
+    // Bluetooth headset can take a few hundred milliseconds over, and the
+    // interface should hear "recording" before that.
     let cued = app.clone();
     std::thread::spawn(move || {
         if let Err(reason) = started.arm(&cued.state::<AudioCaptureState>()) {
             announce_recording(&cued, &reason);
         }
     });
+    let watched = app.clone();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(250));
-            match audio::check_limit(&app.state::<AudioCaptureState>(), session) {
+            match audio::check_limit(&watched.state::<AudioCaptureState>(), session) {
                 Ok(audio::LimitCheck::Waiting) => {}
                 Ok(audio::LimitCheck::Stopped) => {
-                    tray::set_recording(&app, false);
-                    let _ = app.emit("recording-limit-reached", ());
+                    tray::set_recording(&watched, false);
+                    let _ = watched.emit("recording-limit-reached", ());
                     break;
                 }
                 _ => break,
@@ -121,13 +150,48 @@ pub fn start_recording(
 /// the cue is the user's only sign that the microphone is live, so its silence
 /// has to be replaced rather than merely logged.
 fn announce_recording(app: &AppHandle, reason: &str) {
-    eprintln!("utterform: the start sound could not be played: {reason}");
+    diagnostics::log(format!(
+        "the start sound could not be played, raising a notification instead: {reason}"
+    ));
     let _ = app
         .notification()
         .builder()
         .title("Utterform is recording")
         .body("The start sound could not be played on this output device.")
         .show();
+}
+
+/// Play the three cues the way a hotkey recording plays them — on their own
+/// threads, from a window that need not be visible — after a pause long enough
+/// to put the window in the background first. The outcome comes back on the
+/// `test-cues-finished` event and in the log, so a machine where the start
+/// click is silent can say whether the cue path or the microphone is at fault.
+#[tauri::command]
+pub fn play_test_cues(app: AppHandle, delay_seconds: u32) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(u64::from(
+            delay_seconds.min(60),
+        )));
+        diagnostics::log("playing the test cues");
+        let mut lines = Vec::new();
+        for (cue, label) in [
+            (Cue::Start, "Start"),
+            (Cue::Stop, "Stop"),
+            (Cue::Done, "Done"),
+        ] {
+            lines.push(match feedback::play(cue) {
+                Ok(report) => format!("{label}: {report}"),
+                Err(reason) => format!("{label}: not played — {reason}"),
+            });
+        }
+        let _ = app.emit("test-cues-finished", lines.join("\n"));
+    });
+}
+
+/// Where the log is written, for Settings to show next to the test button.
+#[tauri::command]
+pub fn diagnostics_log_path() -> Option<String> {
+    diagnostics::path().map(|path| path.display().to_string())
 }
 
 #[tauri::command]

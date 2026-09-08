@@ -26,11 +26,10 @@ mod windows;
 /// sentence does not visibly crawl in.
 pub const DEFAULT_DELAY_MS: u32 = 15;
 
-// The rules below decide what only the Linux tools have to be told: how fast to
-// type, and which paste the window takes. Windows needs neither — one SendInput
-// call is atomic, and everything there pastes on Ctrl+V. They are compiled for
-// tests everywhere all the same, so the rules are checked on every platform
-// rather than only on the one that runs them.
+// The delay is something only the Linux tools have to be told: one SendInput
+// call is atomic, so Windows needs no pacing. The rules are compiled for tests
+// everywhere all the same, so they are checked on every platform rather than
+// only on the one that runs them.
 #[cfg(any(target_os = "linux", test))]
 const MAX_DELAY_MS: u32 = 500;
 
@@ -41,23 +40,34 @@ pub fn clamp_delay(milliseconds: u32) -> u32 {
 }
 
 /// Which paste the focused window understands. Terminals reserve plain Ctrl+V
-/// for the shell, so they take the text on Ctrl+Shift+V instead.
-#[cfg(any(target_os = "linux", test))]
+/// for the shell, so they take the text on another chord: Ctrl+Shift+V on
+/// Linux, Shift+Insert on Windows, where that is the one paste every console
+/// agrees on — Windows Terminal, the classic console host, mintty, PuTTY,
+/// ConEmu — while Ctrl+Shift+V is unknown to half of them.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Paste {
     Plain,
     Terminal,
 }
 
-/// Window classes that are terminal emulators. Guessing wrong costs a paste
-/// that does not arrive, never the text: clipboard and file are already done
-/// by the time typing runs, and a failed paste is reported as a warning.
-#[cfg(any(target_os = "linux", test))]
+/// Window classes and program names that are terminal emulators. Guessing
+/// wrong costs a paste that does not arrive, never the text: clipboard and
+/// file are already done by the time typing runs, and a failed paste is
+/// reported as a warning.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 const TERMINALS: &[&str] = &[
     "alacritty",
     "aterm",
     "blackbox",
+    // Windows Terminal's window class, and the console host's.
+    "cascadia_hosting_window_class",
+    "cmder",
+    "conemu",
+    "conemu64",
+    "conhost",
     "console",
+    "consolewindowclass",
     "contour",
     "cool-retro-term",
     "extraterm",
@@ -72,26 +82,37 @@ const TERMINALS: &[&str] = &[
     "kgx",
     "kitty",
     "konsole",
+    "mintty",
+    "mobaxterm",
+    "openconsole",
+    "putty",
     "qterminal",
     "rio",
     "roxterm",
     "rxvt",
     "sakura",
     "st",
+    "tabby",
     "terminator",
     "terminology",
     "tilix",
     "tym",
     "urxvt",
+    // ConEmu's window class.
+    "virtualconsoleclass",
     "warp",
     "wave",
+    "wezterm-gui",
+    "windowsterminal",
+    "wsltty",
     "yakuake",
     "zutty",
 ];
 
 /// Reverse-DNS classes (`org.gnome.Console`, `com.mitchellh.ghostty`) name the
-/// application in their last segment; everything before it is the vendor.
-#[cfg(any(target_os = "linux", test))]
+/// application in their last segment; everything before it is the vendor. A
+/// Windows program name arrives without its `.exe`.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 pub fn is_terminal_class(class: &str) -> bool {
     let name = class
         .trim()
@@ -106,11 +127,23 @@ pub fn is_terminal_class(class: &str) -> bool {
 }
 
 /// An unknown window gets the paste every graphical toolkit agrees on.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 pub fn paste_for(window_class: Option<&str>) -> Paste {
     match window_class {
         Some(class) if is_terminal_class(class) => Paste::Terminal,
         _ => Paste::Plain,
+    }
+}
+
+/// The same decision from what Windows can say about a window: its class and
+/// the program behind it. Either naming a terminal is enough — Windows
+/// Terminal's class says nothing readable, its program name does, and an
+/// Electron terminal is the other way round.
+#[cfg(any(target_os = "windows", test))]
+pub fn paste_for_window(class: Option<&str>, program: Option<&str>) -> Paste {
+    match paste_for(class) {
+        Paste::Terminal => Paste::Terminal,
+        Paste::Plain => paste_for(program),
     }
 }
 
@@ -252,6 +285,72 @@ mod tests {
     fn an_unknown_window_takes_the_ordinary_paste() {
         assert_eq!(paste_for(None), Paste::Plain);
         assert_eq!(paste_for(Some("")), Paste::Plain);
+    }
+
+    #[test]
+    fn windows_terminals_are_known_by_class_or_by_program() {
+        // Windows Terminal: an unreadable class, a readable program name.
+        assert_eq!(
+            paste_for_window(
+                Some("CASCADIA_HOSTING_WINDOW_CLASS"),
+                Some("WindowsTerminal")
+            ),
+            Paste::Terminal
+        );
+        // The classic console host: the class is what identifies it, the
+        // program behind the window is whatever shell runs in it.
+        assert_eq!(
+            paste_for_window(Some("ConsoleWindowClass"), Some("cmd")),
+            Paste::Terminal
+        );
+        assert_eq!(
+            paste_for_window(Some("ConsoleWindowClass"), Some("powershell")),
+            Paste::Terminal
+        );
+        // Electron terminals share Chromium's class; the program tells.
+        assert_eq!(
+            paste_for_window(Some("Chrome_WidgetWin_1"), Some("Hyper")),
+            Paste::Terminal
+        );
+        assert_eq!(
+            paste_for_window(Some("Chrome_WidgetWin_1"), Some("Tabby")),
+            Paste::Terminal
+        );
+        for (class, program) in [
+            ("mintty", "mintty"),
+            ("PuTTY", "putty"),
+            ("VirtualConsoleClass", "ConEmu64"),
+            ("Alacritty", "alacritty"),
+            ("org.wezfurlong.wezterm", "wezterm-gui"),
+        ] {
+            assert_eq!(
+                paste_for_window(Some(class), Some(program)),
+                Paste::Terminal,
+                "{class} / {program}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_windows_programs_take_the_ordinary_paste() {
+        // VS Code has a terminal inside, but the whole window pastes on
+        // Ctrl+V, and Shift+Insert into its editor would be a guess.
+        for (class, program) in [
+            ("Chrome_WidgetWin_1", "Code"),
+            ("Chrome_WidgetWin_1", "chrome"),
+            ("Chrome_WidgetWin_1", "msedge"),
+            ("MozillaWindowClass", "firefox"),
+            ("OpusApp", "WINWORD"),
+            ("Notepad", "notepad"),
+            ("Chrome_WidgetWin_1", "slack"),
+        ] {
+            assert_eq!(
+                paste_for_window(Some(class), Some(program)),
+                Paste::Plain,
+                "{class} / {program}"
+            );
+        }
+        assert_eq!(paste_for_window(None, None), Paste::Plain);
     }
 
     #[test]

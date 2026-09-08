@@ -40,6 +40,11 @@ export const api = {
   setRecordingPaused: (paused: boolean) => invoke<RecordingStatus>("set_recording_paused", { paused }),
   cancelRecording: () => invoke<void>("cancel_recording"),
   getRecordingStatus: () => invoke<RecordingStatus>("get_recording_status"),
+  // The three cues, after a pause long enough to put the window in the
+  // background — the way a hotkey recording plays them. The outcome arrives
+  // on the `test-cues-finished` event.
+  playTestCues: (delaySeconds: number) => invoke<void>("play_test_cues", { delaySeconds }),
+  diagnosticsLogPath: () => invoke<string | null>("diagnostics_log_path"),
   finishRecording: (request: {
     action: string;
     customPrompt: string | null;

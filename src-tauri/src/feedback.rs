@@ -7,19 +7,44 @@
 //! HDMI display suspends when nothing is playing and needs a few hundred
 //! milliseconds to carry sound at all, then queues a few hundred more — a cue
 //! written into such a device and cut off a moment later is never heard.
+//!
+//! Every cue is opened, played, finished and closed on one thread of its own.
+//! Until 0.4.4 the start cue was opened on the thread that answered the
+//! interface — on Windows the main thread, the one WebView2 owns — and closed
+//! on another, while the stop cue that did sound lived on a single fresh
+//! thread. Whether or not that was the reason the start click stayed silent
+//! on Windows, a cue that does not depend on who asked for it has one
+//! difference fewer to explain, and it never blocks the interface either.
+//! Every outcome, silent or not, goes to the log.
 
-use std::{sync::mpsc, thread, time::Duration};
+use std::{
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
+
+use crate::diagnostics;
 
 use cpal::{
     Device, SampleFormat, StreamConfig, SupportedStreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Cue {
     Start,
     Stop,
     Done,
+}
+
+impl Cue {
+    fn name(self) -> &'static str {
+        match self {
+            Cue::Start => "start",
+            Cue::Stop => "stop",
+            Cue::Done => "done",
+        }
+    }
 }
 
 /// Silence before the tone. A device resuming from idle can discard the first
@@ -77,30 +102,6 @@ impl Waveform {
     }
 }
 
-/// A cue the output device has been handed and is still playing.
-///
-/// Opening the stream is what resumes a suspended device, so a caller that
-/// knows it will want the cue can start it first and let the wake-up overlap
-/// with its own work. Dropping the handle instead of calling `finish` cuts the
-/// cue off wherever it has got to.
-pub struct Playback {
-    // Playback lasts exactly as long as the stream is alive.
-    _stream: cpal::Stream,
-    finished: mpsc::Receiver<()>,
-}
-
-impl Playback {
-    /// Waits until the device has taken the whole cue, silent tail included.
-    pub fn finish(self) -> Result<(), String> {
-        self.finished.recv_timeout(DEADLINE).map_err(|_| {
-            format!(
-                "the output device did not play the cue within {} seconds",
-                DEADLINE.as_secs()
-            )
-        })
-    }
-}
-
 fn sample(cue: Cue, position: usize, sample_rate: u32) -> f32 {
     let t = position as f32 / sample_rate as f32;
     if matches!(cue, Cue::Done) {
@@ -133,9 +134,96 @@ fn sample(cue: Cue, position: usize, sample_rate: u32) -> f32 {
     tone * attack * release * (-t * decay).exp() * gain
 }
 
-/// Hands `cue` to the default output device and returns without waiting for it.
-pub fn start(cue: Cue) -> Result<Playback, String> {
+/// What playing a cue took, for the log: which device, how long opening the
+/// stream took, and how long until the device had taken the whole waveform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub device: String,
+    pub opened_in: Duration,
+    pub played_in: Duration,
+}
+
+impl std::fmt::Display for Report {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "played on \"{}\" — stream open after {} ms, device took the whole cue after {} ms",
+            self.device,
+            self.opened_in.as_millis(),
+            self.played_in.as_millis()
+        )
+    }
+}
+
+/// A cue playing on its own thread.
+///
+/// A caller that knows it will want the cue can start it and let the device
+/// wake-up overlap with its own work; `finish` then waits for the device to
+/// take the whole waveform. Dropping the handle does not cut the cue off — the
+/// thread plays it to the end regardless — it only gives up on the result.
+pub struct Playback {
+    outcome: mpsc::Receiver<Result<Report, String>>,
+}
+
+impl Playback {
+    /// Waits until the device has taken the whole cue, silent tail included,
+    /// and says how it went. Never longer than the cue's own deadline plus a
+    /// margin for the thread to open the device.
+    pub fn finish(self) -> Result<Report, String> {
+        self.outcome
+            .recv_timeout(DEADLINE * 2)
+            .unwrap_or_else(|_| Err("the cue thread gave no answer".into()))
+    }
+}
+
+/// Hands `cue` to the default output device on a thread of its own and
+/// returns without waiting for it.
+pub fn start(cue: Cue) -> Playback {
+    let (sender, outcome) = mpsc::channel();
+    let spawned = thread::Builder::new()
+        .name(format!("utterform-cue-{}", cue.name()))
+        .spawn(move || {
+            let _ = sender.send(play_here(cue));
+        });
+    if let Err(error) = spawned {
+        // The receiver simply sees a closed channel; `finish` reports it.
+        diagnostics::log(format!(
+            "the {} cue could not get a thread: {error}",
+            cue.name()
+        ));
+    }
+    Playback { outcome }
+}
+
+/// Plays `cue` to completion.
+pub fn play(cue: Cue) -> Result<Report, String> {
+    start(cue).finish()
+}
+
+/// Plays `cue` without holding up the caller, still letting the device take all
+/// of it. For a cue that confirms something already finished, where the work
+/// after it has no reason to wait for a slow speaker. The outcome is logged
+/// by the cue thread like any other.
+pub fn play_detached(cue: Cue) {
+    let _ = start(cue);
+}
+
+/// Open, play, finish and close the cue on the calling thread, and log how it
+/// went. Every cue passes through here, so the log tells the same story for
+/// each of them.
+fn play_here(cue: Cue) -> Result<Report, String> {
+    let outcome = play_to_the_end(cue);
+    match &outcome {
+        Ok(report) => diagnostics::log(format!("{} cue {report}", cue.name())),
+        Err(reason) => diagnostics::log(format!("{} cue not played: {reason}", cue.name())),
+    }
+    outcome
+}
+
+fn play_to_the_end(cue: Cue) -> Result<Report, String> {
+    let began = Instant::now();
     let device = output_device()?;
+    let name = device.to_string();
     let supported = playable_config(&device)?;
     let format = supported.sample_format();
     let config: StreamConfig = supported.into();
@@ -180,24 +268,22 @@ pub fn start(cue: Cue) -> Result<Playback, String> {
     stream
         .play()
         .map_err(|error| format!("the output device refused to start: {error}"))?;
-    Ok(Playback {
-        _stream: stream,
-        finished: receiver,
+    let opened_in = began.elapsed();
+    receiver.recv_timeout(DEADLINE).map_err(|_| {
+        format!(
+            "\"{name}\" did not take the cue within {} seconds",
+            DEADLINE.as_secs()
+        )
+    })?;
+    let played_in = began.elapsed();
+    // Closed here, on the thread that opened it, and only once the device has
+    // taken the silent tail as well.
+    drop(stream);
+    Ok(Report {
+        device: name,
+        opened_in,
+        played_in,
     })
-}
-
-/// Plays `cue` to completion.
-pub fn play(cue: Cue) -> Result<(), String> {
-    start(cue)?.finish()
-}
-
-/// Plays `cue` without holding up the caller, still letting the device take all
-/// of it. For a cue that confirms something already finished, where the work
-/// after it has no reason to wait for a slow speaker.
-pub fn play_detached(cue: Cue) {
-    thread::spawn(move || {
-        let _ = play(cue);
-    });
 }
 
 /// The system's current output, asked for more than once: a default can be

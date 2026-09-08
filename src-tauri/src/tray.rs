@@ -52,38 +52,42 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
     }));
 }
 
-/// The app icon with a red disc over its lower right quarter. Drawn rather
-/// than shipped so it cannot fall out of step with the icon it marks, and
-/// large enough to read at the 16 pixels a Windows tray gives it.
+/// The app icon with a small red dot in its lower right corner. Drawn rather
+/// than shipped so it cannot fall out of step with the icon it marks.
+///
+/// Deliberately modest: a dot a little over a third of the icon wide, with a
+/// soft edge and no ring around it. The corner it sits in is the icon's dark
+/// surface, so it reads on its own, and at the 16 pixels a Windows tray
+/// gives it the dot is still six pixels across — a recording light, not a
+/// badge. 0.4.4 drew it twice this size with a white ring, and it looked
+/// like an alert.
 fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
     let mut pixels = rgba.to_vec();
     let side = width.min(height) as f32;
-    let radius = side * 0.28;
-    let ring = (side / 16.0).max(1.0);
-    let center = (width as f32 - radius - ring, height as f32 - radius - ring);
+    let radius = side * 0.19;
+    let margin = side * 0.06;
+    let center = (
+        width as f32 - radius - margin,
+        height as f32 - radius - margin,
+    );
     for y in 0..height {
         for x in 0..width {
             let distance =
                 ((x as f32 + 0.5 - center.0).powi(2) + (y as f32 + 0.5 - center.1).powi(2)).sqrt();
-            let coverage = (radius + ring - distance).clamp(0.0, 1.0);
+            // One pixel of anti-aliasing at the edge.
+            let coverage = (radius + 0.5 - distance).clamp(0.0, 1.0);
             if coverage == 0.0 {
                 continue;
             }
-            // A white ring separates the disc from an icon of similar colour.
-            let (r, g, b) = if distance > radius {
-                (255.0, 255.0, 255.0)
-            } else {
-                (229.0, 72.0, 77.0)
-            };
             let index = ((y * width + x) * 4) as usize;
             let Some(pixel) = pixels.get_mut(index..index + 4) else {
                 continue;
             };
             let blend =
                 |under: u8, over: f32| (under as f32 * (1.0 - coverage) + over * coverage) as u8;
-            pixel[0] = blend(pixel[0], r);
-            pixel[1] = blend(pixel[1], g);
-            pixel[2] = blend(pixel[2], b);
+            pixel[0] = blend(pixel[0], 229.0);
+            pixel[1] = blend(pixel[1], 72.0);
+            pixel[2] = blend(pixel[2], 77.0);
             pixel[3] = blend(pixel[3], 255.0);
         }
     }
@@ -438,7 +442,7 @@ mod badge_tests {
     }
 
     #[test]
-    fn the_badge_is_a_red_disc_in_the_lower_right_and_leaves_the_rest_alone() {
+    fn the_badge_is_a_small_red_dot_in_the_lower_right_and_leaves_the_rest_alone() {
         let (width, height) = (32, 32);
         let grey = [90, 90, 90, 255];
         let plain: Vec<u8> = grey
@@ -449,30 +453,35 @@ mod badge_tests {
             .collect();
         let badged = recording_badge(&plain, width, height);
         assert_eq!(badged.len(), plain.len());
-        // Icon untouched away from the badge.
+        // Icon untouched away from the dot — including the centre, where the
+        // microphone is, and the corner the 0.4.4 disc used to reach into.
         assert_eq!(pixel(&badged, width, 0, 0), grey);
         assert_eq!(pixel(&badged, width, 31, 0), grey);
         assert_eq!(pixel(&badged, width, 0, 31), grey);
-        assert_eq!(pixel(&badged, width, 12, 12), grey);
-        // Solid red at the disc's centre, and opaque even on a transparent icon.
-        let centre = pixel(&badged, width, 22, 22);
+        assert_eq!(pixel(&badged, width, 16, 16), grey);
+        assert_eq!(pixel(&badged, width, 18, 18), grey);
+        // Solid red at the dot's centre, and opaque even on a transparent icon.
+        let centre = pixel(&badged, width, 24, 24);
         assert_eq!(centre, [229, 72, 77, 255]);
         let clear = vec![0; (width * height * 4) as usize];
         assert_eq!(
-            pixel(&recording_badge(&clear, width, height), width, 22, 22)[3],
+            pixel(&recording_badge(&clear, width, height), width, 24, 24)[3],
             255
         );
     }
 
     #[test]
-    fn the_badge_reads_at_windows_tray_size() {
-        // 16 pixels: the disc must still be several pixels across.
+    fn the_dot_is_modest_but_still_reads_at_windows_tray_size() {
+        // 16 pixels: about six across, so a handful of solid pixels and a
+        // soft edge — and well under a quarter of the icon.
         let plain = vec![0; 16 * 16 * 4];
         let badged = recording_badge(&plain, 16, 16);
-        let red = (0..16 * 16)
+        let solid = (0..16 * 16)
             .filter(|i| badged[i * 4] == 229 && badged[i * 4 + 3] == 255)
             .count();
-        assert!(red >= 12, "{red} solid red pixels");
+        let touched = (0..16 * 16).filter(|i| badged[i * 4 + 3] > 0).count();
+        assert!(solid >= 8, "{solid} solid red pixels");
+        assert!(touched < 64, "{touched} pixels touched");
     }
 
     #[test]

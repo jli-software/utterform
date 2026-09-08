@@ -16,6 +16,7 @@ use cpal::{
 };
 
 use crate::{
+    diagnostics,
     domain::AudioDeviceInfo,
     feedback::{self, Cue},
 };
@@ -243,9 +244,8 @@ pub fn cleanup_stale_recordings() -> Result<(), String> {
 pub struct StartedRecording {
     pub session: Instant,
     signals: CaptureSignals,
-    /// `None` when cues are switched off; otherwise the cue or the reason it
-    /// could not even be started, kept so `arm` can report it.
-    cue: Option<Result<feedback::Playback, String>>,
+    /// `None` when cues are switched off.
+    cue: Option<feedback::Playback>,
 }
 
 impl StartedRecording {
@@ -258,9 +258,16 @@ impl StartedRecording {
     pub fn arm(self, state: &AudioCaptureState) -> Result<(), String> {
         let played = match self.cue {
             None => Ok(()),
-            Some(Ok(playback)) => playback.finish(),
-            Some(Err(reason)) => Err(reason),
+            Some(playback) => playback.finish().map(|_| ()),
         };
+        diagnostics::log(format!(
+            "recording armed {} ms after the microphone opened{}",
+            self.session.elapsed().as_millis(),
+            match &played {
+                Ok(()) => "",
+                Err(_) => " — without a start cue",
+            }
+        ));
         // The recording limit counts kept audio, so its clock starts here and
         // not when the device was opened. A session that ended while the cue
         // was playing is left alone.
@@ -290,12 +297,7 @@ pub fn start_recording(
         return Err("A recording is already active".into());
     }
 
-    // First, because opening the stream is what resumes a suspended speaker:
-    // the wake-up then overlaps with opening the microphone instead of
-    // following it. Its failure is reported by `arm`, not here — a silent cue
-    // must not cost the recording.
-    let cue = sound_enabled.then(|| feedback::start(Cue::Start));
-
+    let opening = Instant::now();
     let host = cpal::default_host();
     let device = select_device(&host, requested_device)?;
     let supported = device
@@ -303,6 +305,7 @@ pub fn start_recording(
         .map_err(|error| format!("Could not read the microphone configuration: {error}"))?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
+    let device_name = device.to_string();
 
     let (sender, receiver) = sync_channel::<Vec<f32>>(CHANNEL_CAPACITY);
     let signals = CaptureSignals::default();
@@ -359,6 +362,20 @@ pub fn start_recording(
     stream
         .play()
         .map_err(|error| format!("Could not start the microphone: {error}"))?;
+    diagnostics::log(format!(
+        "microphone \"{device_name}\" open after {} ms: {} Hz, {} channel(s), {sample_format:?}",
+        opening.elapsed().as_millis(),
+        config.sample_rate,
+        config.channels
+    ));
+
+    // Only now, with the microphone already running: opening a capture stream
+    // can reconfigure the device that plays the cue — a headset switching
+    // profile, a dock re-plumbing its shared codec — and a cue started before
+    // that would be cut off while every sample still counts as taken. Its
+    // failure is reported by `arm`, not here: a silent cue must not cost the
+    // recording. Capture discards until `arm` says the cue has been heard.
+    let cue = sound_enabled.then(|| feedback::start(Cue::Start));
 
     let started_at = Instant::now();
     guard.active = Some(ActiveRecording {
@@ -493,7 +510,9 @@ fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
     }
     let glitches = active.signals.glitches.load(Ordering::Relaxed);
     if glitches > 0 {
-        eprintln!("utterform: the microphone reported {glitches} gap(s) during the recording");
+        diagnostics::log(format!(
+            "the microphone reported {glitches} gap(s) during the recording"
+        ));
     }
     if artifact.sample_count == 0 {
         return Err("The recording is empty".into());
