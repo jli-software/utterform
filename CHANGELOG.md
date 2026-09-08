@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.6 — v0.4.6
+
+- A focused window running as administrator is reported instead of typed into. Windows drops input from an ordinary program to an elevated window and `SendInput` still counts it as delivered, so 0.4.5 pasted into an elevated Windows Terminal, claimed success, and nothing arrived. Utterform now compares the window's integrity level with its own first and delivers a warning naming the program, with the text still on the clipboard.
+
+See [0.4.6 release notes](docs/releases/v0.4.6.md).
+
 ## 0.4.5 — v0.4.5
 
 - Typing at the cursor reaches Windows Terminal and the other Windows consoles. Keys are sent the way a keyboard sends them — left-hand modifier, scan code, extended flag — where 0.4.4 pressed a bare virtual key that Windows Terminal ignores, and a terminal window, recognised by its class or the program behind it, gets Shift+Insert, the paste every Windows console understands. Other windows keep Ctrl+V.

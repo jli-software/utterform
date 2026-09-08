@@ -9,6 +9,14 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.4.6
+
+Jonas tested 0.4.5 on Windows within the hour. Paste into Windows Terminal still failed, and his log settled why: `pasting into window class "CASCADIA_HOSTING_WINDOW_CLASS" of program "WindowsTerminal" with Shift+Insert` on every attempt — recognition and chord were right — and his terminal runs as administrator. That is UIPI: a medium-integrity process cannot inject input into a high-integrity window, and `SendInput` still returns the full count, so 0.4.5's "Windows blocked the keystrokes" warning could never fire. `typing/windows.rs` now reads both processes' integrity levels from their tokens (`TokenIntegrityLevel`, last SID sub-authority: 0x2000 medium, 0x3000 high) and refuses with a warning naming the program when the window outranks Utterform. Do not try to work around UIPI: the only sanctioned route is a code-signed binary with `uiAccess="true"` installed under Program Files, and the Windows builds are unsigned. The user's options are an elevated Utterform or an unelevated terminal.
+
+**The start click may already be fixed.** The same log shows `start cue played on "Kopfhörer (Jabra Link 390)" … device took the whole cue after ~500 ms` on all five recordings, with `recording armed ~525 ms after the microphone opened`. Not yet known: whether Utterform's window was in the background for those, which is the case that was silent on 0.4.4. Ask before closing the story.
+
+### Before 0.4.6
+
 ## Current handoff — 0.4.5
 
 Jonas's second Windows report, on 0.4.4, the same day: the text pastes everywhere except into a terminal; the start click sounds only when Utterform's own window is in the foreground — behind another window there is nothing, and once the stop click was missing too; and the tray dot should be more discreet.
