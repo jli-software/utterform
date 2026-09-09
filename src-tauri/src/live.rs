@@ -1077,7 +1077,12 @@ mod tests {
         let (sender, done) = prepare_input_with(session.clone(), move || Ok(typer))
             .await
             .unwrap();
-        tokio::time::sleep(INPUT_IDLE_TICK * 6).await;
+        // Wait for the idle poll to notice the loss; timing differs per runner.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.snapshot().delivery_paused {
+            assert!(Instant::now() < deadline, "the idle poll must block input");
+            tokio::time::sleep(INPUT_IDLE_TICK).await;
+        }
         sender.send("late text".into()).unwrap();
         drop(sender);
         worker_done(done).await;
