@@ -7,16 +7,7 @@ type Peer = WebSocketStream<TcpStream>;
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn test_session() -> Session {
-    Session {
-        status: Mutex::new(LiveStatus::default()),
-        active: AtomicBool::new(true),
-        cancelled: Arc::new(AtomicBool::new(false)),
-        input_stopped: AtomicBool::new(false),
-        input_finished: AtomicBool::new(false),
-        task: Mutex::new(None),
-        settings: AppSettings::default(),
-        started: Instant::now(),
-    }
+    Arc::try_unwrap(new_session(AppSettings::default())).unwrap_or_else(|_| unreachable!())
 }
 
 async fn sockets() -> (Socket, Peer) {

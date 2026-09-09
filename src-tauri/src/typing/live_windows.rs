@@ -90,7 +90,25 @@ impl LiveTyper {
         self.latch.cancel = Some(flag);
     }
 
-    pub(super) fn capture() -> Result<Self, String> {
+    pub(super) fn set_stop_hold(
+        &mut self,
+        epoch: Instant,
+        until: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) {
+        self.latch.hold = Some((epoch, until));
+    }
+
+    pub(super) fn target_description(&self) -> String {
+        format!("Windows window {:#x}", self.window as usize)
+    }
+
+    /// Idle check between deltas: pumps the observer's messages and verifies
+    /// the foreground window and focused control.
+    pub(super) fn poll_events(&mut self) -> Result<(), String> {
+        self.check_target()
+    }
+
+    pub(super) fn capture(session_id: u64) -> Result<Self, String> {
         if OBSERVATION.with(|slot| slot.borrow().is_some()) {
             return Err("Another live typing session owns this worker".into());
         }
@@ -145,10 +163,14 @@ impl LiveTyper {
             })
         });
         session.check_target()?;
+        crate::diagnostics::log(format!(
+            "live session {session_id}: Windows live typing bound to {} (thread {thread})",
+            session.target_description()
+        ));
         Ok(session)
     }
 
-    pub(super) fn check_target(&mut self) -> Result<(), String> {
+    fn check_target(&mut self) -> Result<(), String> {
         self.latch.check()?;
         // Out-of-context hooks execute on this thread when messages are pumped.
         let mut message = MSG::default();
@@ -196,6 +218,9 @@ impl LiveTyper {
         // At most one Unicode scalar (including both UTF-16 surrogates) per
         // atomic SendInput batch keeps the focus-race exposure very small.
         for character in text.chars() {
+            // A requested stop holds typing while its shortcut settles; held
+            // modifiers are additionally observed directly on Windows.
+            self.latch.wait_for_hold()?;
             self.wait_for_modifiers()?;
             self.check_target()?;
             let mut units = [0u16; 2];

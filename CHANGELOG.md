@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 — v0.6.1 · Live dictation restarts cleanly on Omarchy
+
+- Stop Live on Omarchy/Hyprland only for a confirmed change of the active window or a closed target; workspace, monitor, layer, submap and config-reload events alone no longer pause insertion.
+- Confirm the target once per text chunk instead of every 20 ms and per character; report Hyprland IPC failures as technical faults, not as a focus change.
+- Place virtual-keyboard characters on keycodes without default Omarchy bindings, editing or browser meaning, with DOM codes Chromium accepts; hold typing briefly after a stop request so a still-held shortcut modifier cannot combine with typed keys.
+- Isolate consecutive Live sessions with session ids, a worker that releases native input before the next start, and privacy-safe focus diagnostics in the log.
+- GPT Transcribe, Local Whisper and Windows Live are unchanged.
+
+See [0.6.1 release notes](docs/releases/v0.6.1.md).
+
 ## 0.6.0 — v0.6.0 · Live Dictation
 
 - Add GPT Live Transcribe alongside the unchanged GPT Transcribe cloud option.

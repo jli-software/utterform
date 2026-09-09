@@ -115,3 +115,10 @@ Windows needs no helper program: one `SendInput` call appends its whole batch to
 - No local LLM for transformations
 
 GPU backends and release signing require separate platform work and testing.
+
+## Live dictation
+
+`live.rs` owns one numbered session at a time: an OpenAI Realtime transcription socket, the microphone's live PCM tap and a dedicated native input thread. Deltas are appended in order, split into short chunks and handed to the input worker over a bounded queue; nothing is retried or replayed, and a final transcript that differs from the live text stays in Utterform. The worker owns the platform typer (`typing/live.rs`) for the whole session and drops it before the next session may start; between deltas it only reads queued focus events, and each chunk confirms the target once before typing. A stop request holds typing for 700 ms so a still-held shortcut modifier cannot combine with typed keys.
+
+On Omarchy/Hyprland the typer is a persistent Wayland virtual keyboard plus Hyprland's event socket. Only a confirmed change of the active window address or the target closing is a loss; workspace, monitor, layer, submap and config-reload events are logged but ignored, and IPC failures are reported as technical faults. Because Hyprland matches bindings against a virtual keyboard by keycode through its own layout, characters are placed on keycodes without default bindings, editing, browser or media meaning, and with DOM codes so Chromium on Wayland accepts them; the map is seeded with the most frequent characters and extended on demand. Windows uses Unicode `SendInput` with WinEvent foreground/focus/desktop observation on the worker thread and waits for physically held modifiers directly.
+
