@@ -470,7 +470,7 @@ where
                 self.0.input_finished.store(true, Ordering::Release);
             }
         }
-        let _finished = Finished(session.clone());
+        let finished = Finished(session.clone());
         let typer = match capture() {
             Ok(typer) => {
                 let _ = ready_tx.send(Ok(()));
@@ -483,6 +483,9 @@ where
             }
         };
         run_input_worker(&session, &receiver, typer);
+        // Native input is released before "done" is reported, so a caller
+        // awaiting the worker never observes a session that still owns it.
+        drop(finished);
         let _ = done_tx.send(());
     });
     timeout(Duration::from_secs(5), ready_rx)
