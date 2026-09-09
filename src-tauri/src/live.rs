@@ -537,9 +537,11 @@ pub async fn start(
         if session.cancelled.load(Ordering::Acquire)
             || session.input_stopped.load(Ordering::Acquire)
         {
-            return Err(
-                "The target lost focus during Live setup. Start again from your text field.".into(),
-            );
+            // The worker names what it saw: a confirmed window change or a
+            // technical fault, never a desktop event alone.
+            return Err(session.snapshot().warning.unwrap_or_else(|| {
+                "Live setup was interrupted. Start again from your text field.".into()
+            }));
         }
         let (audio_tx, audio_rx) = mpsc::channel(750);
         let captured_app = app.clone();
