@@ -9,6 +9,20 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.6.1
+
+**Omarchy Live restart regression (Tony, 2026-09-09):** a second GPT Live Transcribe start in the same field could stop at once with *"Live typing paused because the target or desktop focus changed"*, with a workspace reaction around the restart. Diagnosed from the code, Hyprland's sources (`KeybindManager::onKeyEvent`, `FocusState`), Omarchy's default bindings and Chromium's Wayland keyboard path; fixed on `fix/omarchy-live-focus-0.6.1` and released as 0.6.1. Three verified mechanisms:
+
+1. `live_linux.rs` latched every `workspace*`, `focusedmon*`, `activespecial*`, `openlayer`, `submap`, `configreloaded` and monitor event as a permanent target loss (the only source of that message) and queried Hyprland's command socket every 20 ms, including during the OpenAI handshake.
+2. Hyprland resolves bindings for a virtual keyboard by **keycode through its own configured layout**, with modifiers merged from all keyboards. Utterform's keymap put "ä" on keycode 172 = `XF86AudioPlay` (Omarchy: play/pause via swayosd, whose OSD layer then fired `openlayer`), "." on Tab (`SUPER+TAB` = next workspace), "!"…")" on `code:10`–`18` (`SUPER+code:N` = workspace N), "-" on Backspace. Text typed while the stop shortcut's Super key is still held therefore switched workspaces.
+3. Chromium on Wayland drops keys without a DOM code (keycode 92 carried "s", 172 "ä") and derives editing from the US meaning of the keycode ("-" on Backspace = DeleteBackward).
+
+**Fix:** only `activewindowv2` with a different non-empty address or `closewindow` of the target is a loss; an empty active window blocks only text due while it lasts; one Hyprland query per chunk with retries; technical faults worded as such; characters allocated on quiet, DOM-code-backed keycodes (keypad, F13–F19/F24, Intl, legacy keys) before ordinary keys, never Escape/Tab/Backspace/Return/modifiers/F1–F12/navigation/media/print/power; a 700 ms typing hold after every stop request (`STOP_HOLD` in `live.rs`); numbered sessions whose worker releases the virtual keyboard and event socket before the next start, with privacy-safe per-session log lines (`utterform.log`). The input worker is driven through the `LiveInput` trait so its lifecycle is unit-tested with a fake typer.
+
+**Still to confirm on the real Omarchy desktop (Tony):** ten `Super+D → speak → Super+D → restart in the same field` rounds in a native editor, Chromium and an XWayland app; no workspace change, no old or duplicated text; a real window switch still stops insertion; "ä", "s" and "-" arrive in Chromium; the log shows one `live session N` block per round. If a workspace reaction remains, send the `live session` lines of the log — they name the classified Hyprland events without any text.
+
+**Build note:** the portable CMake described below had been removed from `.tools/`; it was re-downloaded (official 4.4.3 tarball, SHA-256 verified) into `.tools/cmake-4.4.3-linux-x86_64`, still ignored by Git. `cargo test` needs its `bin` on `PATH` because `whisper-rs-sys` builds whisper.cpp with CMake.
+
 ## Current handoff — 0.4.6
 
 **Confirmed on Windows by Jonas on 2026-09-08, on 0.4.6.** Paste into Windows Terminal works, the administrator warning shows, changing the dictation key to `Alt+C` works, and his verdict on Windows overall was "sensationell". Nothing is open on Windows from his side. What remains unconfirmed in words is only the start click with the window in the background (see below); the 0.4.5 log shows it playing.

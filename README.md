@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.6.0 — Live Dictation** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.6.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.0).
+> Utterform is under active development. **0.6.1 — Live Dictation** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.6.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.1).
 
 ## Live dictation — Windows and Omarchy
 
@@ -21,12 +21,19 @@ from the target with the shortcut, not by clicking Record inside Utterform.
   receive Live input from an ordinary Utterform process.
 - **Omarchy / Hyprland:** keep the compositor binding documented below. Live uses a
   persistent Wayland virtual keyboard and Hyprland focus events; it does not need
-  `wtype`. The existing finished-text typing option still uses `wtype`.
+  `wtype`. The existing finished-text typing option still uses `wtype`. Only a
+  confirmed change of the active window, or the target window closing, stops Live;
+  workspace, monitor, layer, launcher and config-reload events alone do not. Hyprland
+  matches its own shortcuts against Utterform's keys by keycode, so Utterform keeps
+  characters off the keycodes Omarchy binds and waits briefly after a stop request
+  for the shortcut's modifier to be released. Each Live session is numbered in
+  `utterform.log` (path in Settings) with its target window address, workspace id and
+  the focus events it saw, without any text.
 - **macOS and other desktops:** keep using GPT Transcribe or Local Whisper. Live support
   for macOS is deferred to a separate future release.
 
-Window focus loss permanently pauses insertion for that recording, while transcription
-can continue inside Utterform. Finish and recover the transcript there, or start a new
+A confirmed window change permanently pauses insertion for that recording, while
+transcription can continue inside Utterform. Finish and recover the transcript there, or start a new
 recording from your target. No automatic replay on return. Line breaks become spaces;
 Live never presses Enter, Tab or Backspace. Clipboard/File options apply only on finish.
 
@@ -38,7 +45,7 @@ so check existing text before pasting it after a partial delivery.
 
 This first Live release is intended for real-world testing on Windows and Omarchy.
 Automated checks do not replace microphone-to-field testing in your applications.
-See the [0.6.0 release notes](docs/releases/v0.6.0.md) for scope and test limitations.
+See the [0.6.1 release notes](docs/releases/v0.6.1.md) and the [0.6.0 release notes](docs/releases/v0.6.0.md) for scope and test limitations.
 
 ## Signal design
 
@@ -127,7 +134,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.6.0 assets](https://github.com/jli-software/utterform/releases/tag/v0.6.0):
+Download the [0.6.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.6.1):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

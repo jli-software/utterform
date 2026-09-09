@@ -4,6 +4,7 @@
 //! inject keys. No reconnect/replay: an uncertain delivery remains uncertain.
 use crate::{
     audio::{self, AudioCaptureState},
+    diagnostics,
     domain::{AppSettings, CloudModel, ProcessRequest, ProcessResult, TranscriptionEngine},
     feedback::{self, Cue},
     history::{self, HistoryEntry},
@@ -17,7 +18,7 @@ use std::{
     collections::HashSet,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc as input_queue,
     },
     time::{Duration, Instant},
@@ -38,6 +39,14 @@ const FINISH_TIMEOUT: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TEXT: usize = 512_000;
 const MAX_EVENTS: usize = 50_000;
+/// After a stop is requested, native typing waits this long before sending
+/// another key: the dictation shortcut's modifier is often still held, and a
+/// compositor combines a held modifier with any key it sees.
+const STOP_HOLD: Duration = Duration::from_millis(700);
+/// Idle cadence of the input worker between deltas: only queued focus events
+/// and cancellation are checked, never the compositor.
+const INPUT_IDLE_TICK: Duration = Duration::from_millis(20);
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,9 +72,14 @@ impl Default for LiveStatus {
 #[derive(Default)]
 pub struct LiveState(Mutex<Option<Arc<Session>>>);
 struct Session {
+    /// Unique per process run; labels every diagnostic line of this session.
+    id: u64,
     status: Mutex<LiveStatus>,
     active: AtomicBool,
     cancelled: Arc<AtomicBool>,
+    /// Milliseconds after `started` before which the input worker sends no
+    /// key; raised on every stop request.
+    hold_until: Arc<AtomicU64>,
     // A native command can stop input immediately even while a network send awaits.
     input_stopped: AtomicBool,
     input_finished: AtomicBool,
@@ -102,6 +116,118 @@ impl Session {
         self.update(|s| s.delivery_paused = true);
         self.warn(reason);
     }
+    fn log(&self, message: impl std::fmt::Display) {
+        diagnostics::log(format!("live session {}: {message}", self.id));
+    }
+    /// A stop was requested (finish or cancel): hold native typing while the
+    /// shortcut settles. Later requests extend the hold.
+    fn request_stop(&self, how: &str) {
+        let until = self.started.elapsed().as_millis() as u64 + STOP_HOLD.as_millis() as u64;
+        self.hold_until.fetch_max(until, Ordering::AcqRel);
+        self.log(format!(
+            "{how} requested; typing held for {} ms",
+            STOP_HOLD.as_millis()
+        ));
+    }
+}
+fn new_session(settings: AppSettings) -> Arc<Session> {
+    Arc::new(Session {
+        id: NEXT_SESSION_ID.fetch_add(1, Ordering::AcqRel),
+        status: Mutex::new(LiveStatus::default()),
+        active: AtomicBool::new(true),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        hold_until: Arc::new(AtomicU64::new(0)),
+        input_stopped: AtomicBool::new(false),
+        input_finished: AtomicBool::new(false),
+        task: Mutex::new(None),
+        settings,
+        started: Instant::now(),
+    })
+}
+
+/// The native typing session as the input worker drives it. Implemented by the
+/// platform typer and by test doubles.
+trait LiveInput {
+    fn set_cancel_flag(&mut self, flag: Arc<AtomicBool>);
+    fn set_stop_hold(&mut self, epoch: Instant, until: Arc<AtomicU64>);
+    fn target_description(&self) -> String;
+    /// Idle check between deltas; an error is a permanent loss for this session.
+    fn poll_events(&mut self) -> Result<(), String>;
+    /// Type one chunk; an error may follow partial delivery and is never retried.
+    fn insert(&mut self, text: &str) -> Result<(), String>;
+}
+impl LiveInput for crate::typing::LiveTyper {
+    fn set_cancel_flag(&mut self, flag: Arc<AtomicBool>) {
+        crate::typing::LiveTyper::set_cancel_flag(self, flag);
+    }
+    fn set_stop_hold(&mut self, epoch: Instant, until: Arc<AtomicU64>) {
+        crate::typing::LiveTyper::set_stop_hold(self, epoch, until);
+    }
+    fn target_description(&self) -> String {
+        crate::typing::LiveTyper::target_description(self)
+    }
+    fn poll_events(&mut self) -> Result<(), String> {
+        crate::typing::LiveTyper::poll_events(self)
+    }
+    fn insert(&mut self, text: &str) -> Result<(), String> {
+        crate::typing::LiveTyper::insert(self, text)
+    }
+}
+
+/// The input worker's loop. Owns the typer for the whole session and drops it
+/// before returning, so the next session never meets a live socket, keyboard
+/// or observer of this one. Queued chunks after a block are discarded, never
+/// replayed.
+fn run_input_worker<T: LiveInput>(
+    session: &Session,
+    receiver: &input_queue::Receiver<String>,
+    mut typer: T,
+) {
+    typer.set_cancel_flag(session.cancelled.clone());
+    typer.set_stop_hold(session.started, session.hold_until.clone());
+    session.log(format!(
+        "input worker started for {}",
+        typer.target_description()
+    ));
+    let mut chunks = 0usize;
+    loop {
+        if session.cancelled.load(Ordering::Acquire) {
+            session.log("input worker leaving: cancelled");
+            break;
+        }
+        if !session.input_stopped.load(Ordering::Acquire)
+            && let Err(reason) = typer.poll_events()
+        {
+            session.log(format!("input paused while idle: {reason}"));
+            session.block_input(&format!("Live typing paused: {reason} The transcript remains here; start a new recording to type again."));
+        }
+        match receiver.recv_timeout(INPUT_IDLE_TICK) {
+            Ok(text) => {
+                if session.input_stopped.load(Ordering::Acquire) {
+                    continue;
+                }
+                match typer.insert(&text) {
+                    Ok(()) => {
+                        chunks += 1;
+                        session.update(|s| s.inserted_text.push_str(&text));
+                    }
+                    Err(reason) => {
+                        session.log(format!("input paused after {chunks} chunk(s): {reason}"));
+                        session.block_input(&format!("Live typing paused: {reason} This text was not retried; check the target before copying any remainder."));
+                    }
+                }
+            }
+            Err(input_queue::RecvTimeoutError::Timeout) => {}
+            Err(input_queue::RecvTimeoutError::Disconnected) => {
+                session.log(format!(
+                    "input worker leaving: queue closed after {chunks} chunk(s)"
+                ));
+                break;
+            }
+        }
+    }
+    drop(typer);
+    session.log("input worker finished; native input released");
 }
 impl LiveState {
     fn session(&self) -> Option<Arc<Session>> {
@@ -320,6 +446,20 @@ impl Transcript {
 async fn prepare_input(
     session: Arc<Session>,
 ) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), String> {
+    let id = session.id;
+    prepare_input_with(session, move || crate::typing::LiveTyper::capture(id)).await
+}
+
+/// Start the dedicated input thread. `capture` runs on that thread, so a typer
+/// that must not cross threads is created where it is used.
+async fn prepare_input_with<T, F>(
+    session: Arc<Session>,
+    capture: F,
+) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), String>
+where
+    T: LiveInput,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
     let (sender, receiver) = input_queue::sync_channel::<String>(128);
     let (ready_tx, ready_rx) = oneshot::channel();
     let (done_tx, done_rx) = oneshot::channel();
@@ -330,42 +470,22 @@ async fn prepare_input(
                 self.0.input_finished.store(true, Ordering::Release);
             }
         }
-        let _finished = Finished(session.clone());
-        let mut typer = match crate::typing::LiveTyper::capture() {
+        let finished = Finished(session.clone());
+        let typer = match capture() {
             Ok(typer) => {
                 let _ = ready_tx.send(Ok(()));
                 typer
             }
             Err(error) => {
+                session.log(format!("native input could not be captured: {error}"));
                 let _ = ready_tx.send(Err(error));
                 return;
             }
         };
-        typer.set_cancel_flag(session.cancelled.clone());
-        loop {
-            if session.cancelled.load(Ordering::Acquire) {
-                break;
-            }
-            if !session.input_stopped.load(Ordering::Acquire)
-                && let Err(reason) = typer.check_target()
-            {
-                session.block_input(&format!("Live typing paused: {reason} The transcript remains here; start a new recording to type again."));
-            }
-            match receiver.recv_timeout(Duration::from_millis(20)) {
-                Ok(text) => {
-                    if session.input_stopped.load(Ordering::Acquire) {
-                        continue;
-                    }
-                    if let Err(reason) = typer.insert(&text) {
-                        session.block_input(&format!("Live typing paused: {reason} This text was not retried; check the target before copying any remainder."));
-                    } else {
-                        session.update(|s| s.inserted_text.push_str(&text));
-                    }
-                }
-                Err(input_queue::RecvTimeoutError::Timeout) => {}
-                Err(input_queue::RecvTimeoutError::Disconnected) => break,
-            }
-        }
+        run_input_worker(&session, &receiver, typer);
+        // Native input is released before "done" is reported, so a caller
+        // awaiting the worker never observes a session that still owns it.
+        drop(finished);
         let _ = done_tx.send(());
     });
     timeout(Duration::from_secs(5), ready_rx)
@@ -386,24 +506,29 @@ pub async fn start(
     if audio::status(&app.state::<AudioCaptureState>())?.recording {
         return Err("A recording is already active".into());
     }
-    let session = Arc::new(Session {
-        status: Mutex::new(LiveStatus::default()),
-        active: AtomicBool::new(true),
-        cancelled: Arc::new(AtomicBool::new(false)),
-        input_stopped: AtomicBool::new(false),
-        input_finished: AtomicBool::new(false),
-        task: Mutex::new(None),
-        settings,
-        started: Instant::now(),
-    });
+    let session = new_session(settings);
     {
         let state = app.state::<LiveState>();
         let mut slot = state.0.lock().map_err(|_| "Live state unavailable")?;
-        if slot
-            .as_ref()
-            .is_some_and(|s| s.active.load(Ordering::Acquire))
-        {
-            return Err("A live recording is already active".into());
+        if let Some(previous) = slot.as_ref() {
+            if previous.active.load(Ordering::Acquire) {
+                return Err("A live recording is already active".into());
+            }
+            // The previous worker must have released its native input; a
+            // session whose shutdown timed out keeps `active` and lands above.
+            if !previous.input_finished.load(Ordering::Acquire) {
+                session.log(format!(
+                    "refusing to start: session {} still owns native input",
+                    previous.id
+                ));
+                return Err(
+                    "The previous live session has not released native input yet. Wait a moment and try again."
+                        .into(),
+                );
+            }
+            session.log(format!("starting after session {}", previous.id));
+        } else {
+            session.log("starting");
         }
         *slot = Some(session.clone());
     }
@@ -415,9 +540,11 @@ pub async fn start(
         if session.cancelled.load(Ordering::Acquire)
             || session.input_stopped.load(Ordering::Acquire)
         {
-            return Err(
-                "The target lost focus during Live setup. Start again from your text field.".into(),
-            );
+            // The worker names what it saw: a confirmed window change or a
+            // technical fault, never a desktop event alone.
+            return Err(session.snapshot().warning.unwrap_or_else(|| {
+                "Live setup was interrupted. Start again from your text field.".into()
+            }));
         }
         let (audio_tx, audio_rx) = mpsc::channel(750);
         let captured_app = app.clone();
@@ -435,6 +562,7 @@ pub async fn start(
         let recording_id = started.session;
         tray::set_recording(&app, true);
         session.update(|s| s.phase = "streaming");
+        session.log("connected and streaming");
         let cued = app.clone();
         std::thread::spawn(move || {
             if let Err(reason) = started.arm(&cued.state::<AudioCaptureState>()) {
@@ -455,6 +583,7 @@ pub async fn start(
             if let Err(error) = outcome
                 && !running_session.cancelled.load(Ordering::Acquire)
             {
+                running_session.log(format!("stream failed: {error}"));
                 running_session.block_input(&error);
                 running_session.update(|s| s.phase = "failed");
                 let stopped_app = running_app.clone();
@@ -499,6 +628,7 @@ pub async fn start(
     }
     .await;
     if let Err(ref reason) = setup {
+        session.log(format!("setup failed: {reason}"));
         session.cancelled.store(true, Ordering::Release);
         session.active.store(false, Ordering::Release);
         session.update(|s| {
@@ -609,6 +739,7 @@ pub async fn cancel(app: &AppHandle) -> Result<(), String> {
     if let Some(session) = app.state::<LiveState>().session()
         && session.active.load(Ordering::Acquire)
     {
+        session.request_stop("cancel");
         session.cancelled.store(true, Ordering::Release);
         session.input_stopped.store(true, Ordering::Release);
         let stopped_app = app.clone();
@@ -629,6 +760,7 @@ pub async fn cancel(app: &AppHandle) -> Result<(), String> {
         }
         await_input_stop(&session).await?;
         session.active.store(false, Ordering::Release);
+        session.log("cancelled; native input released");
         session.update(|s| s.phase = "completed");
     }
     Ok(())
@@ -639,6 +771,7 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         .state::<LiveState>()
         .session()
         .ok_or("No live recording is active")?;
+    session.request_stop("finish");
     // Remain active throughout finalization, so no second recording can reuse audio state.
     let stopped_app = app.clone();
     let artifact = tauri::async_runtime::spawn_blocking(move || {
@@ -673,6 +806,7 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
     }
     await_input_stop(&session).await?;
     session.active.store(false, Ordering::Release);
+    session.log("finished; native input released");
     let status = session.snapshot();
     let text = status.text;
     let mut warnings = status.warning.into_iter().collect::<Vec<_>>();
@@ -787,6 +921,214 @@ mod tests {
         let e = json!({"type":"conversation.item.input_audio_transcription.delta","delta":"bad"});
         assert!(t.event(&e).is_err());
     }
+    /// A typer double: records chunks, can fail on demand, and reports when it
+    /// was dropped and which hold it was handed.
+    struct FakeTyper {
+        inserted: Arc<Mutex<Vec<String>>>,
+        fail_insert_at: Option<usize>,
+        fail_poll_after: Option<usize>,
+        polls: usize,
+        dropped: Arc<AtomicBool>,
+        hold_seen: Arc<AtomicU64>,
+    }
+    /// Handles the test keeps while the worker owns the typer.
+    struct FakeHandles {
+        inserted: Arc<Mutex<Vec<String>>>,
+        dropped: Arc<AtomicBool>,
+        hold_seen: Arc<AtomicU64>,
+    }
+    impl FakeTyper {
+        fn new() -> (Self, FakeHandles) {
+            let handles = FakeHandles {
+                inserted: Arc::new(Mutex::new(Vec::new())),
+                dropped: Arc::new(AtomicBool::new(false)),
+                hold_seen: Arc::new(AtomicU64::new(u64::MAX)),
+            };
+            let typer = Self {
+                inserted: handles.inserted.clone(),
+                fail_insert_at: None,
+                fail_poll_after: None,
+                polls: 0,
+                dropped: handles.dropped.clone(),
+                hold_seen: handles.hold_seen.clone(),
+            };
+            (typer, handles)
+        }
+    }
+    impl LiveInput for FakeTyper {
+        fn set_cancel_flag(&mut self, _flag: Arc<AtomicBool>) {}
+        fn set_stop_hold(&mut self, _epoch: Instant, until: Arc<AtomicU64>) {
+            self.hold_seen
+                .store(until.load(Ordering::Acquire), Ordering::Release);
+        }
+        fn target_description(&self) -> String {
+            "fake window".into()
+        }
+        fn poll_events(&mut self) -> Result<(), String> {
+            self.polls += 1;
+            match self.fail_poll_after {
+                Some(limit) if self.polls > limit => Err("another window received focus".into()),
+                _ => Ok(()),
+            }
+        }
+        fn insert(&mut self, text: &str) -> Result<(), String> {
+            let mut inserted = self.inserted.lock().unwrap();
+            if self.fail_insert_at == Some(inserted.len()) {
+                return Err("another window received focus".into());
+            }
+            inserted.push(text.to_owned());
+            Ok(())
+        }
+    }
+    impl Drop for FakeTyper {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+    async fn worker_done(done: oneshot::Receiver<()>) {
+        timeout(Duration::from_secs(5), done)
+            .await
+            .expect("worker must finish")
+            .expect("worker must report completion");
+    }
+
+    #[tokio::test]
+    async fn consecutive_sessions_are_isolated_and_a_late_block_stays_with_its_session() {
+        let first = new_session(AppSettings::default());
+        let (typer, handles) = FakeTyper::new();
+        let (sender, done) = prepare_input_with(first.clone(), move || Ok(typer))
+            .await
+            .unwrap();
+        sender.send("Hallo ".into()).unwrap();
+        drop(sender);
+        worker_done(done).await;
+        assert!(first.input_finished.load(Ordering::Acquire));
+        assert!(
+            handles.dropped.load(Ordering::Acquire),
+            "native input must be released"
+        );
+        assert_eq!(
+            handles.inserted.lock().unwrap().clone(),
+            vec!["Hallo ".to_owned()]
+        );
+
+        let second = new_session(AppSettings::default());
+        assert!(second.id > first.id);
+        let (typer, handles) = FakeTyper::new();
+        let (sender, done) = prepare_input_with(second.clone(), move || Ok(typer))
+            .await
+            .unwrap();
+        // A late failure of the old session touches only the old session.
+        first.block_input("late failure of the first session");
+        first.cancelled.store(true, Ordering::Release);
+        sender.send("Welt".into()).unwrap();
+        drop(sender);
+        worker_done(done).await;
+        assert_eq!(
+            handles.inserted.lock().unwrap().clone(),
+            vec!["Welt".to_owned()]
+        );
+        assert!(handles.dropped.load(Ordering::Acquire));
+        let status = second.snapshot();
+        assert!(!status.delivery_paused);
+        assert_eq!(status.warning, None);
+        assert_eq!(status.inserted_text, "Welt");
+        assert_eq!(
+            handles.hold_seen.load(Ordering::Acquire),
+            0,
+            "a new session starts without a hold"
+        );
+        assert!(first.snapshot().delivery_paused);
+    }
+
+    #[tokio::test]
+    async fn a_focus_loss_discards_queued_chunks_without_replay() {
+        let session = new_session(AppSettings::default());
+        let (mut typer, handles) = FakeTyper::new();
+        typer.fail_insert_at = Some(1);
+        let (sender, done) = prepare_input_with(session.clone(), move || Ok(typer))
+            .await
+            .unwrap();
+        for chunk in ["eins ", "zwei ", "drei "] {
+            sender.send(chunk.into()).unwrap();
+        }
+        drop(sender);
+        worker_done(done).await;
+        assert_eq!(
+            handles.inserted.lock().unwrap().clone(),
+            vec!["eins ".to_owned()]
+        );
+        let status = session.snapshot();
+        assert!(status.delivery_paused);
+        assert_eq!(status.inserted_text, "eins ");
+        assert!(
+            status
+                .warning
+                .unwrap()
+                .contains("another window received focus")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_loss_noticed_while_idle_blocks_the_next_chunk() {
+        let session = new_session(AppSettings::default());
+        let (mut typer, handles) = FakeTyper::new();
+        typer.fail_poll_after = Some(2);
+        let (sender, done) = prepare_input_with(session.clone(), move || Ok(typer))
+            .await
+            .unwrap();
+        // Wait for the idle poll to notice the loss; timing differs per runner.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.snapshot().delivery_paused {
+            assert!(Instant::now() < deadline, "the idle poll must block input");
+            tokio::time::sleep(INPUT_IDLE_TICK).await;
+        }
+        sender.send("late text".into()).unwrap();
+        drop(sender);
+        worker_done(done).await;
+        assert!(handles.inserted.lock().unwrap().is_empty());
+        assert!(session.snapshot().delivery_paused);
+    }
+
+    #[tokio::test]
+    async fn cancellation_ends_the_worker_and_releases_native_input() {
+        let session = new_session(AppSettings::default());
+        let (typer, handles) = FakeTyper::new();
+        let (_sender, done) = prepare_input_with(session.clone(), move || Ok(typer))
+            .await
+            .unwrap();
+        session.cancelled.store(true, Ordering::Release);
+        worker_done(done).await;
+        assert!(handles.dropped.load(Ordering::Acquire));
+        assert!(session.input_finished.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn a_failed_capture_still_marks_the_worker_finished() {
+        let session = new_session(AppSettings::default());
+        let error = prepare_input_with(session.clone(), || {
+            Err::<FakeTyper, String>("no target".into())
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, "no target");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(session.input_finished.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_stop_request_holds_typing_and_later_requests_only_extend_it() {
+        let session = new_session(AppSettings::default());
+        assert_eq!(session.hold_until.load(Ordering::Acquire), 0);
+        session.request_stop("finish");
+        let first = session.hold_until.load(Ordering::Acquire);
+        assert!(first >= STOP_HOLD.as_millis() as u64);
+        std::thread::sleep(Duration::from_millis(20));
+        session.request_stop("cancel");
+        assert!(session.hold_until.load(Ordering::Acquire) >= first + 20);
+        assert_ne!(new_session(AppSettings::default()).id, session.id);
+    }
+
     #[test]
     fn single_line_removes_actions_across_delta_boundaries() {
         let mut line = SingleLine::default();
