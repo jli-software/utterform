@@ -116,9 +116,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: >-
-          npm run tauri build -- --bundles app
-          --config '{"bundle":{"macOS":{"signingIdentity":"${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}","minimumSystemVersion":"11.0"}}}'
+        run: |
+          # A secret that does not exist arrives as an empty string, and Tauri
+          # would try to import an empty certificate; only set variables count.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          npm run tauri build -- --bundles app \
+            --config '{"bundle":{"macOS":{"signingIdentity":"${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}","minimumSystemVersion":"11.0"}}}'
       - name: Verify signed app and package macOS disk image
         if: runner.os == 'macOS'
         run: scripts/package-macos.sh
