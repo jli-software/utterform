@@ -64,4 +64,8 @@ ditto -c -k --sequesterRsrc --keepParent "$temporary/staging/Utterform.app" "$ar
 mkdir "$temporary/unpacked"
 ditto -x -k "$archive" "$temporary/unpacked"
 verify_app "$temporary/unpacked/Utterform.app"
-echo "Verified ARM app, DMG and ZIP signatures (not Apple-notarized)."
+if xcrun stapler validate -q "$app" >/dev/null 2>&1; then
+  echo "Verified ARM app, DMG and ZIP signatures; the app carries a stapled Apple notarization ticket."
+else
+  echo "Verified ARM app, DMG and ZIP signatures (not Apple-notarized)."
+fi

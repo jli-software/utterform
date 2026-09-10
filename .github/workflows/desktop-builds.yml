@@ -103,11 +103,22 @@ jobs:
           Copy-Item src-tauri/target/release/utterform.exe release/utterform-windows-x86_64.exe
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release/utterform-windows-x86_64-setup.exe
 
+      # Developer ID signing and notarization switch on by themselves once the
+      # repository holds the secrets; until then the bundle is ad-hoc signed.
+      # Tauri imports APPLE_CERTIFICATE into a temporary keychain, signs with
+      # the identity, and with APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID submits
+      # the app to Apple and staples the ticket. See docs/MACOS.md.
       - name: Build signed macOS ARM app
         if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: >-
           npm run tauri build -- --bundles app
-          --config '{"bundle":{"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}'
+          --config '{"bundle":{"macOS":{"signingIdentity":"${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}","minimumSystemVersion":"11.0"}}}'
       - name: Verify signed app and package macOS disk image
         if: runner.os == 'macOS'
         run: scripts/package-macos.sh
