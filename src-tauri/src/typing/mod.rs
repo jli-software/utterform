@@ -22,6 +22,8 @@ pub use live::LiveTyper;
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -29,15 +31,15 @@ mod windows;
 /// sentence does not visibly crawl in.
 pub const DEFAULT_DELAY_MS: u32 = 15;
 
-// The delay is something only the Linux tools have to be told: one SendInput
-// call is atomic, so Windows needs no pacing. The rules are compiled for tests
-// everywhere all the same, so they are checked on every platform rather than
-// only on the one that runs them.
-#[cfg(any(target_os = "linux", test))]
+// The delay is something only Linux and macOS have to be told, where keys go
+// out one at a time: one SendInput call is atomic, so Windows needs no pacing.
+// The rules are compiled for tests everywhere all the same, so they are
+// checked on every platform rather than only on the one that runs them.
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 const MAX_DELAY_MS: u32 = 500;
 
 /// Keep a hand-edited settings file from stalling delivery for minutes.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub fn clamp_delay(milliseconds: u32) -> u32 {
     milliseconds.min(MAX_DELAY_MS)
 }
@@ -152,10 +154,10 @@ pub fn paste_for_window(class: Option<&str>, program: Option<&str>) -> Paste {
 
 /// One synthesized key event, independent of the platform that sends it.
 ///
-/// Only Windows synthesizes keys itself; wtype and xdotool take the text whole
-/// and do their own mapping. The rule still belongs here, where it is tested
-/// on every platform rather than only where it runs.
-#[cfg(any(target_os = "windows", test))]
+/// Windows and macOS synthesize keys themselves; wtype and xdotool take the
+/// text whole and do their own mapping. The rule still belongs here, where it
+/// is tested on every platform rather than only where it runs.
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     /// A character the window should receive verbatim, as a UTF-16 code unit.
@@ -173,7 +175,7 @@ pub enum Key {
 /// Every line ending — `\r\n`, a lone `\n`, a lone `\r` — becomes exactly one
 /// Return, so text that travelled through a Windows editor does not arrive
 /// double-spaced.
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 pub fn keys_for(text: &str) -> Vec<Key> {
     let mut keys = Vec::with_capacity(text.len());
     let mut characters = text.chars().peekable();
@@ -230,9 +232,54 @@ pub fn insert_at_cursor<R: Runtime>(
     {
         windows::insert(app, text, method, clipboard_holds_text)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::insert(
+            app,
+            text,
+            method,
+            clamp_delay(delay_ms),
+            clipboard_holds_text,
+        )
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         Err("Typing at the cursor is not available on this platform yet".into())
+    }
+}
+
+/// What Settings shows next to the typing method: whether this desktop can
+/// type at all, and what stands in the way when it cannot yet. Only macOS has
+/// a grant to ask for; Linux names its missing tool when a delivery fails.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Support {
+    pub supported: bool,
+    /// Empty when nothing stands in the way.
+    pub explanation: &'static str,
+}
+
+pub fn support() -> Support {
+    #[cfg(target_os = "macos")]
+    {
+        // Asked without the prompt: Settings is not the moment for a system
+        // dialog. The first delivery opens it.
+        let trusted = crate::macos::accessibility_trusted(false);
+        Support {
+            supported: true,
+            explanation: if trusted {
+                ""
+            } else {
+                crate::macos::ACCESSIBILITY_HELP
+            },
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Support {
+            supported: true,
+            explanation: "",
+        }
     }
 }
 

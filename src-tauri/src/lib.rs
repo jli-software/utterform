@@ -9,6 +9,8 @@ mod feedback;
 mod history;
 mod hotkey;
 mod live;
+#[cfg(target_os = "macos")]
+mod macos;
 mod models;
 mod output;
 mod platform;
@@ -107,6 +109,7 @@ pub fn run() {
             commands::global_hotkey_support,
             commands::apply_global_hotkey,
             commands::list_built_in_actions,
+            commands::typing_support,
             commands::get_settings,
             commands::save_settings,
             commands::list_input_devices,
@@ -129,6 +132,15 @@ pub fn run() {
             commands::download_local_model,
             commands::delete_local_model,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Utterform");
+        .build(tauri::generate_context!())
+        .expect("error while building Utterform")
+        .run(|app, event| {
+            // A click on the Dock icon while the window is hidden to the tray
+            // is macOS's way of asking for it back; nowhere else sends this.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                reveal_main_window(app);
+            }
+            let _ = (app, &event);
+        });
 }

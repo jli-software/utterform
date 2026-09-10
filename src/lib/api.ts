@@ -13,10 +13,14 @@ import type {
   ProcessResult,
   RecordingStatus,
   RemoteIntent,
+  TypingSupport,
 } from "./types";
 
 export const api = {
   liveSupport: () => invoke<LiveSupport>("live_support"),
+  // Read when Settings opens, so a macOS user learns about the Accessibility
+  // grant before the first delivery has to fail over it.
+  typingSupport: () => invoke<TypingSupport>("typing_support"),
   getLiveStatus: () => invoke<LiveStatus | null>("get_live_status"),
   // Delivered once: the intent Utterform was launched with, for a hotkey that
   // had to start the app first.

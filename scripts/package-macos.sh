@@ -20,6 +20,17 @@ verify_app() {
     return 1
   }
   codesign --verify --deep --strict --verbose=2 "$bundle"
+  # Signed with the hardened runtime, the app gets the microphone only through
+  # this entitlement; without it macOS denies it silently, with no dialog.
+  codesign -d --entitlements - --xml "$bundle" 2>/dev/null | plutil -convert json -o - - \
+    | grep -q '"com.apple.security.device.audio-input":true' || {
+    echo "App is signed without the audio-input entitlement; macOS would never ask for the microphone" >&2
+    return 1
+  }
+  /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$bundle/Contents/Info.plist" >/dev/null || {
+    echo "Info.plist lacks NSMicrophoneUsageDescription; macOS would refuse the microphone" >&2
+    return 1
+  }
 }
 
 verify_app "$app"

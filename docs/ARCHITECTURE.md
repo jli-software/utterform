@@ -101,14 +101,16 @@ Paste delivery is told whether the clipboard output already ran, so it neither w
 
 Keystrokes stay selectable for the windows that refuse a paste, with a leading Shift press and release for the Wayland clients that swallow the first character a fresh virtual keyboard sends, and a delay between keys, clamped so a hand-edited settings file cannot stall delivery for minutes. Text always reaches wtype and xdotool on stdin, so a transcript starting with a dash is never read as options.
 
-Windows needs no helper program: one `SendInput` call appends its whole batch to the input queue atomically, so both methods deliver the text intact. Characters go in as Unicode rather than scan codes, making the transcript independent of the active keyboard layout, and every line ending becomes exactly one Return. Windows blocks input from a normal process to an elevated window; that is reported rather than counted as success. macOS typing is not implemented.
+Windows needs no helper program: one `SendInput` call appends its whole batch to the input queue atomically, so both methods deliver the text intact. Characters go in as Unicode rather than scan codes, making the transcript independent of the active keyboard layout, and every line ending becomes exactly one Return. Windows blocks input from a normal process to an elevated window; that is reported rather than counted as success.
+
+macOS posts CoreGraphics keyboard events (`typing/macos.rs`): ⌘V for a paste, since a Mac terminal takes the same chord as every other window, and one Unicode keyboard event per character for keystrokes, paced by the delay. The window server drops events from a process without the Accessibility grant and says nothing, so `macos.rs` checks the grant first, opens the system request on the first delivery, and reports the refusal as a warning. The same module refuses to record through a microphone macOS has denied, and `Entitlements.plist` carries the audio-input entitlement the hardened runtime requires before macOS asks for the microphone at all. See `MACOS.md`.
 
 ## Deliberate MVP constraints
 
 - Batch transcription only
 - One dictation key, not a set of separately bindable global shortcuts
 - No global dictation key under Wayland; the compositor binding covers it
-- No typing at the cursor on macOS
+- No Live Dictation on macOS
 - CPU local inference by default
 - No autostart or updater
 - No files-as-clipboard-objects

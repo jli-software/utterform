@@ -28,7 +28,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   listBuiltInActions: vi.fn(),
-  liveSupport: vi.fn(), getLiveStatus: vi.fn(),
+  liveSupport: vi.fn(), getLiveStatus: vi.fn(), typingSupport: vi.fn(async () => ({ supported: true, explanation: "" })),
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
@@ -57,6 +57,7 @@ beforeEach(() => {
   vi.mocked(api.copyText).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.takeStartupIntent).mockResolvedValue(null);
   vi.mocked(api.liveSupport).mockResolvedValue({ supported: true, explanation: "" });
+  vi.mocked(api.typingSupport).mockResolvedValue({ supported: true, explanation: "" });
   vi.mocked(api.getLiveStatus).mockResolvedValue(null);
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
   vi.mocked(api.listBuiltInActions).mockResolvedValue(structuredClone(SHIPPED_ACTIONS));
@@ -618,6 +619,16 @@ describe("live dictation", () => {
     await fireEvent.click(view.getByRole("option", { name: /^GPT Transcribe / }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     expect(view.queryByRole("combobox", { name: "Action" })).not.toBeNull();
+  });
+
+  it("tells a Mac user about the Accessibility grant where typing is configured", async () => {
+    // macOS drops typed keys from a process without the grant and says
+    // nothing, so Settings has to say it before the first delivery fails.
+    vi.mocked(api.typingSupport).mockResolvedValue({ supported: true, explanation: "macOS lets Utterform type into other windows only with Accessibility." });
+    const view = await renderExpanded();
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await fireEvent.click(view.getByRole("tab", { name: /Output/ }));
+    await waitFor(() => expect(view.queryAllByText(/only with Accessibility/).length).toBeGreaterThan(0));
   });
 
   it("keeps cancelled live text available for recovery without pretending to remove inserted text", async () => {

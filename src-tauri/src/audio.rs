@@ -368,6 +368,9 @@ fn start_recording_inner(
     if guard.active.is_some() || guard.completed.is_some() {
         return Err("A recording is already active".into());
     }
+    // A microphone macOS has refused would open fine and deliver silence.
+    #[cfg(target_os = "macos")]
+    crate::macos::microphone_access()?;
 
     let opening = Instant::now();
     let host = cpal::default_host();

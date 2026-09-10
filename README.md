@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.6.1 — Live Dictation** is available (Windows unsigned; macOS ad-hoc signed, not notarized). See the [release notes](docs/releases/v0.6.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.1).
+> Utterform is under active development. **0.6.1 — Live Dictation** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized); see the [release notes](docs/releases/v0.6.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.1). **0.7.0 beta 1** is the first build meant to be used on a Mac — microphone dialog, typing at the cursor — and waits for confirmation there: [release notes](docs/releases/v0.7.0-beta.1.md), [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.0-beta.1).
 
 ## Live dictation — Windows and Omarchy
 
@@ -112,7 +112,7 @@ sudo pacman -S --needed xdotool   # X11
 
 On Windows nothing needs installing; Utterform uses `SendInput` directly, sending characters as Unicode so the active keyboard layout does not matter, and the paste chord the way a keyboard would press it. Windows Terminal, the console host behind `cmd` and PowerShell, mintty, PuTTY, ConEmu, Alacritty, WezTerm, Hyper and Tabby are recognised as terminals; Windows Terminal still shows its own warning before a paste with more than one line unless that is turned off in its settings. Windows refuses input from an ordinary program to a window running as administrator — an elevated terminal, say — and Utterform reports that as a delivery warning naming the program instead of pasting into nothing; the text is on the clipboard regardless. To type into an elevated window, start Utterform as administrator too.
 
-Typing at the cursor is not implemented on **macOS** yet.
+On **macOS** nothing needs installing either: paste is ⌘V, which every Mac window takes, terminals included; keystrokes are posted one character at a time as Unicode, with the same delay setting as Linux. Both need Utterform under **System Settings → Privacy & Security → Accessibility**. The first delivery opens the system's request, Settings → Typing at the cursor says so beforehand, and until it is granted the delivery is a warning with the text on the clipboard. See [docs/MACOS.md](docs/MACOS.md).
 
 ## Prompts you can rewrite
 
@@ -140,9 +140,9 @@ Download the [0.6.1 assets](https://github.com/jli-software/utterform/releases/t
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
-Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS has been built and tested automatically but not yet used by anyone on a real machine. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it.
+Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. On macOS, 0.6.1 started but never asked for the microphone — the bundle was signed without the entitlement the hardened runtime requires. 0.7.0 beta 1 carries the entitlement and adds typing at the cursor; it is the first macOS build meant for real use and has not yet been confirmed by a person. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘.
 
-On macOS drag Utterform into Applications. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
+On macOS drag Utterform into Applications. The first recording asks for the microphone, the first typing at the cursor asks for Accessibility; both grants are tied to the exact build while the app is ad-hoc signed, so an update asks again. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
 Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) and choose Linux, Windows, macOS, or all; it publishes nothing. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
 
