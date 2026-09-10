@@ -1,5 +1,13 @@
 # Validation
 
+## 0.7.1 macOS icon name
+
+**Confirmed on macOS by Jonas on 2026-09-10, on 0.7.0 beta 1** (MacBook Air M2, macOS 26): the microphone dialog, GPT Transcribe and Local Whisper, the dictation key and changing it in Settings, and typing at the cursor. His words: "sensationell". Still open from the beta list: the denied-microphone message and the Dock click, not mentioned either way.
+
+**Diagnosed from the report and Apple's forum, not reproduced here.** The Dock and ⌘-Tab showed the previous logo. The published 0.7.0 bundle was inspected on the build host: its `icon.icns` is byte-identical to the repository's and every size carries the current artwork, so the bundle is right and the Mac serves a cached rendering of an earlier version. Apple's developer forum documents the same symptom (Finder right, Dock and switcher stale) and cache deletion as the fix. 0.7.1 renames the icon file so the cached entry no longer applies; whether that alone is enough on Jonas's machine is what the release will show, and the release notes carry the cache-clearing commands and a discriminating test. The build host's SSH session has no icon services, so `NSWorkspace.icon(forFile:)` returns the placeholder there even for TextEdit — no icon rendering can be verified over SSH.
+
+Automated: `npm run icons` regenerates `Utterform.icns` byte-identical to the former `icon.icns`; the 0.7.1 bundle built on the build host names it in `CFBundleIconFile` and passes `scripts/package-macos.sh`. The Developer ID path in the workflow is inert without secrets and was not exercised.
+
 ## 0.7.0 beta 1 macOS microphone entitlement and typing at the cursor
 
 **Diagnosed on the build host, not on the reporting machine.** Jonas reported on 2026-09-10 that 0.6.1 on a MacBook Air (M2, macOS 26) never asked for the microphone and had no entry under Privacy & Security. The 0.5.2 bundle kept on `macmini-build` showed the cause: `codesign -dvv` reports `flags=0x10002(adhoc,runtime)` and `codesign -d --entitlements` reports none, while Info.plist does carry `NSMicrophoneUsageDescription`. Under the hardened runtime that is a silent denial by design.

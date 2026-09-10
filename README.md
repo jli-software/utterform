@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.6.1 — Live Dictation** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized); see the [release notes](docs/releases/v0.6.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.6.1). **0.7.0 beta 1** is the first build meant to be used on a Mac — microphone dialog, typing at the cursor — and waits for confirmation there: [release notes](docs/releases/v0.7.0-beta.1.md), [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.0-beta.1).
+> Utterform is under active development. **0.7.1 — macOS release** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized): recording, the dictation key and typing at the cursor confirmed on a MacBook Air. See the [release notes](docs/releases/v0.7.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.1).
 
 ## Live dictation — Windows and Omarchy
 
@@ -134,13 +134,13 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.6.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.6.1):
+Download the [0.7.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.1):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
-Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. On macOS, 0.6.1 started but never asked for the microphone — the bundle was signed without the entitlement the hardened runtime requires. 0.7.0 beta 1 carries the entitlement and adds typing at the cursor; it is the first macOS build meant for real use and has not yet been confirmed by a person. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘.
+Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS is confirmed working since 0.7.0 beta 1, on a MacBook Air (M2, macOS 26) on 2026-09-10: the microphone dialog, GPT Transcribe and Local Whisper, the dictation key and changing it, and typing at the cursor. 0.6.1 and earlier never asked for the microphone because the bundle was signed without the entitlement the hardened runtime requires; 0.7.1 also renames the icon file so the Dock stops showing the logo macOS cached for an earlier version. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘.
 
 On macOS drag Utterform into Applications. The first recording asks for the microphone, the first typing at the cursor asks for Accessibility; both grants are tied to the exact build while the app is ad-hoc signed, so an update asks again. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 

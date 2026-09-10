@@ -25,9 +25,13 @@ try {
     offset += size;
   }
   chunks.sort((a, b) => Buffer.compare(a.subarray(0, 4), b.subarray(0, 4)));
-  writeFileSync(icnsPath, Buffer.concat([icns.subarray(0, 8), ...chunks]));
+  // Named after the product rather than "icon": macOS caches an app's icon
+  // under the icon file's identity, and a bundle at the same path whose
+  // icon.icns changed kept showing the artwork of an earlier version in the
+  // Dock and the app switcher. A name of its own gets a cache entry of its own.
+  writeFileSync(join(icons, "Utterform.icns"), Buffer.concat([icns.subarray(0, 8), ...chunks]));
   for (const file of readdirSync(output)) {
-    if (/\.(png|ico|icns)$/.test(file)) copyFileSync(join(output, file), join(icons, file));
+    if (/\.(png|ico)$/.test(file)) copyFileSync(join(output, file), join(icons, file));
   }
 } finally {
   rmSync(output, { recursive: true, force: true });

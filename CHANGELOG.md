@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 — v0.7.1 · macOS release
+
+- Name the macOS icon file `Utterform.icns` so the Dock and ⌘-Tab stop showing the logo macOS cached for an earlier version; the artwork is unchanged.
+- Prepare Developer ID signing and notarization in the release workflow; it activates once the repository holds the Apple secrets and keeps ad-hoc signing until then.
+- 0.7.0 beta 1 confirmed on a MacBook Air (M2, macOS 26): microphone dialog, GPT Transcribe, Local Whisper, dictation key, typing at the cursor. Linux and Windows are unchanged.
+
+See [0.7.1 release notes](docs/releases/v0.7.1.md).
+
 ## 0.7.0 beta 1 — v0.7.0-beta.1 · macOS asks for the microphone and types at the cursor
 
 - Sign the macOS bundle with the audio-input entitlement the hardened runtime requires; without it macOS never showed the microphone dialog. Packaging refuses a bundle without it.
