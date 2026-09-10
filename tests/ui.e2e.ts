@@ -36,6 +36,7 @@ test.beforeEach(async ({ page }) => {
           switch (command) {
             case "take_startup_intent": return null;
             case "live_support": return { supported: true, explanation: "" };
+            case "typing_support": return { supported: true, explanation: "" };
             case "get_live_status": return { text: "Live words at the cursor", insertedText: "Live words ", deliveryPaused: true, warning: "Focus changed. Insertion is paused.", phase: "streaming" };
             case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;

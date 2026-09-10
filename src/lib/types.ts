@@ -185,6 +185,13 @@ export interface LiveSupport {
   explanation: string;
 }
 
+/// Whether this desktop can type at the cursor, and what stands in the way
+/// when it cannot yet — on macOS, the Accessibility grant.
+export interface TypingSupport {
+  supported: boolean;
+  explanation: string;
+}
+
 export interface LiveStatus {
   text: string;
   insertedText: string;

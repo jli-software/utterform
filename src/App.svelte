@@ -21,6 +21,7 @@
     LocalModel,
     LiveStatus,
     LiveSupport,
+    TypingSupport,
     ProcessResult,
     RemoteIntent,
     TextEffort,
@@ -84,6 +85,7 @@
   let audioLevel = 0;
   let liveStatus: LiveStatus | null = null;
   let liveSupport: LiveSupport = { supported: false, explanation: "Live dictation requires the Windows or Omarchy desktop app." };
+  let typingSupport: TypingSupport = { supported: true, explanation: "" };
   let liveStatusError = "";
   let liveFailurePending = false;
   let polling = false;
@@ -172,7 +174,7 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport, typingSupport] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
@@ -180,6 +182,7 @@
         api.globalHotkeySupport(),
         api.listBuiltInActions(),
         api.liveSupport().catch(() => ({ supported: false, explanation: "Live dictation support could not be checked. Restart Utterform to try again." })),
+        api.typingSupport().catch(() => ({ supported: true, explanation: "" })),
       ]);
       settings = { ...DEFAULT_SETTINGS, ...settings, cloud_model: settings.cloud_model ?? "gpt_transcribe" };
       applyTheme(settings.theme);
@@ -1062,6 +1065,7 @@
             <label class="field"><span>Delay between keystrokes <small>milliseconds</small></span><input type="number" min="0" max="500" step="1" value={settings.typing_delay_ms} oninput={(event) => (settings = { ...settings, typing_delay_ms: Math.max(0, Math.min(500, Math.round(Number(event.currentTarget.value) || 0))) })} /></label>
           {/if}
           <p class="privacy-note">{typingNote}</p>
+          {#if typingSupport.explanation}<p class="setting-error" role="status">{typingSupport.explanation}</p>{/if}
         </div>
 
         <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>

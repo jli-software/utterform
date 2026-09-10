@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 beta 1 — v0.7.0-beta.1 · macOS asks for the microphone and types at the cursor
+
+- Sign the macOS bundle with the audio-input entitlement the hardened runtime requires; without it macOS never showed the microphone dialog. Packaging refuses a bundle without it.
+- Report a denied or restricted microphone before recording on macOS, with the path to the switch.
+- Add typing at the cursor on macOS: ⌘V paste for every window, Unicode keystrokes with the adjustable delay; the Accessibility grant is requested on first use and explained in Settings.
+- Reveal the window on a Dock click after it was closed to the tray.
+- Document the macOS grants, signing and the build host in `docs/MACOS.md`. Live Dictation on macOS stays deferred; Linux and Windows are unchanged.
+
+See [0.7.0 beta 1 release notes](docs/releases/v0.7.0-beta.1.md).
+
 ## 0.6.1 — v0.6.1 · Live dictation restarts cleanly on Omarchy
 
 - Stop Live on Omarchy/Hyprland only for a confirmed change of the active window or a closed target; workspace, monitor, layer, submap and config-reload events alone no longer pause insertion.

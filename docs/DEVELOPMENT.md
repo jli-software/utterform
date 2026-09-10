@@ -125,21 +125,21 @@ Keystrokes stay selectable, with the two documented fixes: a leading `Shift_L` p
 
 ### Platform reality — do not assume parity
 
-Linux and Windows have been exercised by a person; macOS is compilation, not evidence. Windows cannot be compiled on the Linux development machine (`ring`'s build script needs a C compiler for the target), so every change to `cfg(target_os = "windows")` code is verified through Actions → Desktop builds on the branch before it is tagged.
+Linux and Windows have been exercised by a person; macOS is compilation plus a bundle inspected on the build host, not evidence of behaviour — 0.7.0 beta 1 is the first build a person is meant to use there. Windows cannot be compiled on the Linux development machine (`ring`'s build script needs a C compiler for the target), so every change to `cfg(target_os = "windows")` code is verified through Actions → Desktop builds on the branch before it is tagged.
 
 | | Linux / Omarchy | macOS | Windows |
 | --- | --- | --- | --- |
-| Typing at the cursor, as a paste | **works, confirmed 2026-09-07** | **not implemented** | **works, confirmed 2026-09-08 (0.4.6)**, Windows Terminal included; elevated windows are refused with a warning |
-| Typing at the cursor, as keystrokes | 0.4.0 worked; not re-tested since the Shift tap and delay | **not implemented** | implemented, never tried by a person |
+| Typing at the cursor, as a paste | **works, confirmed 2026-09-07** | implemented in 0.7.0 beta 1 (⌘V, needs Accessibility), **never run by a person** | **works, confirmed 2026-09-08 (0.4.6)**, Windows Terminal included; elevated windows are refused with a warning |
+| Typing at the cursor, as keystrokes | 0.4.0 worked; not re-tested since the Shift tap and delay | implemented in 0.7.0 beta 1, **never run by a person** | implemented, never tried by a person |
 | Reserved dictation key | n/a under Wayland, by design | implemented, **never run** | **works, confirmed 2026-09-08**, including changing it in Settings (`Alt+C`) |
 | `utterform --toggle` reaching the running app | works, confirmed | plugin supports it, never tried | plugin supports it, never tried — the key is what Jonas uses |
 | Binding it to a key | `bind =` in hyprland.conf | Settings → Dictation key | Settings → Dictation key |
 | Tray click opens the window | works, confirmed | never tried | the recording dot is confirmed (0.4.4, smaller since 0.4.5); the click was not mentioned |
-| Recording, transcription, clipboard, file | works, confirmed | never tried interactively | **works, confirmed 2026-09-08** (dock and webcam microphone, Jabra headset) |
+| Recording, transcription, clipboard, file | works, confirmed | 0.6.1 never asked for the microphone (entitlement missing, fixed in 0.7.0 beta 1); not yet confirmed | **works, confirmed 2026-09-08** (dock and webcam microphone, Jabra headset) |
 
 Jonas tested Windows on 2026-09-08 across 0.4.4 to 0.4.6; the answers are in the handoffs above. If a paste does not arrive in some window, read the `pasting into window class …` line in the log first: it names the class, the program and the chord. An elevated window is refused by design; an unrecognised terminal is added to `typing::TERMINALS`; the last fallback is Settings → Typing at the cursor → Keystrokes.
 
-The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS still reports that typing at the cursor is not available there, which is now true rather than misleading.
+The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS typing arrived in 0.7.0 beta 1; what it needs and how it is built on the Mac mini is in `MACOS.md`.
 
 ### Waiting, not released
 

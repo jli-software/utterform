@@ -219,6 +219,11 @@ pub fn live_support() -> live::Support {
 }
 
 #[tauri::command]
+pub fn typing_support() -> crate::typing::Support {
+    crate::typing::support()
+}
+
+#[tauri::command]
 pub fn set_recording_paused(
     state: State<'_, AudioCaptureState>,
     paused: bool,
