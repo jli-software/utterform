@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.7.1 — macOS release** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized): recording, the dictation key and typing at the cursor confirmed on a MacBook Air. See the [release notes](docs/releases/v0.7.1.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.1).
+> Utterform is under active development. **0.7.2 — a recorded shortcut and an optional autostart** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized): the dictation key is set by pressing it, and Utterform can start with your session and wait in the tray. See the [release notes](docs/releases/v0.7.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.2).
 
 ## Live dictation — Windows and Omarchy
 
@@ -73,7 +73,7 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 
 Press one key, speak, press it again. The window never comes forward, so you stay in whatever you were typing in. How the key reaches Utterform depends on who owns the keyboard.
 
-**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default; change it or turn it off under **Settings → Dictation key**. Nothing to configure elsewhere. A combination another application already holds is reported where you entered it.
+**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → Output → Dictation key**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
 
 **Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 
@@ -92,6 +92,28 @@ The command line works on every platform, from any launcher, script or panel but
 | `utterform` | Show the window |
 
 If Utterform is not running yet, the command starts it and still records.
+
+## Start with your session
+
+**Settings → General → Startup → Start Utterform when I sign in** puts Utterform in
+your system's startup items. It starts hidden in the system tray: no window opens and
+nothing takes focus from what you signed in to do — open it from the tray when you
+want it. It is off until you turn it on, and turning it off removes the entry again.
+
+| System | What is created | Needs |
+| --- | --- | --- |
+| Windows | A startup entry for your user | No administrator rights |
+| macOS | A LaunchAgent for your user | Utterform installed in `/Applications` |
+| Linux | An autostart entry in `~/.config/autostart` | No systemd service |
+
+The switch shows what your system says, not a setting of ours: there is no autostart
+field in `settings.json` that could disagree with it. It is read each time Settings
+opens, written only by **Save settings** and only if you changed it, and read back
+afterwards; Cancel changes nothing. On Linux the entry points at the installed
+executable, whose path does not change when you update, so it survives a reinstall.
+
+On Wayland (Hyprland, Omarchy) autostart only keeps Utterform ready in the tray;
+dictation is still started by the compositor binding above.
 
 Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording feedback**. The tray icon carries a small red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow. If a sound stays silent, **Settings → Recording feedback → Play the sounds in 5 seconds** plays all three with the window in the background and reports what each did; every sound also leaves a line in the log file whose path is shown there.
 
@@ -134,13 +156,13 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.1 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.1):
+Download the [0.7.2 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.2):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
 - **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
 
-Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS is confirmed working since 0.7.0 beta 1, on a MacBook Air (M2, macOS 26) on 2026-09-10: the microphone dialog, GPT Transcribe and Local Whisper, the dictation key and changing it, and typing at the cursor. 0.6.1 and earlier never asked for the microphone because the bundle was signed without the entitlement the hardened runtime requires; 0.7.1 also renames the icon file so the Dock stops showing the logo macOS cached for an earlier version. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you entered it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘.
+Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS is confirmed working since 0.7.0 beta 1, on a MacBook Air (M2, macOS 26) on 2026-09-10: the microphone dialog, GPT Transcribe and Local Whisper, the dictation key and changing it, and typing at the cursor. 0.6.1 and earlier never asked for the microphone because the bundle was signed without the entitlement the hardened runtime requires; 0.7.1 also renames the icon file so the Dock stops showing the logo macOS cached for an earlier version. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you pressed it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘. The shortcut recorder and the startup switch in 0.7.2 are built and tested on all three platforms but have not yet been used on a real Windows or macOS desktop.
 
 On macOS drag Utterform into Applications. The first recording asks for the microphone, the first typing at the cursor asks for Accessibility; both grants are tied to the exact build while the app is ad-hoc signed, so an update asks again. Windows builds are unsigned; macOS bundles are ad-hoc signed (not Developer ID signed or notarized), so Gatekeeper/SmartScreen may require explicit approval. Version 0.3.1 fixes the unsealed macOS app bundle in 0.3.0 and verifies its signature inside both downloads; this does not bypass Gatekeeper. On macOS use **System Settings → Privacy & Security → Open Anyway** after attempting launch. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
@@ -157,6 +179,8 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - Selectable microphone with a system-default fallback
 - Global dictation with a reserved key combination on Windows, macOS and X11, or a compositor binding on Wayland: either way without raising the window
 - Optional typing of the finished text into the focused window, next to clipboard and file, as one paste or as keystrokes (Linux and Windows)
+- A dictation key recorded by pressing it, read by physical key so the layout cannot change it
+- Optional start with the user session on Windows, macOS and Linux, hidden in the tray
 - Focused-window shortcuts and a compact system tray presence
 - Single instance: launching Utterform again reveals the running window instead of starting a second one
 - Tray left click opens the window on every platform, double click on Windows and macOS, middle click on Linux; right click keeps the menu

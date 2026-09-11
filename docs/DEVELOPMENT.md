@@ -9,6 +9,38 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.7.2
+
+**Branch `feat/shortcut-autostart-0.7.2`, pushed, not tagged.** Two features, both built and
+tested on Linux only: the dictation key is recorded by pressing it, and Utterform can start
+with the user's session. No release was made — the brief for this work asked for none.
+
+**What needs a real desktop, and nobody has given it one.** Every platform-specific part of
+autostart is what `tauri-plugin-autostart` writes, not something a test here observed:
+
+- **Omarchy/Linux:** install 0.7.2, turn the switch on, quit, sign out and in again. Expect a
+  process and a tray icon, no window and no focus taken; the tray opens it; `utterform --toggle`
+  reaches that same instance. Turn it off and check `~/.config/autostart/Utterform.desktop` is
+  gone. Then reinstall over it and confirm an entry that was on still works — it names
+  `~/.local/share/utterform/bin/utterform`, resolved when the app starts, and that path does not
+  move on update.
+- **macOS:** from `/Applications`, not the mounted DMG — `auto-launch` refuses a path that does
+  not exist, and the LaunchAgent would name a volume that is gone. After a login, no window and
+  no focus; the tray and the Dock still open it. Try the recorder with ⌃⌥ and ⌘ combinations.
+- **Windows:** the NSIS build. The entry is under HKCU, so no elevation; after signing in the app
+  is in the tray with no window. Change the key with the recorder.
+
+**What the recorder does that a Linux session cannot show:** on Windows, macOS and X11 the
+operating system really is holding the combination, so the field releases it for the seconds it
+is listening and takes it back afterwards. If a shortcut ever stops working after visiting
+Settings, that is the place to look — `captureHotkey`/`suspendHotkey` in `App.svelte`, serialized
+through one promise chain that Save waits on.
+
+**One judgement call to know about.** The brief asked that a hotkey must not start a recording
+while Settings is open. It is turned away while the shortcut field is listening, not for as long
+as the dialog happens to be open: on Wayland the compositor binding is the only way to dictate,
+and silencing it because a dialog is up would take away the Omarchy workflow the README documents.
+
 ## Current handoff — 0.6.1
 
 **Omarchy Live restart regression (Tony, 2026-09-09):** a second GPT Live Transcribe start in the same field could stop at once with *"Live typing paused because the target or desktop focus changed"*, with a workspace reaction around the restart. Diagnosed from the code, Hyprland's sources (`KeybindManager::onKeyEvent`, `FocusState`), Omarchy's default bindings and Chromium's Wayland keyboard path; fixed on `fix/omarchy-live-focus-0.6.1` and released as 0.6.1. Three verified mechanisms:
