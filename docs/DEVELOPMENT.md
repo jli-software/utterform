@@ -172,10 +172,12 @@ The decision: do not buy a certificate at current download volumes. Revisit if
 users report abandoning the install because of the warning.
 
 Instead, distribute through **winget**, which is free and needs no certificate.
-Manifests for 0.4.2 are prepared and validated in `packaging/winget/`; see that
-directory's README for the submission command and what is still open. The
-package is **not submitted yet**, so the README must not advertise
-`winget install` until the pull request is merged.
+Manifests for 0.7.1 are prepared and validated in `packaging/winget/`; see that
+directory's README for the current review status. The first-package submission
+is tracked in
+[`microsoft/winget-pkgs#431040`](https://github.com/microsoft/winget-pkgs/pull/431040),
+so the README must not advertise `winget install` until that pull request is
+merged.
 
 ### Then
 
