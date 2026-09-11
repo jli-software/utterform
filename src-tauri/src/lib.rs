@@ -35,14 +35,56 @@ impl StartupIntent {
         self.0.lock().ok().and_then(|mut intent| intent.take())
     }
 
+    /// An intent the interface has no part in is not kept at all. An autostart
+    /// launch must arrive there as nothing, rather than as something it has to
+    /// remember to ignore.
     fn set(&self, intent: Intent) {
+        if !intent.reaches_the_interface() {
+            return;
+        }
         if let Ok(mut slot) = self.0.lock() {
             *slot = Some(intent);
         }
     }
 }
 
+/// The operating system's own "start when I sign in" entry.
+///
+/// Nothing about it is stored in `settings.json`: the entry itself is the only
+/// truth, and Settings reads it back through the plugin. The fixed argument is
+/// what makes a login start silent — see `cli::Intent::Autostart`. macOS keeps
+/// this builder's default, the per-user LaunchAgent.
+fn autostart<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri_plugin_autostart::Builder::new()
+        .app_name("Utterform")
+        .arg(cli::AUTOSTART_FLAG)
+        .build()
+}
+
+/// Give a login start the environment every other Linux start already has.
+/// The installer's launcher pins the graphics backend; an autostart entry runs
+/// the executable directly, so the policy is applied here instead — before
+/// anything of GTK exists, and only for this one kind of start.
+#[cfg(target_os = "linux")]
+fn prepare_autostart_environment(intent: Intent) {
+    if intent != Intent::Autostart {
+        return;
+    }
+    let configured = std::env::var("GDK_BACKEND").ok();
+    if let Some(backend) = platform::autostart_gdk_backend(configured.as_deref()) {
+        // SAFETY: the first thing the program does, with no second thread and
+        // no library that could be reading the environment yet.
+        unsafe { std::env::set_var("GDK_BACKEND", backend) };
+    }
+}
+
 pub fn run() {
+    // Read before the window and the event loop exist: on Linux an autostart
+    // launch has to settle its environment before GTK is initialized.
+    let startup_intent = cli::intent_from(std::env::args());
+    #[cfg(target_os = "linux")]
+    prepare_autostart_environment(startup_intent);
+
     tauri::Builder::default()
         // Registered first so a launcher entry or a second `utterform` process
         // hands its arguments to the running app instead of starting a rival
@@ -53,9 +95,13 @@ pub fn run() {
                 reveal_main_window(app);
             }
             // The interface owns the recording state machine, so a hotkey is
-            // routed to it rather than reimplemented here.
-            let _ = app.emit("remote-intent", intent);
+            // routed to it rather than reimplemented here. An autostart entry
+            // that meets the running app asks it for nothing at all.
+            if intent.reaches_the_interface() {
+                let _ = app.emit("remote-intent", intent);
+            }
         }))
+        .plugin(autostart())
         .plugin(tauri_plugin_dialog::init())
         // Only ever used to stand in for a start cue no output device would play.
         .plugin(tauri_plugin_notification::init())
@@ -65,10 +111,9 @@ pub fn run() {
         .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
         .manage(hotkey::Failure::default())
-        .setup(|app| {
+        .setup(move |app| {
             diagnostics::install(app.handle());
             audio::cleanup_stale_recordings().map_err(std::io::Error::other)?;
-            let startup_intent = cli::intent_from(std::env::args());
             app.state::<StartupIntent>().set(startup_intent);
             // Best-effort on purpose: a session that will not grant a global
             // shortcut, or a key another application already holds, must cost
@@ -143,4 +188,29 @@ pub fn run() {
             }
             let _ = (app, &event);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_launch_the_interface_acts_on_waits_for_it() {
+        // A hotkey that had to start Utterform still means "record now", so
+        // the intent has to survive until the interface is ready to take it.
+        for intent in [Intent::Toggle, Intent::Start, Intent::Stop, Intent::Cancel] {
+            let pending = StartupIntent::default();
+            pending.set(intent);
+            assert_eq!(pending.take(), Some(intent), "{intent:?}");
+            // Delivered once; a reload must not record a second time.
+            assert_eq!(pending.take(), None, "{intent:?}");
+        }
+    }
+
+    #[test]
+    fn an_autostart_launch_never_reaches_the_interface() {
+        let pending = StartupIntent::default();
+        pending.set(Intent::Autostart);
+        assert_eq!(pending.take(), None);
+    }
 }

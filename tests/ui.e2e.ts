@@ -20,6 +20,7 @@ test.beforeEach(async ({ page }) => {
       { id: "small", name: "Whisper Small", description: "More accurate · requires more memory and time", sizeBytes: 487601967, downloaded: false },
     ];
     let counter = 0;
+    let autostart = false;
     const eventHandlers = new Map<string, number>();
     const callbacks = new Map<number, (event: unknown) => void>();
     Object.assign(window, {
@@ -29,6 +30,9 @@ test.beforeEach(async ({ page }) => {
       __finishCount: 0,
       __savedSettings: null,
       __appliedHotkey: undefined,
+      // What the operating system's startup entry would hold, and every write
+      // the interface asked for, in order.
+      __autostartWrites: [] as string[],
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
       __TAURI_INTERNALS__: {
         transformCallback: (callback: (event: unknown) => void) => { callbacks.set(++counter, callback); return counter; },
@@ -40,6 +44,11 @@ test.beforeEach(async ({ page }) => {
             case "get_live_status": return { text: "Live words at the cursor", insertedText: "Live words ", deliveryPaused: true, warning: "Focus changed. Insertion is paused.", phase: "streaming" };
             case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
+            case "plugin:autostart|is_enabled": return autostart;
+            case "plugin:autostart|enable": case "plugin:autostart|disable":
+              autostart = command.endsWith("enable");
+              (Reflect.get(window, "__autostartWrites") as string[]).push(command.split("|")[1]);
+              return;
             case "list_built_in_actions": return [
               { id: "plain", name: "Plain", hint: "Transcription only", prompt: "" },
               { id: "clean", name: "Clean", hint: "Fix punctuation and obvious errors", prompt: "Correct punctuation, capitalization, spelling, and paragraph breaks. Return only the corrected text." },
@@ -272,6 +281,25 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
   expect(await page.locator(".settings-modal").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
   await page.locator(".local-models").scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("models-compact-reduced-motion.png") });
+
+  // The shortcut recorder and the startup switch have to stay reachable,
+  // focusable and uncut where the dialog has least room.
+  const insideTheScroll = async (control: ReturnType<typeof page.getByRole>) => {
+    await control.scrollIntoViewIfNeeded();
+    await expect(control).toBeVisible();
+    await control.focus();
+    await expect(control).toBeFocused();
+    const scroll = (await page.locator(".settings-scroll").boundingBox())!;
+    const box = (await control.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(scroll.y - 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(scroll.y + scroll.height + 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(scroll.x + scroll.width + 1);
+  };
+  await page.getByRole("tab", { name: /Output/ }).click();
+  await insideTheScroll(page.getByRole("button", { name: /Shortcut/ }));
+  await page.getByRole("tab", { name: /General/ }).click();
+  await insideTheScroll(page.getByRole("checkbox", { name: /when I sign in/ }));
+  await page.screenshot({ path: testInfo.outputPath("startup-compact.png") });
 });
 
 
@@ -323,10 +351,28 @@ test("the dictation key and the typing method are reachable and readable in Sett
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
   await page.getByRole("tab", { name: /Output/ }).click();
 
-  const shortcut = page.getByRole("textbox", { name: /Shortcut/ });
+  // The shortcut is recorded, not typed: real key presses through the browser.
+  const shortcut = page.getByRole("button", { name: /Shortcut/ });
   await shortcut.scrollIntoViewIfNeeded();
-  await expect(shortcut).toHaveValue("Ctrl+Alt+D");
+  await expect(shortcut).toContainText("Ctrl+Alt+D");
   await page.screenshot({ path: testInfo.outputPath("dictation-key-dark.png") });
+
+  await shortcut.click();
+  await expect(shortcut).toHaveAttribute("aria-pressed", "true");
+  await expect(shortcut).toContainText("Press shortcut");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__appliedHotkey"))).toBe(null);
+  await page.screenshot({ path: testInfo.outputPath("dictation-key-listening.png") });
+
+  // A key with no modifier is refused where it was pressed, and changes nothing.
+  await page.keyboard.press("KeyK");
+  await expect(page.getByText(/needs a modifier/).first()).toBeVisible();
+  await expect(shortcut).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("Control+Alt+KeyK");
+  await expect(shortcut).toContainText("Ctrl+Alt+K");
+  await expect(shortcut).toHaveAttribute("aria-pressed", "false");
+  // Released only while it was being read; the working key is back already.
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__appliedHotkey"))).toBe("Ctrl+Alt+D");
 
   // Paste is the default; the keystroke delay only appears once it is needed,
   // so the common case stays a single choice.
@@ -335,7 +381,7 @@ test("the dictation key and the typing method are reachable and readable in Sett
   const delay = page.getByRole("spinbutton", { name: /Delay between keystrokes/ });
   await expect(delay).toHaveValue("15");
 
-  // Both new groups must stay inside the scroll viewport at the default size.
+  // Both groups must stay inside the scroll viewport at the default size.
   const scroll = (await page.locator(".settings-scroll").boundingBox())!;
   for (const field of [shortcut, delay]) {
     const box = (await field.boundingBox())!;
@@ -343,13 +389,59 @@ test("the dictation key and the typing method are reachable and readable in Sett
     expect(box.x + box.width).toBeLessThanOrEqual(scroll.x + scroll.width + 1);
   }
 
-  await shortcut.fill("Ctrl+Alt+K");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
   expect(await page.evaluate(() => Reflect.get(window, "__appliedHotkey"))).toBe("Ctrl+Alt+K");
   expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
     typing_method: "keystrokes", typing_delay_ms: 15, global_hotkey: "Ctrl+Alt+K",
   });
+});
+
+test("Escape leaves the shortcut alone before it leaves Settings", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /Output/ }).click();
+  const shortcut = page.getByRole("button", { name: /Shortcut/ });
+  await shortcut.click();
+  await page.keyboard.press("Escape");
+  await expect(shortcut).toContainText("Ctrl+Alt+D");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toBeNull();
+});
+
+test("the startup switch reads and writes the system entry, and only on Save", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
+  const startup = page.getByRole("checkbox", { name: /when I sign in/ });
+  await startup.scrollIntoViewIfNeeded();
+  await expect(startup).toBeEnabled();
+  await expect(startup).not.toBeChecked();
+
+  // Cancel writes nothing at all.
+  await startup.check();
+  await page.screenshot({ path: testInfo.outputPath("startup-dark.png") });
+  await page.getByRole("button", { name: "Cancel" }).click();
+  expect(await page.evaluate(() => Reflect.get(window, "__autostartWrites"))).toEqual([]);
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
+  await expect(page.getByRole("checkbox", { name: /when I sign in/ })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: /when I sign in/ }).check();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
+  expect(await page.evaluate(() => Reflect.get(window, "__autostartWrites"))).toEqual(["enable"]);
+
+  // Reopened, the switch shows the entry that now exists, and saving again
+  // without touching it writes nothing more.
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
+  await expect(page.getByRole("checkbox", { name: /when I sign in/ })).toBeChecked();
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
+  expect(await page.evaluate(() => Reflect.get(window, "__autostartWrites"))).toEqual(["enable"]);
 });
 
 for (const theme of ["dark", "light"]) {

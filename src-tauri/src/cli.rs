@@ -6,6 +6,10 @@
 //! already running app. `utterform --toggle` from a compositor binding is
 //! therefore a real global hotkey, with no extra permissions or daemon.
 
+/// The argument the operating system's autostart entry carries. Internal: it
+/// exists so a start nobody asked for can be told apart from one that was.
+pub const AUTOSTART_FLAG: &str = "--autostart";
+
 /// A request that arrives from a second process, or from the command line the
 /// app itself was started with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
@@ -22,6 +26,13 @@ pub enum Intent {
     Stop,
     /// Discard the running recording without transcribing it.
     Cancel,
+    /// Signing in started Utterform, not the user. Nothing was asked for, so
+    /// nothing happens: the app waits in the tray until it is wanted.
+    ///
+    /// Without an intent of its own such a start would fall through to the
+    /// default — `Show` — and open the window in front of whatever the user
+    /// actually signed in to do.
+    Autostart,
 }
 
 impl Intent {
@@ -29,6 +40,14 @@ impl Intent {
     /// hotkey must leave the user in the application they are typing into.
     pub fn raises_window(self) -> bool {
         self == Intent::Show
+    }
+
+    /// Whether the interface has anything to do with this. The recording state
+    /// machine lives in Svelte, so everything that touches a recording is sent
+    /// there rather than reimplemented in Rust — but an autostart launch is
+    /// not something it should ignore, it is something it never hears about.
+    pub fn reaches_the_interface(self) -> bool {
+        self != Intent::Autostart
     }
 }
 
@@ -48,6 +67,7 @@ where
             "--stop" => Some(Intent::Stop),
             "--cancel" => Some(Intent::Cancel),
             "--show" => Some(Intent::Show),
+            AUTOSTART_FLAG => Some(Intent::Autostart),
             _ => None,
         })
         .unwrap_or_default()
@@ -91,8 +111,45 @@ mod tests {
     #[test]
     fn only_showing_the_window_raises_it() {
         assert!(Intent::Show.raises_window());
-        for intent in [Intent::Toggle, Intent::Start, Intent::Stop, Intent::Cancel] {
+        for intent in [
+            Intent::Toggle,
+            Intent::Start,
+            Intent::Stop,
+            Intent::Cancel,
+            Intent::Autostart,
+        ] {
             assert!(!intent.raises_window(), "{intent:?}");
+        }
+    }
+
+    #[test]
+    fn the_autostart_entry_is_recognised_rather_than_read_as_a_plain_launch() {
+        // The whole point of the flag: without it this line would mean Show,
+        // and signing in would put the window in front of the user.
+        assert_eq!(
+            intent_from(["utterform", AUTOSTART_FLAG]),
+            Intent::Autostart
+        );
+        assert_eq!(
+            intent_from(["/usr/bin/utterform", "--autostart"]),
+            Intent::Autostart
+        );
+    }
+
+    #[test]
+    fn an_autostart_launch_asks_for_nothing_at_all() {
+        assert!(!Intent::Autostart.raises_window());
+        // Never sent to the recording state machine: a login must not start,
+        // stop or cancel anything, on this instance or on a running one.
+        assert!(!Intent::Autostart.reaches_the_interface());
+        for intent in [
+            Intent::Show,
+            Intent::Toggle,
+            Intent::Start,
+            Intent::Stop,
+            Intent::Cancel,
+        ] {
+            assert!(intent.reaches_the_interface(), "{intent:?}");
         }
     }
 }
