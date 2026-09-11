@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.3 — v0.7.3 · Local Whisper no longer crashes on Linux
+
+- Build whisper.cpp for every supported desktop instead of for the machine that compiles it. The release binaries carried AVX-512 and AMX instructions from the build server, and a processor without them — an Intel N300, for one — was stopped with SIGILL while the Whisper model loaded. GPT Transcribe was never affected.
+- Present since the first release, not introduced in 0.7.2: whether it crashed depended on the build server's processor and on the user's.
+- x86-64 now targets SSE4.2, AVX, AVX2, FMA, F16C and BMI2; Apple Silicon targets the M1. Windows carried the same fault and is fixed with it. Speed is essentially unchanged.
+- Refuse a build that carries those instructions: the packaged Linux binary is examined before release, and a test checks the compiled feature set on every platform.
+- Write the instruction set of the local engine to the log the first time it is used, so a report of this kind is recognisable from one line.
+
+See [0.7.3 release notes](docs/releases/v0.7.3.md).
+
 ## 0.7.2 — v0.7.2 · A recorded shortcut and an optional autostart
 
 - Record the dictation key by pressing it, instead of writing the combination into a text box: the physical key is read, so a layout cannot change the shortcut; `Escape` keeps the current one without closing Settings, and a key without a modifier is refused where it was pressed.

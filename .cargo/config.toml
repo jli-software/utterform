@@ -1,0 +1,6 @@
+# whisper.cpp is compiled by a CMake script inside whisper-rs-sys, which takes
+# no defines from us. A toolchain file is the way in, and setting it here means
+# a local build and a release build produce the same instruction set without
+# anyone having to remember a flag.
+[env]
+CMAKE_TOOLCHAIN_FILE = { value = "packaging/cmake/portable-cpu.cmake", relative = true }

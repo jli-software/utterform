@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.7.2 — a recorded shortcut and an optional autostart** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized): the dictation key is set by pressing it, and Utterform can start with your session and wait in the tray. See the [release notes](docs/releases/v0.7.2.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.2).
+> Utterform is under active development. **0.7.3 — Local Whisper runs on your processor** is the current release (Windows unsigned; macOS ad-hoc signed, not notarized): it repairs local transcription, which closed Utterform instantly on processors without AVX-512 because the build was tailored to the build server. 0.7.2's shortcut recorder and startup switch are unchanged. See the [release notes](docs/releases/v0.7.3.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.3).
 
 ## Live dictation — Windows and Omarchy
 
@@ -156,7 +156,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.2 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.2):
+Download the [0.7.3 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.3):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -171,7 +171,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 ## Features
 
 - Batch transcription with `gpt-transcribe` — no realtime session required
-- Offline transcription through `whisper.cpp`
+- Offline transcription through `whisper.cpp`, built for every supported desktop rather than for the machine that compiled it
 - One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
 - Plain, Clean, Polish, Summarize, Prompt, Email, and user-defined actions — every shipped prompt can be rewritten
 - A vocabulary of your own terms, and a reasoning effort for the text step

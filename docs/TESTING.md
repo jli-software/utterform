@@ -1,5 +1,17 @@
 # Validation
 
+## 0.7.3 Local Whisper on processors without AVX-512
+
+**Reported by Jonas on 2026-09-11 and diagnosed on the affected device.** Local Whisper with the Small model closed Utterform instantly on his Omarchy machine (Intel Core i3-N300: AVX2 yes, AVX-512 and AMX no); GPT Transcribe was unaffected. Claude on that device read the crash: `SIGILL / ILL_ILLOPN` in `ggml_backend_cpu_device_get_extra_buffers_type`, reached from `whisper_model_load`, three times in two minutes.
+
+**Confirmed here against the published 0.7.2 artifact, not taken on trust.** Disassembling the released `utterform-linux-x86_64-system.tar.gz` binary shows the same instruction at the same address — `ccc0cd: vpbroadcastq %rcx,%xmm0`, EVEX-encoded, immediately after `operator new` — and the binary carries 17,656 `%zmm` operands, 833 `vmovdqu64`, 477 `vpdpbusd` and 270 AMX instructions. The cause is ggml's `GGML_NATIVE`, which defaults to ON and compiles for the build machine; `whisper-rs = "0.16.0"` has been in `Cargo.toml` since the first commit, so every release shipped this way and only the two processors involved decided whether it crashed.
+
+Automated: the rebuilt binary carries **0** AVX-512, VNNI or AMX instructions in any ggml or whisper symbol, against 8,624 in the published 0.7.2 binary, while AVX2 (14,600 `%ymm`) and FMA remain — so the baseline is portable without being slow. `CMakeCache.txt` confirms `GGML_NATIVE=OFF` with `GGML_AVX2`, `GGML_FMA` and `GGML_BMI2` ON and every AVX-512 option OFF. `scripts/test-linux-system-package.sh` was run against both binaries and refuses the old one; the new test in `local.rs` reads the compiled feature set. On the macOS build host, `clang -arch arm64 -mmacosx-version-min=11.0` was checked to default to `-target-cpu apple-m1`, which is why Apple Silicon needs no flag of its own.
+
+**A trap found while fixing it, worth remembering:** `cmake-rs` never reports the environment variables it reads, so Cargo does not rebuild `whisper-rs-sys` when the toolchain file changes — the first local rebuild silently kept `GGML_NATIVE=ON`. CI restores `src-tauri/target` from a cache, so the release would have shipped the old object files. The cache key therefore carries a `-portable-cpu-1` suffix, and both new checks examine the built artifact rather than the configuration.
+
+**Not verified by anyone yet:** that a fixed build actually transcribes on a processor without AVX-512. This build host is a QEMU VM with SSE4.2 only and cannot execute the AVX2 baseline, so the evidence here is the disassembly; the Intel N300 is where the fix is proven. Local Whisper on Windows remains untried by anyone — it was exposed to the same fault, and 0.7.3 is the first build that could work there.
+
 ## 0.7.2 shortcut recorder and autostart
 
 Automated, on Linux: 128 native tests (122 before), 94 interface tests (68 before) and 20 production-bundle Playwright scenarios (18 before), with `svelte-check` clean, `cargo fmt --check`, and `cargo clippy --all-targets -D warnings`.

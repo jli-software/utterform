@@ -9,6 +9,31 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.7.3
+
+**Local Whisper crashed on Linux because the binary was built for the build server.**
+ggml's `GGML_NATIVE` defaults to ON — `-march=native` — so GitHub's runner baked its
+AVX-512 and AMX into the release. On a processor without them the model load dies with
+SIGILL. Fixed by `packaging/cmake/portable-cpu.cmake`, reached through
+`.cargo/config.toml`. Full evidence in `docs/TESTING.md`.
+
+**Two things to know before touching the whisper build again:**
+
+1. **Cargo will not rebuild `whisper-rs-sys` when that toolchain file changes.**
+   `cmake-rs` emits no `rerun-if-env-changed`, so the flag only reaches a *fresh*
+   build. Locally: `cargo clean -p whisper-rs-sys --release` (the `--release` matters;
+   without it only the dev profile is cleaned). In CI: raise the `-portable-cpu-N`
+   suffix on the `Swatinem/rust-cache` key in both workflows.
+2. **Verify the artifact, never the intent.** `scripts/test-linux-system-package.sh`
+   disassembles the packaged binary and refuses AVX-512 or AMX inside a ggml or
+   whisper symbol; `local.rs` has a test that reads the compiled feature set on every
+   platform. Both were checked against the broken 0.7.2 binary and flag it.
+
+**Still open:** nobody has transcribed with Local Whisper on a processor without
+AVX-512 with a fixed build — that is Jonas on the N300. Local Whisper on Windows has
+never been tried by anyone at all; it had the same fault, so 0.7.3 is the first build
+that could work there.
+
 ## Current handoff — 0.7.2
 
 **Branch `feat/shortcut-autostart-0.7.2`, pushed, not tagged.** Two features, both built and

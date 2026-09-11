@@ -42,7 +42,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: ${{ matrix.platform }}
+          # whisper.cpp's build takes its instruction set from a CMake
+          # toolchain file that `cmake-rs` never reports to Cargo, so a cached
+          # `whisper-rs-sys` is reused even after that file changes. The suffix
+          # is what retires such a build; raise it whenever the toolchain file
+          # does. `scripts/test-linux-system-package.sh` and the local Whisper
+          # test catch a stale one regardless.
+          key: ${{ matrix.platform }}-portable-cpu-1
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
