@@ -29,6 +29,8 @@
   } from "./lib/types";
   import { api } from "./lib/api";
   import SelectMenu from "./lib/SelectMenu.svelte";
+  import ShortcutRecorder from "./lib/ShortcutRecorder.svelte";
+  import { isApplePlatform } from "./lib/shortcut";
   import { version } from "../package.json";
   import Brand from "./lib/Brand.svelte";
   import SignalField from "./lib/SignalField.svelte";
@@ -42,7 +44,7 @@
     { id: "voice", label: "Voice", hint: "Engine, microphone, vocabulary" },
     { id: "prompts", label: "Prompts", hint: "What each action asks for" },
     { id: "output", label: "Output", hint: "Where the finished text goes" },
-    { id: "general", label: "General", hint: "Appearance, key, history" },
+    { id: "general", label: "General", hint: "Appearance, startup, history" },
   ];
   const EFFORTS: Array<{ value: TextEffort | null; label: string }> = [
     { value: null, label: "Auto" },
@@ -81,6 +83,20 @@
   // appears and then turns out to be dead is worse than one that arrives late.
   let hotkeySupport: HotkeySupport = { supported: false, default: "Ctrl+Alt+D", explanation: "", failure: null };
   let hotkeyError = "";
+  /// While the recorder is listening, the key it is listening for must not be
+  /// held by the operating system on Utterform's behalf, or pressing it would
+  /// start a recording instead of being read. Released for that moment only,
+  /// and put back from here — the recorder itself knows nothing about it.
+  let hotkeyCapturing = false;
+  let suspendedHotkey: string | null = null;
+  let hotkeyCaptureWork: Promise<void> = Promise.resolve();
+  // Autostart is the operating system's entry, not a setting of ours: what it
+  // says is what the switch shows, and Settings asks it again every time.
+  let autostartEnabled = false;
+  let autostartDraft = false;
+  let autostartChecking = false;
+  let autostartAvailable = true;
+  let autostartError = "";
   let elapsedSeconds = 0;
   let audioLevel = 0;
   let liveStatus: LiveStatus | null = null;
@@ -109,7 +125,8 @@
   let cueTestPending = false;
   let logPath: string | null = null;
   let unlistenCueTest: UnlistenFn | undefined;
-  const copyShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘⇧C" : "Ctrl+Shift+C";
+  const apple = isApplePlatform();
+  const copyShortcut = apple ? "⌘⇧C" : "Ctrl+Shift+C";
   let message = "Ready when you are";
   let downloadProgress: Record<string, number> = {};
   let busyModel: string | null = null;
@@ -257,6 +274,11 @@
   /// A compositor hotkey routes through here so it takes exactly the same path
   /// as the buttons, including every guard against double starts.
   async function applyIntent(intent: RemoteIntent | null) {
+    // A key press that is being read into the dictation-key field is being
+    // chosen, not used. Platforms that grant a global shortcut have already
+    // released it for the moment; a compositor binding still arrives, and is
+    // what this turns away.
+    if (hotkeyCapturing) return;
     switch (intent) {
       case "toggle":
         if (recordingActive) await finishRecording();
@@ -607,7 +629,91 @@
     return `${Math.round(value / 1024 / 1024)} MB`;
   }
 
+  /// Let go of the registered dictation key while a new one is being read,
+  /// and take it back again afterwards. Serialized, because the end of a
+  /// reading and the Save that follows it must not reach the backend out of
+  /// order and leave the session without a key.
+  function captureHotkey(capturing: boolean) {
+    hotkeyCapturing = capturing;
+    hotkeyCaptureWork = hotkeyCaptureWork.then(() => suspendHotkey(capturing));
+  }
+
+  async function suspendHotkey(capturing: boolean) {
+    if (!hotkeySupport.supported) return;
+    if (capturing) {
+      // What the operating system is actually holding: the key as it was when
+      // Settings opened, not the one being edited in the dialog.
+      const registered = settingsSnapshot?.global_hotkey ?? null;
+      if (suspendedHotkey !== null || !registered) return;
+      suspendedHotkey = registered;
+      try {
+        await api.applyGlobalHotkey(null);
+      } catch (error) {
+        suspendedHotkey = null;
+        hotkeyError = String(error);
+      }
+      return;
+    }
+    if (suspendedHotkey === null) return;
+    const restore = suspendedHotkey;
+    suspendedHotkey = null;
+    try {
+      await api.applyGlobalHotkey(restore);
+    } catch (error) {
+      // Whatever went wrong, the session must not be left without the key it
+      // had. Recording the failure is what makes Save try it again.
+      hotkeyError = String(error);
+      hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
+    }
+  }
+
+  /// The operating system's answer, every time Settings opens: an entry
+  /// removed or added elsewhere since must not be shown as anything else.
+  async function refreshAutostart() {
+    autostartChecking = true;
+    autostartError = "";
+    try {
+      autostartEnabled = await api.autostartEnabled();
+      autostartDraft = autostartEnabled;
+      autostartAvailable = true;
+    } catch (error) {
+      // A platform that will not answer costs the switch and nothing else:
+      // recording, the other settings and the app itself go on working.
+      autostartAvailable = false;
+      autostartError = `Utterform could not read your startup settings: ${error}`;
+    } finally {
+      autostartChecking = false;
+    }
+  }
+
+  /// Write the change the user made, if they made one, and believe the entry
+  /// rather than the request: `isEnabled` is asked again afterwards.
+  async function saveAutostart() {
+    if (!autostartAvailable || autostartDraft === autostartEnabled) return true;
+    const wanted = autostartDraft;
+    try {
+      if (wanted) await api.enableAutostart();
+      else await api.disableAutostart();
+      autostartEnabled = await api.autostartEnabled();
+      autostartDraft = autostartEnabled;
+      if (autostartEnabled !== wanted) {
+        autostartError = wanted
+          ? "Utterform could not be added to your startup items."
+          : "Utterform could not be removed from your startup items.";
+        return false;
+      }
+      autostartError = "";
+      return true;
+    } catch (error) {
+      autostartError = String(error);
+      return false;
+    }
+  }
+
   async function savePreferences() {
+    // A reading that has not been put back yet owns the shortcut; saving must
+    // not register the new key underneath it.
+    await hotkeyCaptureWork;
     const previousHotkey = settingsSnapshot?.global_hotkey ?? null;
     try {
       await api.saveSettings(settings);
@@ -629,8 +735,15 @@
           // the dialog stays open where the shortcut was entered.
           hotkeyError = String(error);
           hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
+          settingsTab = "output";
           return;
         }
+      }
+      if (!(await saveAutostart())) {
+        // The startup entry is the only thing left undone, and the switch it
+        // belongs to is where the reason is waiting.
+        settingsTab = "general";
+        return;
       }
       showSettings = false;
       settingsSnapshot = null;
@@ -687,6 +800,7 @@
     vocabularyDraft = settings.vocabulary.join("\n");
     selectPrompt(promptExists(selectedPrompt) ? selectedPrompt : firstEditablePrompt());
     showSettings = true;
+    if (isTauri()) void refreshAutostart();
   }
 
   function promptExists(id: string) {
@@ -750,6 +864,10 @@
 
   function cancelSettings() {
     hotkeyError = "";
+    // Nothing was written to the operating system while the dialog was open,
+    // so putting the switch back is all that Cancel has to do here.
+    autostartDraft = autostartEnabled;
+    autostartError = "";
     if (settingsSnapshot) settings = settingsSnapshot;
     settingsSnapshot = null;
     applyTheme(settings.theme);
@@ -1047,7 +1165,10 @@
           {#if hotkeySupport.supported}
             <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Start and finish a recording from anywhere, without raising the window</span></label>
             {#if settings.global_hotkey !== null}
-              <label class="field"><span>Shortcut <small>modifiers first, for example {hotkeySupport.default}</small></span><input value={settings.global_hotkey} oninput={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.value })} placeholder={hotkeySupport.default} /></label>
+              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
+                value={settings.global_hotkey || hotkeySupport.default}
+                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
+                oncapture={captureHotkey} />
             {/if}
             {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
             <p class="privacy-note">The key is reserved for Utterform while it runs. Press it once to start and again to finish; the sounds are the confirmation, since the window never comes forward.</p>
@@ -1077,6 +1198,12 @@
             <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
           {/each}
         </div></div>
+
+        <div class="setting-group"><h3>Startup</h3>
+          <label class="toggle-field"><input type="checkbox" checked={autostartDraft} disabled={autostartChecking || !autostartAvailable} onchange={(event) => (autostartDraft = event.currentTarget.checked)} /><span>Start Utterform when I sign in{#if autostartChecking} <small>checking…</small>{/if}</span></label>
+          <p class="privacy-note">Starts hidden in the system tray. Open it from the tray when needed.</p>
+          {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
+        </div>
 
         <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
         <p class="privacy-note">The key is kept in the operating system keyring, never in the settings file.</p></div>

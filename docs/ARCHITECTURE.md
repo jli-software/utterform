@@ -15,6 +15,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
 - `cli.rs` — what a command line or a second launch asks the running app to do
 - `hotkey.rs` — a reserved key combination where the OS grants one, routed into the same intent as the command line
+- `src/lib/shortcut.ts` — reading a key combination off the keyboard in the one spelling `hotkey.rs` parses
 - `typing/` — putting the finished text into the focused window: paste or keystrokes, through wtype/xdotool on Linux and `SendInput` on Windows
 - `output.rs` — independent clipboard, file and cursor delivery
 - `settings.rs` — non-secret JSON settings
@@ -91,6 +92,16 @@ Key combinations are reserved only where the platform grants them: Windows, macO
 
 Neither path raises the window. The audio cues are therefore the confirmation, and they come from Rust rather than the WebView, so they sound whether or not the window is visible. Because the start cue is the only sign the microphone is live, it is played to completion before capture keeps anything, and a notification stands in when no output device will play it. The tray icon carries a red dot for as long as a recording runs, set from the same commands that start and end capture, so there is a confirmation that does not depend on a speaker at all.
 
+The combination itself is recorded rather than typed. `shortcut.ts` turns a `keydown` into the string `hotkey.rs` parses and nothing else: the physical key comes from `KeyboardEvent.code`, so a layout cannot change which shortcut a key produces, and every token it emits — `A`–`Z`, `0`–`9`, `Space`, `F9`, `Up`, `Comma`, `Super` — is one `global-hotkey` already accepts, which is why what is shown, what `settings.json` holds and what is registered are one string. Rust still validates on save; there is no second syntax. A bare key is refused in the field for the same reason it is refused in `parse`. `ShortcutRecorder.svelte` reads keys in the capture phase on the window, so the dialog's Escape, the focus trap and the main window's shortcuts cannot take a key meant for the recorder, and `Escape` ends the reading alone.
+
+A shortcut the operating system is holding for Utterform would never reach the field it is being replaced in, so the reading releases it — `apply_global_hotkey(null)` — for exactly that moment and registers it again when the reading ends, in a serialized queue Save waits on. A new key is still only made permanent by Save. On Wayland nothing is registered and nothing is suspended; a compositor binding that fires mid-reading is turned away in the interface instead.
+
+## Starting with the session
+
+`tauri-plugin-autostart` owns the entry: HKCU Run on Windows, a per-user LaunchAgent on macOS, `~/.config/autostart/Utterform.desktop` on Linux. The entry is the only state — no field in `AppSettings` mirrors it — so Settings asks `isEnabled` when it opens, writes only a change and only on Save, and asks again afterwards rather than trusting the call. A system that will not answer costs the switch and nothing else.
+
+Every entry carries `--autostart`, and that argument is the reason it can exist: `cli.rs` reads an unknown or bare command line as `Show`, so without an intent of its own a login would open the window in front of whatever the user signed in to do. `Intent::Autostart` raises no window, is never stored as a startup intent, and is never emitted as `remote-intent` — so it does nothing on this instance and nothing at all when it meets a running one. On Linux it also settles the graphics backend before GTK exists: every other Linux start goes through the launcher the installer writes, which pins `GDK_BACKEND=x11`, and an autostart entry runs the executable directly, so the same policy is applied in `run()` for that one kind of start and a backend the session chose is left alone.
+
 ## Delivery to the focused window
 
 Clipboard, file and cursor are independent, and typing runs last so a delivery failure there costs a warning rather than the text.
@@ -109,10 +120,11 @@ macOS posts CoreGraphics keyboard events (`typing/macos.rs`): ⌘V for a paste, 
 
 - Batch transcription only
 - One dictation key, not a set of separately bindable global shortcuts
+- Autostart on or off, with no separate "start minimized" choice: a login start is always silent
 - No global dictation key under Wayland; the compositor binding covers it
 - No Live Dictation on macOS
 - CPU local inference by default
-- No autostart or updater
+- No updater
 - No files-as-clipboard-objects
 - No local LLM for transformations
 

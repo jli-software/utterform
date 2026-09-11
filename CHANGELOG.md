@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.2 — v0.7.2 · A recorded shortcut and an optional autostart
+
+- Record the dictation key by pressing it, instead of writing the combination into a text box: the physical key is read, so a layout cannot change the shortcut; `Escape` keeps the current one without closing Settings, and a key without a modifier is refused where it was pressed.
+- Release the registered shortcut only while a new one is being read, and take it back whether the reading ended with a new key, with Escape, or by leaving the field.
+- Add an optional **Start Utterform when I sign in** under Settings → General → Startup for Windows, macOS and Linux (XDG autostart on Omarchy/Arch). It starts hidden in the tray, is off by default, and is written only by Save settings.
+- Keep the operating system's own entry as the only truth: nothing about autostart is stored in `settings.json`, the switch is read when Settings opens and read back after every change.
+- Give a login start its own `--autostart` intent, so it opens no window, starts no recording, and is a complete no-op when it meets an already running Utterform.
+
+See [0.7.2 release notes](docs/releases/v0.7.2.md).
+
 ## 0.7.1 — v0.7.1 · macOS release
 
 - Name the macOS icon file `Utterform.icns` so the Dock and ⌘-Tab stop showing the logo macOS cached for an earlier version; the artwork is unchanged.

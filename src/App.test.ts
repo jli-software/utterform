@@ -32,6 +32,7 @@ vi.mock("./lib/api", () => ({ api: {
   hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
+  autostartEnabled: vi.fn(), enableAutostart: vi.fn(), disableAutostart: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
   copyText: vi.fn(), clearHistory: vi.fn(),
@@ -66,8 +67,26 @@ beforeEach(() => {
   const status = () => ({ recording: true, paused, limitReached: false, elapsedSeconds: 12, level: paused ? 0 : .3 });
   vi.mocked(api.getRecordingStatus).mockImplementation(async () => status());
   vi.mocked(api.setRecordingPaused).mockImplementation(async (value) => { paused = value; return status(); });
+  // The operating system's startup entry, as a thing that is written to and
+  // read back — nothing in the interface may keep a second copy of it.
+  startupEntry = false;
+  vi.mocked(api.autostartEnabled).mockImplementation(async () => startupEntry);
+  vi.mocked(api.enableAutostart).mockImplementation(async () => { startupEntry = true; });
+  vi.mocked(api.disableAutostart).mockImplementation(async () => { startupEntry = false; });
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+let startupEntry = false;
+
+/// Pretend this is a Mac, where the key stored as Super is shown as Cmd.
+function onAMac() {
+  Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+}
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, "platform");
+});
 
 /// Settings opens on Voice; everything else lives one tab away.
 async function showSettingsTab(view: Screen, tab: string) {
@@ -331,7 +350,7 @@ describe("dictation hotkey", () => {
   });
 });
 
-describe("dictation key settings", () => {
+describe("the dictation key recorder", () => {
   async function openSettings() {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
@@ -340,20 +359,125 @@ describe("dictation key settings", () => {
     return view;
   }
 
-  it("registers a changed shortcut and closes", async () => {
-    const view = await openSettings();
-    const field = view.getByRole("textbox", { name: /Shortcut/ });
-    await fireEvent.input(field, { target: { value: "Ctrl+Alt+K" } });
-    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+  /// Start reading a shortcut, and wait until the registered key has been let
+  /// go of — until then the operating system would swallow the very key the
+  /// user is trying to press.
+  async function listen(view: Screen) {
+    const recorder = view.getByRole("button", { name: /Shortcut/ });
+    await fireEvent.click(recorder);
+    expect(recorder.getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith(null));
+    return recorder;
+  }
 
-    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith("Ctrl+Alt+K"));
+  it("takes a combination from the keyboard and registers exactly it", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    expect(recorder.textContent).toContain("Press shortcut");
+
+    await fireEvent.keyDown(recorder, { code: "KeyK", key: "k", ctrlKey: true, altKey: true });
+    expect(recorder.textContent).toContain("Ctrl+Alt+K");
+    expect(recorder.getAttribute("aria-pressed")).toBe("false");
+    // The old key is back in effect until Save; nothing may be left released.
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenLastCalledWith("Ctrl+Alt+D"));
+
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenLastCalledWith("Ctrl+Alt+K"));
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ global_hotkey: "Ctrl+Alt+K" }));
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
   });
 
-  it("keeps the dialog open and names the problem when the key is taken", async () => {
-    vi.mocked(api.applyGlobalHotkey).mockRejectedValue("Ctrl+Alt+K is not available");
+  it("reads the physical key, and shows a Mac the name it uses for it", async () => {
+    onAMac();
     const view = await openSettings();
-    await fireEvent.input(view.getByRole("textbox", { name: /Shortcut/ }), { target: { value: "Ctrl+Alt+K" } });
+    const recorder = await listen(view);
+    // A German keyboard types Z here and an American one Y; the combination
+    // must be the same one, and Meta is stored as Super either way.
+    await fireEvent.keyDown(recorder, { code: "KeyY", key: "z", metaKey: true, shiftKey: true });
+    expect(recorder.textContent).toContain("Shift+Cmd+Y");
+
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenLastCalledWith("Shift+Super+Y"));
+  });
+
+  it("reads space, a digit, a function key and an arrow", async () => {
+    const view = await openSettings();
+    for (const [code, shown] of [["Space", "Ctrl+Shift+Space"], ["Digit4", "Ctrl+Shift+4"],
+      ["F9", "Ctrl+Shift+F9"], ["ArrowUp", "Ctrl+Shift+Up"]] as const) {
+      const recorder = await listen(view);
+      await fireEvent.keyDown(recorder, { code, ctrlKey: true, shiftKey: true });
+      expect(recorder.textContent).toContain(shown);
+    }
+  });
+
+  it("waits while only modifiers are held", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    await fireEvent.keyDown(recorder, { code: "ControlLeft", key: "Control", ctrlKey: true });
+    await fireEvent.keyDown(recorder, { code: "AltLeft", key: "Alt", ctrlKey: true, altKey: true });
+    expect(recorder.textContent).toContain("Press shortcut");
+    expect(recorder.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("refuses a key on its own and keeps the shortcut that works", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    await fireEvent.keyDown(recorder, { code: "KeyD", key: "d" });
+    // Said where the shortcut is, and announced through the live region.
+    const complaint = view.getAllByText(/D needs a modifier/);
+    expect(complaint.some((node) => node.classList.contains("setting-error"))).toBe(true);
+    expect(complaint.some((node) => node.getAttribute("role") === "status")).toBe(true);
+    expect(recorder.getAttribute("aria-pressed")).toBe("true");
+
+    await fireEvent.keyDown(recorder, { code: "KeyD", key: "d", ctrlKey: true, altKey: true });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ global_hotkey: "Ctrl+Alt+D" }));
+  });
+
+  it("lets Escape end the reading without closing Settings", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    await fireEvent.keyDown(recorder, { code: "Escape", key: "Escape" });
+    expect(recorder.getAttribute("aria-pressed")).toBe("false");
+    expect(recorder.textContent).toContain("Ctrl+Alt+D");
+    expect(view.queryByRole("dialog")).not.toBeNull();
+    // And the key Utterform had is held again.
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenLastCalledWith("Ctrl+Alt+D"));
+
+    // A second Escape is the dialog's again, as it always was.
+    await fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  });
+
+  it("keeps the stored shortcut when Settings is cancelled", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    await fireEvent.keyDown(recorder, { code: "KeyJ", key: "j", ctrlKey: true, altKey: true });
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    // Whatever was registered is registered still.
+    expect(vi.mocked(api.applyGlobalHotkey).mock.calls.at(-1)).toEqual(["Ctrl+Alt+D"]);
+
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Output");
+    expect(view.getByRole("button", { name: /Shortcut/ }).textContent).toContain("Ctrl+Alt+D");
+  });
+
+  it("does not let the key it is listening for start a recording", async () => {
+    const view = await openSettings();
+    await listen(view);
+    // Windows, macOS and X11 have released the key by now; a compositor
+    // binding still arrives and is what this turns away.
+    await remoteIntent("toggle");
+    expect(api.startRecording).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open and names the problem when the key is taken", async () => {
+    const view = await openSettings();
+    const recorder = await listen(view);
+    await fireEvent.keyDown(recorder, { code: "KeyK", key: "k", ctrlKey: true, altKey: true });
+    vi.mocked(api.applyGlobalHotkey).mockRejectedValue("Ctrl+Alt+K is not available");
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
@@ -376,9 +500,10 @@ describe("dictation key settings", () => {
   it("turning the key off unregisters it", async () => {
     const view = await openSettings();
     await fireEvent.click(view.getByRole("checkbox", { name: /without raising the window/ }));
+    expect(view.queryByRole("button", { name: /Shortcut/ })).toBeNull();
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
 
-    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(api.applyGlobalHotkey).toHaveBeenLastCalledWith(null));
   });
 
   it("reports a key that could not be reserved at startup, when Settings is first opened", async () => {
@@ -390,14 +515,124 @@ describe("dictation key settings", () => {
     expect(view.getByRole("alert").textContent).toContain("not available");
   });
 
-  it("offers a Wayland session the command line instead of a dead field", async () => {
+  it("offers a Wayland session the command line instead of a dead recorder", async () => {
     vi.mocked(api.globalHotkeySupport).mockResolvedValue({
       supported: false, default: "Ctrl+Alt+D", failure: null,
       explanation: "Wayland gives no application a global shortcut. Bind `utterform --toggle` in your compositor instead.",
     });
     const view = await openSettings();
     await waitFor(() => expect(view.queryByText(/utterform --toggle/)).not.toBeNull());
-    expect(view.queryByRole("textbox", { name: /Shortcut/ })).toBeNull();
+    expect(view.queryByRole("button", { name: /Shortcut/ })).toBeNull();
+  });
+});
+
+// Autostart is the operating system's own entry. Nothing here may keep a copy
+// of it: what `isEnabled` says is what the switch shows.
+describe("starting when the user signs in", () => {
+  async function openStartup() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    return view;
+  }
+
+  function toggleOf(view: Screen) {
+    return view.getByRole("checkbox", { name: /when I sign in/ }) as HTMLInputElement;
+  }
+
+  it("shows what the system says rather than a stored setting", async () => {
+    startupEntry = true;
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).checked).toBe(true));
+    expect(api.autostartEnabled).toHaveBeenCalled();
+    // Settings that reach the backend carry nothing about starting up.
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalled());
+    expect(Object.keys(vi.mocked(api.saveSettings).mock.calls[0][0]).join()).not.toMatch(/autostart|login|startup/);
+  });
+
+  it("is off unless the system says otherwise", async () => {
+    const view = await openStartup();
+    await waitFor(() => expect(api.autostartEnabled).toHaveBeenCalled());
+    expect(toggleOf(view).checked).toBe(false);
+  });
+
+  it("writes only on Save, and only what changed", async () => {
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).disabled).toBe(false));
+    await fireEvent.click(toggleOf(view));
+    expect(api.enableAutostart).not.toHaveBeenCalled();
+
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.enableAutostart).toHaveBeenCalledOnce());
+    expect(api.disableAutostart).not.toHaveBeenCalled();
+    // Written, then read back: the entry is the truth, not the request.
+    expect(api.autostartEnabled).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    await waitFor(() => expect(toggleOf(view).checked).toBe(true));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.enableAutostart).toHaveBeenCalledOnce();
+  });
+
+  it("changes nothing on the system when Settings is cancelled", async () => {
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).disabled).toBe(false));
+    await fireEvent.click(toggleOf(view));
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.enableAutostart).not.toHaveBeenCalled();
+    expect(api.disableAutostart).not.toHaveBeenCalled();
+
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    await waitFor(() => expect(toggleOf(view).checked).toBe(false));
+  });
+
+  it("a system that will not answer costs the switch and nothing else", async () => {
+    vi.mocked(api.autostartEnabled).mockRejectedValue("no startup items on this system");
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).disabled).toBe(true));
+    expect(view.getByRole("alert").textContent).toContain("could not read");
+
+    // Everything else still saves, and the dialog still closes.
+    await fireEvent.click(view.getByRole("button", { name: "Dark" }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.saveSettings).toHaveBeenCalled();
+  });
+
+  it("keeps a failed write in front of the user", async () => {
+    vi.mocked(api.enableAutostart).mockRejectedValue("the startup folder is read-only");
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).disabled).toBe(false));
+    await fireEvent.click(toggleOf(view));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
+    expect(view.getByRole("alert").textContent).toContain("read-only");
+    expect(view.queryByRole("dialog")).not.toBeNull();
+    // The rest of the settings were still stored.
+    expect(api.saveSettings).toHaveBeenCalled();
+  });
+
+  it("believes the entry rather than the call that claimed to write it", async () => {
+    // Reports success, changes nothing: without reading back, Settings would
+    // close on a switch that never moved.
+    vi.mocked(api.enableAutostart).mockResolvedValue(undefined);
+    const view = await openStartup();
+    await waitFor(() => expect(toggleOf(view).disabled).toBe(false));
+    await fireEvent.click(toggleOf(view));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
+    expect(view.getByRole("alert").textContent).toContain("could not be added");
+    expect(view.queryByRole("dialog")).not.toBeNull();
+    expect(toggleOf(view).checked).toBe(false);
   });
 });
 
