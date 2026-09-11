@@ -62,6 +62,36 @@ if find "$prefix/share/utterform" -type f -name '*.so*' -print -quit | grep -q .
   exit 1
 fi
 
+# whisper.cpp must be built for the desktops this package is installed on, not
+# for the machine that compiled it. ggml does the latter by default, and the
+# 0.7.2 release therefore carried AVX-512 and AMX code that killed Utterform
+# with an illegal instruction on an Intel N300 as soon as a model was loaded.
+# Only ggml's own symbols are examined: crates such as `aes` and `crc32fast`
+# carry AVX-512 routines too, but reach them through a CPUID check first,
+# which is exactly what the code below them does not do.
+if command -v objdump >/dev/null 2>&1; then
+  disassembly="$prefix/utterform.disasm"
+  objdump -d --no-show-raw-insn "$binary" > "$disassembly"
+  wide_in_whisper="$(awk '
+    /^[0-9a-f]+ <.*>:$/ { fn = $2 }
+    /%zmm|vmovdqu64|vpdpbusd|tileloadd|tdpbssd|ldtilecfg|tilestored/ {
+      if (tolower(fn) ~ /ggml|whisper/) count++
+    }
+    END { print count + 0 }
+  ' "$disassembly")"
+  if [ "$wide_in_whisper" -ne 0 ]; then
+    printf 'Utterform package test: whisper.cpp was built for this machine, not for every supported desktop (%s AVX-512/AMX instructions). See packaging/cmake/portable-cpu.cmake; a cached whisper-rs-sys build may have outlived it.\n' "$wide_in_whisper" >&2
+    exit 1
+  fi
+  # The baseline is still vectorized; a build that lost AVX2 would be portable
+  # and far too slow to use.
+  if ! grep -q '%ymm' "$disassembly"; then
+    printf 'Utterform package test: the build carries no AVX2 code at all\n' >&2
+    exit 1
+  fi
+  rm -f "$disassembly"
+fi
+
 ldd_output="$(ldd "$binary")"
 if printf '%s\n' "$ldd_output" | grep -q 'not found'; then
   printf 'Utterform package test: unresolved shared libraries\n%s\n' "$ldd_output" >&2

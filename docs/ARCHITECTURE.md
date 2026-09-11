@@ -12,6 +12,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
+- `packaging/cmake/portable-cpu.cmake` — the instruction set whisper.cpp is compiled for, and why it is not the build machine's
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
 - `cli.rs` — what a command line or a second launch asks the running app to do
 - `hotkey.rs` — a reserved key combination where the OS grants one, routed into the same intent as the command line
@@ -69,6 +70,14 @@ The dialog is a tablist — Voice, Prompts, Output, General — with arrow-key n
 `AppSettings::action_overrides` stores only what the user replaced, per action id, with `name` and `prompt` independently optional: an action that was renamed still follows a later, better default prompt. A blank replacement resolves back to the default in `actions::instructions`, so an emptied box cannot fail the recording that used it. Resolution happens in Rust with the settings a recording already loads, which is why the tray, the dictation key and `utterform --toggle` run the edited prompts without the frontend sending any prompt text.
 
 `plain` is in the same list with no prompt at all: it is shown in the editor as the action that never reaches a text model, and has nothing to edit.
+
+## What the local engine is compiled for
+
+whisper.cpp is built from source by `whisper-rs-sys`, and ggml's CMake targets the machine doing the compiling unless told otherwise. For a release built on someone else's server that is a trap rather than an optimization: the 0.7.2 Linux binary carried the runner's AVX-512 and AMX instructions and was stopped with SIGILL on an Intel N300 while loading a model — inside `ggml_backend_cpu_device_get_extra_buffers_type`, plain C++ frame code, which is before ggml's own runtime dispatch can choose a kernel and therefore beyond its help. The bug had been there since the first release; only the pairing of build machine and user machine decided whether it fired.
+
+`packaging/cmake/portable-cpu.cmake` sets `GGML_NATIVE=OFF`, which makes ggml use its explicit defaults instead: SSE4.2, AVX, AVX2, FMA, F16C and BMI2 on x86-64, with AVX-512, VNNI and AMX left out; on Apple Silicon clang already targets `apple-m1`, the oldest Mac supported. The file is deliberately free of `CMAKE_SYSTEM_NAME`, which would mark the build as cross-compiling and drop ggml to plain x86-64 with no AVX2 at all. It arrives through `CMAKE_TOOLCHAIN_FILE` in `.cargo/config.toml`, because `whisper-rs-sys` accepts no defines from its dependents.
+
+`cmake-rs` never tells Cargo which environment variables it read, so a cached `whisper-rs-sys` survives a change to that file — which is why the CI cache key carries a suffix to retire one, and why two checks look at the result rather than at the intent: `scripts/test-linux-system-package.sh` disassembles the packaged binary and refuses AVX-512 or AMX inside a ggml or whisper symbol (other crates carry such code too, but reach it through a CPUID check first), and a test in `local.rs` reads the compiled feature set through `whisper_print_system_info` on every platform. The same line is written to the log the first time a local transcription runs.
 
 ## Transcription context
 
