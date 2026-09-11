@@ -20,7 +20,7 @@ merged, so do not advertise the `winget install` command in the root README yet.
 
 ## What is here
 
-`0.7.1/` holds the three manifests winget expects, matching the published
+`0.7.2/` holds the three manifests winget expects, matching the published
 release assets:
 
 | File | Purpose |
@@ -29,7 +29,7 @@ release assets:
 | `JliSoftware.Utterform.installer.yaml` | The NSIS installer, its URL and SHA-256 |
 | `JliSoftware.Utterform.locale.en-US.yaml` | Name, publisher, licence, description |
 
-Facts these were built from, verified against the published `v0.7.1` assets on
+Facts these were built from, verified against the published `v0.7.2` assets on
 2026-09-11 rather than assumed:
 
 - `InstallerSha256` matches `SHA256SUMS.txt` **and** an independent `sha256sum`
@@ -48,17 +48,17 @@ The pull request has to come from your own GitHub account. On a Windows machine:
 
 ```
 winget install Microsoft.WingetCreate
-wingetcreate submit --token <your-github-token> path\to\0.7.1
+wingetcreate submit --token <your-github-token> path\to\0.7.2
 ```
 
 `wingetcreate` forks `microsoft/winget-pkgs` for you, copies the manifests to
-`manifests/j/JliSoftware/Utterform/0.7.1/` and opens the pull request.
+`manifests/j/JliSoftware/Utterform/0.7.2/` and opens the pull request.
 
 To check the manifests before submitting:
 
 ```
-winget validate --manifest path\to\0.7.1
-winget install --manifest path\to\0.7.1
+winget validate --manifest path\to\0.7.2
+winget install --manifest path\to\0.7.2
 ```
 
 The second one actually installs from the local manifest, which is the honest
