@@ -22,6 +22,7 @@ jobs:
   build:
     needs: validate
     uses: ./.github/workflows/desktop-builds.yml
+    secrets: inherit
 
   publish:
     name: Publish verified desktop binaries

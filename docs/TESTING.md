@@ -1,8 +1,8 @@
 # Validation
 
-## 0.7.4 Developer ID signing and Apple notarization
+## 0.7.5 Developer ID signing and Apple notarization
 
-GitHub Actions run `34696227610` built the Apple-Silicon app with the repository's
+Pre-release GitHub Actions run `34696227610` built the Apple-Silicon app with the repository's
 Developer ID credentials. Apple's notary service returned `Accepted`; Tauri stapled
 the ticket. The packaging step then required all of the following before succeeding:
 
@@ -15,6 +15,13 @@ the ticket. The packaging step then required all of the following before succeed
 Frontend checks and tests, the production GUI suite, Rust formatting, Clippy and Rust
 tests also passed. Not automated: a real install-over-update retaining Microphone and
 Accessibility grants. The build host has no interactive window session.
+
+The first tagged attempt, 0.7.4, exposed a separate reusable-workflow boundary: GitHub
+does not pass secrets through `workflow_call` unless the caller explicitly inherits or
+maps them. Its tag job therefore logged that notarization was skipped and packaged an
+ad-hoc app. The release is marked superseded. The caller now uses `secrets: inherit`,
+and the called workflow independently refuses a tagged build unless all six Apple
+values are present, so this failure cannot publish another tag silently.
 
 ## 0.7.3 Local Whisper on processors without AVX-512
 

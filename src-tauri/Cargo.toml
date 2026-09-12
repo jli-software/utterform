@@ -1,6 +1,6 @@
 [package]
 name = "utterform"
-version = "0.7.4"
+version = "0.7.5"
 description = "Fast, lightweight voice-to-text transformation for the desktop"
 authors = ["Jonas"]
 edition = "2024"
