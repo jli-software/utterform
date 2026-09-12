@@ -119,17 +119,42 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           # A secret that does not exist arrives as an empty string, and Tauri
-          # would try to import an empty certificate; only set variables count.
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            [ -n "${!name}" ] || unset "$name"
+          # would try to import an empty certificate. All six values must be
+          # present together: a partial setup must never publish an ad-hoc app.
+          signing_values=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+          present=0
+          for name in "${signing_values[@]}"; do
+            if [ -n "${!name}" ]; then
+              present=$((present + 1))
+            else
+              unset "$name"
+            fi
           done
+
+          if [ "$present" -ne 0 ] && [ "$present" -ne "${#signing_values[@]}" ]; then
+            echo "Apple signing is only partially configured; all six repository secrets are required." >&2
+            for name in "${signing_values[@]}"; do
+              [ -n "${!name:-}" ] || echo "Missing: $name" >&2
+            done
+            exit 1
+          fi
+
+          if [ "$present" -eq "${#signing_values[@]}" ]; then
+            signing_identity="$APPLE_SIGNING_IDENTITY"
+            echo "UTTERFORM_EXPECT_NOTARIZATION=1" >> "$GITHUB_ENV"
+          else
+            signing_identity="-"
+            echo "UTTERFORM_EXPECT_NOTARIZATION=0" >> "$GITHUB_ENV"
+          fi
+
           npm run tauri build -- --bundles app \
-            --config '{"bundle":{"macOS":{"signingIdentity":"${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}","minimumSystemVersion":"11.0"}}}'
+            --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$signing_identity\",\"minimumSystemVersion\":\"11.0\"}}}"
       - name: Verify signed app and package macOS disk image
         if: runner.os == 'macOS'
         run: scripts/package-macos.sh
