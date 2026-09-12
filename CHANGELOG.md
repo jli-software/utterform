@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.4 — v0.7.4 · Signed and notarized for macOS
+
+- Sign the Apple-Silicon app with a stable Developer ID identity and submit every release build to Apple's notary service.
+- Staple Apple's notarization ticket to the app and verify the Developer ID authority, Team ID, designated requirement and Gatekeeper acceptance before packaging succeeds.
+- Treat Apple signing as one atomic six-secret configuration: a partial setup fails the build instead of silently publishing an ad-hoc-signed app.
+- Keep Linux and Windows binaries unchanged; Windows remains unsigned.
+
+See [0.7.4 release notes](docs/releases/v0.7.4.md).
+
 ## 0.7.3 — v0.7.3 · Local Whisper no longer crashes on Linux
 
 - Build whisper.cpp for every supported desktop instead of for the machine that compiles it. The release binaries carried AVX-512 and AMX instructions from the build server, and a processor without them — an Intel N300, for one — was stopped with SIGILL while the Whisper model loaded. GPT Transcribe was never affected.

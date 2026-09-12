@@ -1,5 +1,21 @@
 # Validation
 
+## 0.7.4 Developer ID signing and Apple notarization
+
+GitHub Actions run `34696227610` built the Apple-Silicon app with the repository's
+Developer ID credentials. Apple's notary service returned `Accepted`; Tauri stapled
+the ticket. The packaging step then required all of the following before succeeding:
+
+- `codesign --verify --deep --strict` on the built and ZIP-extracted app;
+- a `Developer ID Application` authority and non-empty Team ID;
+- `xcrun stapler validate` on both app copies;
+- Gatekeeper acceptance with `source=Notarized Developer ID`;
+- valid DMG, ZIP and checksums.
+
+Frontend checks and tests, the production GUI suite, Rust formatting, Clippy and Rust
+tests also passed. Not automated: a real install-over-update retaining Microphone and
+Accessibility grants. The build host has no interactive window session.
+
 ## 0.7.3 Local Whisper on processors without AVX-512
 
 **Reported by Jonas on 2026-09-11 and diagnosed on the affected device.** Local Whisper with the Small model closed Utterform instantly on his Omarchy machine (Intel Core i3-N300: AVX2 yes, AVX-512 and AMX no); GPT Transcribe was unaffected. Claude on that device read the crash: `SIGILL / ILL_ILLOPN` in `ggml_backend_cpu_device_get_extra_buffers_type`, reached from `whisper_model_load`, three times in two minutes.
