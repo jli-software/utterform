@@ -4,8 +4,13 @@ set -euo pipefail
 
 app="${1:-src-tauri/target/release/bundle/macos/Utterform.app}"
 output="${2:-release}"
+expect_notarization="${UTTERFORM_EXPECT_NOTARIZATION:-0}"
 test "$(uname -s)" = Darwin || { echo "Run on macOS" >&2; exit 1; }
 test -d "$app" || { echo "Missing app bundle: $app" >&2; exit 1; }
+case "$expect_notarization" in
+  0|1) ;;
+  *) echo "UTTERFORM_EXPECT_NOTARIZATION must be 0 or 1" >&2; exit 1 ;;
+esac
 
 verify_app() {
   local bundle="$1" executable
@@ -31,6 +36,20 @@ verify_app() {
     echo "Info.plist lacks NSMicrophoneUsageDescription; macOS would refuse the microphone" >&2
     return 1
   }
+
+  if [ "$expect_notarization" = 1 ]; then
+    local signature
+    signature=$(codesign -dvv "$bundle" 2>&1)
+    grep -q '^Authority=Developer ID Application:' <<<"$signature" || {
+      echo "Expected a Developer ID Application signature" >&2
+      return 1
+    }
+    grep -Eq '^TeamIdentifier=[A-Z0-9]+$' <<<"$signature" || {
+      echo "Developer ID signature has no TeamIdentifier" >&2
+      return 1
+    }
+    xcrun stapler validate -q "$bundle"
+  fi
 }
 
 verify_app "$app"
@@ -64,7 +83,8 @@ ditto -c -k --sequesterRsrc --keepParent "$temporary/staging/Utterform.app" "$ar
 mkdir "$temporary/unpacked"
 ditto -x -k "$archive" "$temporary/unpacked"
 verify_app "$temporary/unpacked/Utterform.app"
-if xcrun stapler validate -q "$app" >/dev/null 2>&1; then
+if [ "$expect_notarization" = 1 ]; then
+  spctl --assess --type execute --verbose=4 "$app"
   echo "Verified ARM app, DMG and ZIP signatures; the app carries a stapled Apple notarization ticket."
 else
   echo "Verified ARM app, DMG and ZIP signatures (not Apple-notarized)."
