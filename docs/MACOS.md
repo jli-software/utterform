@@ -54,7 +54,7 @@ with the text still on the clipboard.
 
 ## Signing and stable grants across updates
 
-Since 0.7.4 release bundles are signed with a Developer ID Application certificate and
+Since 0.7.5 release bundles are signed with a Developer ID Application certificate and
 the hardened runtime, submitted to Apple's notary service and shipped with the ticket
 stapled to the app. The designated requirement names the team and bundle identifier,
 so macOS can recognise a later version as the same application instead of tying its
@@ -69,7 +69,7 @@ ticket and Gatekeeper result before packaging succeeds.
 
 ### Credential setup and renewal
 
-The initial setup below was completed for 0.7.4. Keep the procedure for certificate
+The initial setup below was completed for 0.7.5. Keep the procedure for certificate
 renewal or credential rotation: the certificate can only be created by the account
 holder; everything else can be done from the Linux machine and the Mac mini.
 
@@ -109,7 +109,7 @@ the cache by hand are in the 0.7.1 release notes.
 
 Confirmed by Jonas on a MacBook Air (M2, macOS 26) on 2026-09-10, on 0.7.0 beta 1.
 
-| | 0.6.1 | Current (0.7.4) |
+| | 0.6.1 | Current (0.7.5) |
 | --- | --- | --- |
 | Microphone dialog | never appeared (missing entitlement) | **confirmed since 0.7.1** |
 | GPT Transcribe, Local Whisper | untested on a Mac | **confirmed since 0.7.1** |
@@ -118,7 +118,7 @@ Confirmed by Jonas on a MacBook Air (M2, macOS 26) on 2026-09-10, on 0.7.0 beta 
 | Dock click after closing to tray | did nothing | implemented; not mentioned either way |
 | Dock and ⌘-Tab icon | stale rendering of an earlier version | icon file renamed in 0.7.1; to be seen |
 | Live Dictation | unsupported | unchanged, planned for a later release |
-| Signing | ad-hoc, hardened runtime | **Developer ID signed and Apple notarized since 0.7.4** |
+| Signing | ad-hoc, hardened runtime | **Developer ID signed and Apple notarized since 0.7.5** |
 
 ## Building on the Mac mini
 

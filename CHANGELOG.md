@@ -1,13 +1,19 @@
 # Changelog
 
-## 0.7.4 — v0.7.4 · Signed and notarized for macOS
+## 0.7.5 — v0.7.5 · Signed and notarized for macOS
 
 - Sign the Apple-Silicon app with a stable Developer ID identity and submit every release build to Apple's notary service.
 - Staple Apple's notarization ticket to the app and verify the Developer ID authority, Team ID, designated requirement and Gatekeeper acceptance before packaging succeeds.
 - Treat Apple signing as one atomic six-secret configuration: a partial setup fails the build instead of silently publishing an ad-hoc-signed app.
+- Pass repository secrets explicitly into the reusable tag-build workflow, and refuse every tagged macOS build unless all six Apple signing values are present.
 - Keep Linux and Windows binaries unchanged; Windows remains unsigned.
 
-See [0.7.4 release notes](docs/releases/v0.7.4.md).
+See [0.7.5 release notes](docs/releases/v0.7.5.md).
+
+## 0.7.4 — v0.7.4 · Superseded macOS build
+
+- Superseded by 0.7.5: the tag workflow did not pass repository secrets into its reusable build, so its macOS asset was ad-hoc signed rather than notarized.
+- Linux and Windows application behaviour is unchanged; use 0.7.5 on every platform.
 
 ## 0.7.3 — v0.7.3 · Local Whisper no longer crashes on Linux
 

@@ -9,17 +9,23 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.4
+## Current handoff — 0.7.5
 
 **macOS releases are Developer ID signed and Apple notarized.** Repository secrets
 form one required set; a partial configuration fails instead of falling back to an
 ad-hoc signature. The release job verifies the Developer ID authority and Team ID,
 validates the stapled ticket, asks Gatekeeper to assess the app, then verifies the app
-again after extracting the ZIP. Run `34696227610` proved the complete path with Apple
-status `Accepted` before this release. The private key and passwords are never stored
-in the repository.
+again after extracting the ZIP. The tag workflow must pass its repository secrets into
+the reusable desktop workflow; tagged builds also fail when all six values are absent.
+Run `34696227610` proved the complete path with Apple status `Accepted`. The private
+key and passwords are never stored in the repository.
 
-**Still needs a real update test:** install 0.7.4 over an earlier Utterform on a Mac
+**0.7.4 is superseded.** Its tag workflow omitted `secrets: inherit`; all Apple values
+were therefore absent and the permissive non-release fallback produced an ad-hoc app.
+The public release is marked accordingly. Never move that published tag; 0.7.5 carries
+the workflow fix and the correctly versioned replacement assets.
+
+**Still needs a real update test:** install 0.7.5 over an earlier Utterform on a Mac
 that already granted Microphone and Accessibility, then confirm both grants survive.
 The CI build proves identity, notarization and packaging; an SSH build host cannot
 exercise TCC dialogs or type into another user's window session.

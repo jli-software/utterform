@@ -109,8 +109,9 @@ jobs:
           Copy-Item src-tauri/target/release/utterform.exe release/utterform-windows-x86_64.exe
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release/utterform-windows-x86_64-setup.exe
 
-      # Developer ID signing and notarization switch on by themselves once the
-      # repository holds the secrets; until then the bundle is ad-hoc signed.
+      # Developer ID signing and notarization switch on when the workflow receives
+      # the repository secrets. Manual non-tag builds may fall back to ad-hoc;
+      # tagged releases fail unless the complete Apple configuration is present.
       # Tauri imports APPLE_CERTIFICATE into a temporary keychain, signs with
       # the identity, and with APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID submits
       # the app to Apple and staples the ticket. See docs/MACOS.md.
@@ -136,6 +137,14 @@ jobs:
               unset "$name"
             fi
           done
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [ "$present" -ne "${#signing_values[@]}" ]; then
+            echo "Tagged releases require all six Apple signing secrets; refusing an ad-hoc macOS release." >&2
+            for name in "${signing_values[@]}"; do
+              [ -n "${!name:-}" ] || echo "Missing: $name" >&2
+            done
+            exit 1
+          fi
 
           if [ "$present" -ne 0 ] && [ "$present" -ne "${#signing_values[@]}" ]; then
             echo "Apple signing is only partially configured; all six repository secrets are required." >&2
