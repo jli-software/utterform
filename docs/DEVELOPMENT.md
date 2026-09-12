@@ -9,7 +9,22 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.3
+## Current handoff — 0.7.4
+
+**macOS releases are Developer ID signed and Apple notarized.** Repository secrets
+form one required set; a partial configuration fails instead of falling back to an
+ad-hoc signature. The release job verifies the Developer ID authority and Team ID,
+validates the stapled ticket, asks Gatekeeper to assess the app, then verifies the app
+again after extracting the ZIP. Run `34696227610` proved the complete path with Apple
+status `Accepted` before this release. The private key and passwords are never stored
+in the repository.
+
+**Still needs a real update test:** install 0.7.4 over an earlier Utterform on a Mac
+that already granted Microphone and Accessibility, then confirm both grants survive.
+The CI build proves identity, notarization and packaging; an SSH build host cannot
+exercise TCC dialogs or type into another user's window session.
+
+## Previous handoff — 0.7.3
 
 **Local Whisper crashed on Linux because the binary was built for the build server.**
 ggml's `GGML_NATIVE` defaults to ON — `-march=native` — so GitHub's runner baked its

@@ -52,27 +52,26 @@ Not covered: a window with *Secure Keyboard Entry* (a password field, a terminal
 that option) may refuse synthesized input; that surfaces as text that does not arrive,
 with the text still on the clipboard.
 
-## Signing, and why grants are lost on update
+## Signing and stable grants across updates
 
-Release bundles are ad-hoc signed (`signingIdentity: "-"`) with the hardened runtime.
-Gatekeeper therefore asks for *Open Anyway* once, and — more annoying in daily use —
-**every grant is tied to that exact build**: an ad-hoc signature's designated
-requirement is the hash of the code, so each update appears to TCC as a new
-application. After an update the user removes the stale Accessibility entry and adds
-the new one, and the microphone is asked for again.
+Since 0.7.4 release bundles are signed with a Developer ID Application certificate and
+the hardened runtime, submitted to Apple's notary service and shipped with the ticket
+stapled to the app. The designated requirement names the team and bundle identifier,
+so macOS can recognise a later version as the same application instead of tying its
+privacy grants to an ad-hoc code hash. Gatekeeper accepts the bundle as
+`Notarized Developer ID`.
 
-A Developer ID certificate fixes both: the designated requirement then names the team
-and bundle identifier, so grants survive updates, and a notarized app opens without
-*Open Anyway*. Jonas has a paid Apple Developer account. The workflow is ready since
-0.7.1: the macOS build step reads six repository secrets and, when they are present,
-Tauri imports the certificate into a temporary keychain, signs with it, submits the
-app to Apple's notary service and staples the ticket; `scripts/package-macos.sh`
-reports the stapled ticket. Without the secrets nothing changes.
+The macOS build reads six repository secrets as one atomic set. Tauri imports the
+certificate into a temporary keychain, signs the app, submits it and staples the
+ticket. A partial configuration fails the job; it cannot silently publish an ad-hoc
+release. `scripts/package-macos.sh` verifies the Developer ID authority, Team ID,
+ticket and Gatekeeper result before packaging succeeds.
 
-### Turning it on — what is needed from whom
+### Credential setup and renewal
 
-The certificate can only be created by the account holder; everything else can be
-done from the Linux machine and the Mac mini.
+The initial setup below was completed for 0.7.4. Keep the procedure for certificate
+renewal or credential rotation: the certificate can only be created by the account
+holder; everything else can be done from the Linux machine and the Mac mini.
 
 1. **Certificate signing request** (done by the agent on the Mac mini): a private key
    and CSR, `openssl req -new -newkey rsa:2048 -nodes -keyout developerid.key -out developerid.csr`,
@@ -110,16 +109,16 @@ the cache by hand are in the 0.7.1 release notes.
 
 Confirmed by Jonas on a MacBook Air (M2, macOS 26) on 2026-09-10, on 0.7.0 beta 1.
 
-| | 0.6.1 | 0.7.1 |
+| | 0.6.1 | Current (0.7.4) |
 | --- | --- | --- |
-| Microphone dialog | never appeared (missing entitlement) | **confirmed** |
-| GPT Transcribe, Local Whisper | untested on a Mac | **confirmed** |
-| Typing at the cursor | not implemented | **confirmed** (method not stated) |
-| Reserved dictation key | compiled, never run | **confirmed**, including changing it |
+| Microphone dialog | never appeared (missing entitlement) | **confirmed since 0.7.1** |
+| GPT Transcribe, Local Whisper | untested on a Mac | **confirmed since 0.7.1** |
+| Typing at the cursor | not implemented | **confirmed since 0.7.1** (method not stated) |
+| Reserved dictation key | compiled, never run | **confirmed since 0.7.1**, including changing it |
 | Dock click after closing to tray | did nothing | implemented; not mentioned either way |
-| Dock and ⌘-Tab icon | stale rendering of an earlier version | icon file renamed; to be seen |
+| Dock and ⌘-Tab icon | stale rendering of an earlier version | icon file renamed in 0.7.1; to be seen |
 | Live Dictation | unsupported | unchanged, planned for a later release |
-| Signing | ad-hoc, hardened runtime | ad-hoc; Developer ID path ready, secrets pending |
+| Signing | ad-hoc, hardened runtime | **Developer ID signed and Apple notarized since 0.7.4** |
 
 ## Building on the Mac mini
 
@@ -141,7 +140,7 @@ the bundle checks run there without one.
 ## Open
 
 - Whether the icon rename alone refreshes the Dock on Jonas's machine.
-- Developer ID signing and notarization: the four steps above.
+- Install-over-update test for Microphone and Accessibility grant persistence.
 - Live Dictation on macOS: needs a focus observer (the frontmost application and its
   focused element through the Accessibility API) and the same fail-closed session as
   Windows and Hyprland; planned for a later release.
