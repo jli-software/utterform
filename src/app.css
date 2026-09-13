@@ -43,6 +43,7 @@ select, input, textarea { width:100%; border:1px solid var(--line); background:v
 textarea { min-height:82px; padding:11px 12px; resize:vertical; line-height:1.5; }
 select:focus, input:focus, textarea:focus { border-color:var(--accent); outline:1px solid var(--accent); }
 .engine-control { min-width:0; }
+.engine-control .select-trigger { min-height:48px; }
 .engine-chip { height:48px; border:1px solid var(--line); border-radius:5px; padding:0 13px; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; white-space:nowrap; }
 .engine-chip small { font:9px ui-monospace,monospace; color:var(--muted); text-transform:uppercase; }
 .recorder { width:min(620px,100%); min-height:306px; padding:27px 0 24px; margin:auto; flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; }
@@ -215,8 +216,8 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
 @media(max-width:600px) {
   main { padding:0 20px; }
   header { height:66px; }
-  .controls { grid-template-columns:minmax(0,1fr); gap:0; margin-top:20px; }
-  .engine-control { display:none; }
+  /* Action above Transcription: side by side, the labels would be cut. */
+  .controls { grid-template-columns:minmax(0,1fr); gap:8px; margin-top:16px; }
   .output-bar { gap:4px; }
   .output-bar > button { padding:0 7px; gap:5px; }
   .output-bar > .select-menu { width:92px; }
@@ -239,7 +240,8 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .brand strong { font-size:19px; }
   .controls { margin-top:12px; }
   .control-label { display:none; }
-  .action-control .select-trigger, .engine-chip { min-height:40px; height:40px; padding:7px 12px; }
+  .action-control .select-trigger, .engine-control .select-trigger, .engine-chip { min-height:40px; height:40px; padding:7px 12px; }
+  .engine-control .select-value small { display:none; }
   .recorder, .result-expanded .recorder { min-height:180px; padding:15px 0 12px; }
   .timer { margin-top:6px; font-size:26px; }
   .signal-field { height:160px; }
@@ -254,6 +256,7 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
 }
 @media(max-height:440px) {
   .recorder, .result-expanded .recorder { min-height:174px; }
+  .action-control .select-trigger, .engine-control .select-trigger, .engine-chip { min-height:36px; height:36px; }
   .record-status { font-size:9px; }
   .signal-field, .result-expanded .signal-field { height:100px; min-height:52px; margin:3px -12px 5px; }
   .recorder, .result-expanded .recorder { padding:8px 0; }
@@ -267,3 +270,12 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
 .live-preview p, .live-help { font-size: .8rem; line-height: 1.5; }
 .live-preview .transcript { max-height: 11rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-preview small { display: block; margin-top: .6rem; }
+
+/* At 360 px a stacked pair would push the recorder and the output bar below a
+   400 px window; side by side, both selectors and everything after them stay in
+   view. The transcription menu opens toward the left so it is never cut off
+   at the window's edge. */
+@media(max-width:600px) and (max-height:440px) {
+  .controls { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:8px; }
+  .engine-control .select-options { left:auto; right:0; }
+}

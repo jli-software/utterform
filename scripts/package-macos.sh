@@ -36,6 +36,12 @@ verify_app() {
     echo "Info.plist lacks NSMicrophoneUsageDescription; macOS would refuse the microphone" >&2
     return 1
   }
+  # A menu-bar application only through a boolean true: the string "true" or
+  # the number 1 would put Utterform back into the Dock and ⌘-Tab.
+  plutil -convert json -o - "$bundle/Contents/Info.plist" | grep -q '"LSUIElement":true' || {
+    echo "Info.plist lacks a boolean LSUIElement = true; Utterform would appear in the Dock" >&2
+    return 1
+  }
 
   if [ "$expect_notarization" = 1 ]; then
     local signature

@@ -15,6 +15,7 @@
     AppSettings,
     AudioDevice,
     BuiltInAction,
+    CloudModel,
     DownloadProgress,
     HistoryEntry,
     HotkeySupport,
@@ -38,6 +39,10 @@
   import { modalFocus } from "./lib/modal-focus";
 
   type Phase = "idle" | "starting" | "recording" | "paused" | "processing" | "done" | "error";
+  /// The one choice the main window offers for transcription. Not stored
+  /// anywhere: it is read from `engine` and `cloud_model` and written back as
+  /// exactly those two, so Settings and the main window cannot disagree.
+  type TranscriptionMode = "gpt_transcribe" | "gpt_live_transcribe" | "local_whisper";
   type SettingsTab = "voice" | "prompts" | "output" | "general";
 
   const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; hint: string }> = [
@@ -135,8 +140,27 @@
   let unlistenLiveFailed: UnlistenFn | null = null;
   let unlistenIntent: UnlistenFn | null = null;
   let destroyed = false;
+  // The main-window transcription selector is locked while its write is out,
+  // so a second choice cannot overtake the first; a recording that starts
+  // meanwhile waits for the write, so it runs with what was confirmed.
+  let transcriptionSaving = false;
+  let transcriptionWork: Promise<void> = Promise.resolve();
 
   $: liveMode = settings.engine === "open_ai" && settings.cloud_model === "gpt_live_transcribe";
+  $: transcriptionMode = transcriptionModeOf(settings);
+  $: selectedModel = models.find((model) => model.id === settings.local_model_id) ?? null;
+  // The model itself is chosen and downloaded in Settings; here it is only named,
+  // or its absence is, so nobody records into a model that is not there.
+  $: localModelHint = !settings.local_model_id
+    ? "On device · Choose a model in Settings"
+    : selectedModel && !selectedModel.downloaded
+      ? `On device · Download ${selectedModel.name} in Settings`
+      : `On device · ${selectedModel?.name ?? settings.local_model_id}`;
+  $: transcriptionOptions = [
+    { value: "gpt_transcribe", label: "GPT Transcribe", hint: "Finished text · Cloud" },
+    { value: "gpt_live_transcribe", label: "GPT Live Transcribe", hint: "Live at cursor · Windows and Omarchy" },
+    { value: "local_whisper", label: "Local Whisper", hint: localModelHint },
+  ];
   $: effectiveAction = liveMode ? "plain" : selectedAction;
   $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
     : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
@@ -270,6 +294,41 @@
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("keydown", handleKeyDown);
   });
+
+  function transcriptionModeOf(value: AppSettings): TranscriptionMode {
+    if (value.engine === "local_whisper") return "local_whisper";
+    return value.cloud_model === "gpt_live_transcribe" ? "gpt_live_transcribe" : "gpt_transcribe";
+  }
+
+  /// Put a choice made in the main window into effect at once, through the
+  /// same save Settings uses. Local Whisper keeps whatever cloud model was
+  /// chosen before, so switching back returns to it. A write that fails puts
+  /// the two fields this control owns back to the last value the backend
+  /// confirmed — only those two, so an output toggled meanwhile stays.
+  function chooseTranscription(mode: string) {
+    if (transcriptionSaving || controlsLocked) return;
+    const confirmed = { engine: settings.engine, cloud_model: settings.cloud_model };
+    const next: AppSettings = mode === "local_whisper"
+      ? { ...settings, engine: "local_whisper" }
+      : { ...settings, engine: "open_ai", cloud_model: mode as CloudModel };
+    if (transcriptionModeOf(next) === transcriptionMode) return;
+    transcriptionSaving = true;
+    settings = next;
+    transcriptionWork = (async () => {
+      try {
+        await api.saveSettings(next);
+        if (phase === "error") {
+          phase = "idle";
+          message = "Ready when you are";
+        }
+      } catch (error) {
+        settings = { ...settings, ...confirmed };
+        setError(`The transcription choice could not be saved: ${String(error)}`);
+      } finally {
+        transcriptionSaving = false;
+      }
+    })();
+  }
 
   /// A compositor hotkey routes through here so it takes exactly the same path
   /// as the buttons, including every guard against double starts.
@@ -428,6 +487,10 @@
       liveFailurePending = false;
       phase = "starting";
       message = liveMode ? "Connecting GPT Live Transcribe…" : "Preparing the microphone…";
+      // After `phase` is set, so a second press meanwhile is turned away; a
+      // transcription choice still being written settles before this
+      // recording is configured from it.
+      await transcriptionWork;
       await api.saveSettings(settings);
       // Drain a preceding manual copy before a new session can deliver its result.
       await copyPending?.catch(() => {});
@@ -911,7 +974,7 @@
       <strong>utterform</strong>
     </div>
     <div class="header-tools"><span class="app-version">{version}</span>
-    <button class="icon-button settings-trigger" aria-label="Open settings" title="Settings" disabled={controlsLocked} onclick={openSettings}>
+    <button class="icon-button settings-trigger" aria-label="Open settings" title="Settings" disabled={controlsLocked || transcriptionSaving} onclick={openSettings}>
       <svg class="settings-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m6 0h5M4 17h9m6 0h1"/><circle cx="12" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg>
     </button></div>
   </header>
@@ -922,11 +985,9 @@
       {#if liveMode}<div class="engine-chip">Plain <small>Live · append only</small></div>
       {:else}<SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />{/if}
     </div>
-    <div class="engine-control"><span class="control-label">Transcription</span>
-    <div class="engine-chip" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}>
-      {liveMode ? "GPT Live Transcribe" : settings.engine === "open_ai" ? "GPT Transcribe" : "Local Whisper"}
-      <small>{settings.engine === "open_ai" ? "↗ Cloud" : "On device"}</small>
-    </div></div>
+    <div class="engine-control" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}><span class="control-label">Transcription</span>
+      <SelectMenu id="transcription" label="Transcription" value={transcriptionMode} options={transcriptionOptions} disabled={controlsLocked || transcriptionSaving} onchange={chooseTranscription} />
+    </div>
   </section>
 
   <section class="recorder" aria-label="Recording">

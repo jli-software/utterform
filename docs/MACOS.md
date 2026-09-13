@@ -52,6 +52,41 @@ Not covered: a window with *Secure Keyboard Entry* (a password field, a terminal
 that option) may refuse synthesized input; that surfaces as text that does not arrive,
 with the text still on the clipboard.
 
+## A menu-bar application
+
+Since 0.7.6 Utterform has no Dock icon and no ⌘-Tab entry on macOS, whether its
+window is showing or hidden. Two things say so and never disagree: `LSUIElement = true`
+in `src-tauri/Info.plist`, which Launch Services reads before the process exists, and
+`ActivationPolicy::Accessory`, set in `lib.rs` before the window can first be shown
+and never changed again. Nothing switches the process back to a regular application
+when the window opens — that switching is what would make an icon appear and
+disappear.
+
+The window is reached through the tray, by a click or *Show Utterform*, and by opening
+Utterform again from Finder, Launchpad or Spotlight: Launch Services starts no second
+process for a running application but asks it to reopen, and `lib.rs` answers
+`RunEvent::Reopen` by revealing the same one window. That is the macOS counterpart of
+the single-instance hand-off the other platforms use. Every path goes through
+`activation::reveal_main_window`, which shows and focuses the window; tao's macOS
+`set_focus` also activates the application (`activateIgnoringOtherApps:`), which is
+what brings an accessory application in front of the one the user was in. A launch
+that asks for the window (a plain start, `--show`, `--toggle`) takes the same path,
+because macOS does not activate an accessory application for being launched.
+
+Closing the window hides it; the process, the tray, the reserved dictation key and a
+running recording stay. Only *Quit* in the tray menu ends the app. Autostart, which
+never showed a window, is unchanged.
+
+`scripts/package-macos.sh` refuses a bundle whose Info.plist does not carry
+`LSUIElement` as a boolean true: the string "true" or the number 1 would put Utterform
+back in the Dock.
+
+Not exercised on a real Mac yet: that the first reveal after a launch and a tray click
+with another application in front both bring the window forward and give it the
+keyboard. Both follow from tao's `set_focus` and are what other menu-bar applications
+do; the manual test is the tray click with another window in front, then ⌘-Tab to see
+that Utterform is not listed.
+
 ## Signing and stable grants across updates
 
 Since 0.7.5 release bundles are signed with a Developer ID Application certificate and
@@ -103,7 +138,8 @@ earlier rendering; Jonas saw the pre-0.5 logo on a 0.7.0 bundle whose `icon.icns
 was verified to hold the current artwork. Since 0.7.1 the file is `Utterform.icns`
 (`generate-icons.mjs` writes it, `tauri.conf.json` lists it, the bundler names it in
 `CFBundleIconFile`), which gives it a cache entry of its own. The commands that clear
-the cache by hand are in the 0.7.1 release notes.
+the cache by hand are in the 0.7.1 release notes. Since 0.7.6 neither the Dock nor the
+switcher shows Utterform at all (see above); the Finder and the tray still do.
 
 ## Status
 
@@ -115,8 +151,8 @@ Confirmed by Jonas on a MacBook Air (M2, macOS 26) on 2026-09-10, on 0.7.0 beta 
 | GPT Transcribe, Local Whisper | untested on a Mac | **confirmed since 0.7.1** |
 | Typing at the cursor | not implemented | **confirmed since 0.7.1** (method not stated) |
 | Reserved dictation key | compiled, never run | **confirmed since 0.7.1**, including changing it |
-| Dock click after closing to tray | did nothing | implemented; not mentioned either way |
-| Dock and ⌘-Tab icon | stale rendering of an earlier version | icon file renamed in 0.7.1; to be seen |
+| Dock click after closing to tray | did nothing | no Dock icon since 0.7.6; the tray and a second launch open the window |
+| Dock and ⌘-Tab icon | stale rendering of an earlier version | not shown since 0.7.6 (menu-bar application); to be seen on a real desktop |
 | Live Dictation | unsupported | unchanged, planned for a later release |
 | Signing | ad-hoc, hardened runtime | **Developer ID signed and Apple notarized since 0.7.5** |
 
@@ -139,7 +175,9 @@ the bundle checks run there without one.
 
 ## Open
 
-- Whether the icon rename alone refreshes the Dock on Jonas's machine.
+- The menu-bar behaviour of 0.7.6 on a real desktop: no Dock icon and no ⌘-Tab entry
+  while the window is showing, the tray click bringing the window in front of another
+  application, a second launch from Launchpad opening it, and Quit still the only way out.
 - Install-over-update test for Microphone and Accessibility grant persistence.
 - Live Dictation on macOS: needs a focus observer (the frontmost application and its
   focused element through the Accessibility API) and the same fail-closed session as

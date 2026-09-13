@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.7.5 — Signed and notarized for macOS** is the current release: its Apple-Silicon app carries a stable Developer ID signature and an Apple notarization ticket, so Gatekeeper can identify it without the former ad-hoc-build warning. Windows remains unsigned. See the [release notes](docs/releases/v0.7.5.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.5).
+> Utterform is under active development. **0.7.6 — Menu-bar workflow and a seamless recording cycle** is the current release: the Mac app stays out of the Dock and ⌘-Tab, the main window chooses the transcription mode directly, and the next recording can begin without waiting for the completion chime. The Apple-Silicon build remains Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.6.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.6).
 
 ## Live dictation — Windows and Omarchy
 
@@ -156,7 +156,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.5 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.5):
+Download the [0.7.6 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.6):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

@@ -319,6 +319,9 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 480, height: 480 }
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
     };
     await inView(".copy-button");
+    // Both selectors, not only the action: the transcription one used to be
+    // hidden under 600 px and is now part of the floating layout.
+    for (const selector of [".action-control .select-trigger", ".engine-control .select-trigger"]) await inView(selector);
     await page.getByRole("button", { name: "Start recording", exact: true }).click();
     await expect(page.getByRole("button", { name: "Pause recording" })).toBeVisible();
     for (const selector of [".mic-button", ".pause-button", ".copy-button", ".output-bar"]) await inView(selector);
@@ -558,7 +561,115 @@ test("a new recording interrupts the release and hidden completion has no replay
   const restored = await ribbonPixels(page);
   await page.waitForTimeout(200);
   expect(await ribbonPixels(page)).toBe(restored);
+
+  // The same boundary from the remote-intent path, which is where the reserved
+  // dictation key and `utterform --toggle` arrive. A toggle while the transcript
+  // is still being processed is dropped and never replayed; the first toggle
+  // after the answer starts exactly one recording, and does so before the
+  // ribbon has settled. (The Done cue itself is native and not exercised here.)
+  await page.evaluate(() => {
+    const ipc = Reflect.get(window, "__TAURI_INTERNALS__");
+    const invoke = ipc.invoke;
+    Reflect.set(window, "__startCount", 0);
+    ipc.invoke = async (command: string, args: Record<string, unknown>) => {
+      if (command === "start_recording") Reflect.set(window, "__startCount", Reflect.get(window, "__startCount") + 1);
+      if (command === "finish_recording") await new Promise<void>((resolve) => Reflect.set(window, "__completeTranscription", resolve));
+      return invoke(command, args);
+    };
+  });
+  const startCount = () => page.evaluate(() => Reflect.get(window, "__startCount") as number);
+  const toggle = () => page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+  const complete = () => page.evaluate(() => Reflect.get(window, "__completeTranscription")());
+  await toggle();
+  await expect(page.locator("main")).toHaveClass(/recording/);
+  await expect.poll(startCount).toBe(1);
+  await toggle();
+  await expect(page.locator("main")).toHaveClass(/processing/);
+  await toggle();
+  await toggle();
+  await page.waitForTimeout(150);
+  expect(await startCount()).toBe(1);
+  await complete();
+  await expect(page.getByText("Copied to clipboard", { exact: true })).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(await startCount()).toBe(1);
+  // A burst inside one moment — a bouncing key, a double press — is one start,
+  // not a start followed by a stop. Sent from one script so nothing can run
+  // between them.
+  await page.evaluate(() => {
+    const emit = Reflect.get(window, "__emitRemoteIntent");
+    emit("toggle");
+    emit("toggle");
+    emit("start");
+  });
+  await expect(page.locator("main")).toHaveClass(/recording/);
+  await page.waitForTimeout(150);
+  expect(await startCount()).toBe(2);
+  await expect(page.locator("main")).toHaveClass(/recording/);
+  await toggle();
+  await expect(page.locator("main")).toHaveClass(/processing/);
+  await complete();
+  await expect(page.getByText("Copied to clipboard", { exact: true })).toBeVisible();
+  expect(await startCount()).toBe(2);
 });
+
+for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
+  test(`the transcription selector writes at once and stays reachable at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    const inView = async (locator: ReturnType<typeof page.locator>) => {
+      await expect(locator).toBeVisible();
+      const box = (await locator.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    };
+    const action = page.getByRole("combobox", { name: "Action", exact: true });
+    const transcription = page.getByRole("combobox", { name: "Transcription", exact: true });
+    await inView(action);
+    await inView(transcription);
+    await expect(transcription).toContainText("GPT Transcribe");
+    // A label that is cut off is not reachable in any useful sense.
+    for (const control of [action, transcription]) {
+      expect(await control.locator("strong").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    }
+    const saved = () => page.evaluate(() => Reflect.get(window, "__savedSettings") as { engine: string; cloud_model: string } | null);
+
+    // By mouse: every option in view, the choice written without Settings.
+    await transcription.click();
+    for (const name of ["GPT Transcribe", "GPT Live Transcribe", "Local Whisper"]) await inView(page.getByRole("option", { name: new RegExp(`^${name} `) }));
+    // Opaque once its opening motion has run: nothing behind it may show through.
+    await expect.poll(() => page.locator(".select-options").evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+    await page.screenshot({ path: testInfo.outputPath("transcription-menu.png") });
+    await page.getByRole("option", { name: /^Local Whisper / }).click();
+    await expect.poll(async () => (await saved())?.engine).toBe("local_whisper");
+    expect((await saved())?.cloud_model).toBe("gpt_transcribe");
+    await expect(transcription).toContainText("Local Whisper");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // By keyboard: the menu opens on the arrow, Enter writes, focus stays put.
+    await transcription.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("listbox", { name: "Transcription" })).toBeVisible();
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await saved())?.cloud_model).toBe("gpt_live_transcribe");
+    expect((await saved())?.engine).toBe("open_ai");
+    await expect(transcription).toBeFocused();
+    await expect(transcription).toContainText("GPT Live Transcribe");
+    await expect(page.getByRole("combobox", { name: "Action", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Place the cursor in your text field/)).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    // Settings shows the same pair, and Cancel there leaves it alone.
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await expect(page.getByRole("combobox", { name: "Cloud transcription model" })).toContainText("GPT Live Transcribe");
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(transcription).toContainText("GPT Live Transcribe");
+    await page.screenshot({ path: testInfo.outputPath("transcription-live.png") });
+  });
+}
 
 test("processing remains fluid until delayed transcription completes", async ({ page }) => {
   await page.goto("/");

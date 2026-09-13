@@ -107,6 +107,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(audio::AudioCaptureState::default())
+        .manage(feedback::DoneCues::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
@@ -130,11 +131,24 @@ pub fn run() {
                     let _ = hotkey::apply(&handle, configured.as_deref());
                 });
             }
+            // A menu-bar application, for good: no Dock icon and no ⌘-Tab
+            // entry whether the window is showing or hidden, the same policy
+            // `LSUIElement` in Info.plist declares for the launch itself, so
+            // the two never disagree and nothing ever switches back. Set
+            // before the window can first be shown, and never changed again.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             if let Some(window) = app.get_webview_window("main") {
                 if platform::use_borderless_window() {
                     window.set_decorations(false)?;
                 }
                 if startup_intent.raises_window() {
+                    // macOS does not bring an accessory application to the
+                    // front for being launched, so a launch that asks for the
+                    // window takes the same path as a tray click.
+                    #[cfg(target_os = "macos")]
+                    reveal_main_window(app.handle());
+                    #[cfg(not(target_os = "macos"))]
                     window.show()?;
                 }
             }
@@ -180,8 +194,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Utterform")
         .run(|app, event| {
-            // A click on the Dock icon while the window is hidden to the tray
-            // is macOS's way of asking for it back; nowhere else sends this.
+            // Utterform has no Dock icon, but opening it again from Finder,
+            // Launchpad or Spotlight while it runs does not start a second
+            // process on macOS: Launch Services asks the running one to
+            // reopen. This is the macOS counterpart of the single-instance
+            // hand-off above, and reveals the same one window.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = &event {
                 reveal_main_window(app);

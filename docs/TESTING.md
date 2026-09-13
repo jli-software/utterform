@@ -1,5 +1,61 @@
 # Validation
 
+## 0.7.6 menu-bar macOS, transcription selector, seamless recording cycle
+
+Automated, on Linux: 135 native tests (129 before), 111 interface tests (94 before) and
+22 production-bundle Playwright scenarios (20 before), with `svelte-check` clean,
+`cargo fmt --check`, and `cargo clippy --all-targets -D warnings`.
+
+New native coverage, all in `feedback.rs` and none of it needing an output device: a
+productive Done cue returns to its caller within the silent lead-in, nowhere near the
+waveform or the deadline; issuing a new Done makes only the previous one stale, seen
+the same way from another thread, and the stale one writes silence and ends in its
+first buffer while the current one plays to its end; cancelling ten thousand times is
+instant and idempotent, and the next Done issued is current; Start, Stop and a Done
+without a ticket — the three cues Settings plays — sound to their end whatever happened
+to the productive Done; an old cue playing out, being dropped or being cloned into a
+callback leaves the generation and the newer cue alone; and a silenced cue's log line.
+
+New interface coverage: each of the three choices written at once as exactly `engine`
+and `cloud_model`, with Local Whisper keeping the cloud model chosen before it and no
+Settings dialog involved; a failed write named in the status line, the two fields back
+to the confirmed value, Settings agreeing, and the next attempt going through; an output
+toggled while the write was out surviving the rollback; the main window and Settings
+showing the same choice in both directions, with Cancel there keeping the main-window
+choice; the local model named, or its download or its choice pointed to Settings, with
+no model list in the main window; switching to GPT Live keeping the action Plain,
+starting only from the target field and finishing without typing again; the unsupported
+explanation shown and a remote start turned away; the selector locked while starting,
+recording, paused and processing, from the keyboard too; arrow keys, Enter, typeahead
+and Escape driving it without an `f` reaching the file toggle; and a recording started
+while the write is out waiting for it and then running with it. For the ready boundary:
+a toggle, a start, Space and a click during processing starting nothing and never being
+replayed; the first toggle after the answer starting exactly one recording; a burst of
+presses at the boundary being one start and no stop; a failed completion still
+startable; and a toggle during `starting` not stopping anything.
+
+In the production bundle: both selectors visible, uncut and in view at 920 × 720 and at
+360 × 400, every option in view when the menu is open, the choice written through
+`save_settings` by mouse and by keyboard with focus kept, the Action selector giving way
+to Plain under GPT Live, Settings showing the same pair, and no horizontal scroll; the
+three floating layouts now also check both selectors; and the release-interruption
+scenario continues through the remote-intent path — a toggle during a delayed
+`finish_recording` dropped and not replayed, the first toggle after the answer starting
+exactly one recording, and a burst of two toggles and a start sent from one script
+starting once.
+
+**What the browser suites do not prove:** the audio cancellation. Playwright and Vitest
+run against mocked IPC; whether a Done cue cut off on a real output device is inaudible,
+or leaves a click, is only heard on a desktop. The `feedback.rs` tests drive the callback
+logic that decides silence, not a speaker.
+
+**Not exercised by anyone yet:** the macOS behaviour on a real desktop — no Dock icon and
+no ⌘-Tab entry while the window is showing, the tray click bringing the window in front
+of another application, a second launch opening it, Quit still the only way out — and
+the `LSUIElement` packaging check on an actual bundle. The build host's SSH session has
+no window server. Desktop builds must run for all three platforms before a tag, as
+`cfg(target_os = "macos")` code changed.
+
 ## 0.7.5 Developer ID signing and Apple notarization
 
 Pre-release GitHub Actions run `34696227610` built the Apple-Silicon app with the repository's
