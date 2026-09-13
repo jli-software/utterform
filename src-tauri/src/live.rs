@@ -6,7 +6,7 @@ use crate::{
     audio::{self, AudioCaptureState},
     diagnostics,
     domain::{AppSettings, CloudModel, ProcessRequest, ProcessResult, TranscriptionEngine},
-    feedback::{self, Cue},
+    feedback,
     history::{self, HistoryEntry},
     output, secrets, tray,
 };
@@ -549,6 +549,9 @@ pub async fn start(
         let (audio_tx, audio_rx) = mpsc::channel(750);
         let captured_app = app.clone();
         let sound = session.settings.sound_enabled;
+        // As for a batch recording: whatever is left of the previous Done cue
+        // ends before this recording's start cue is scheduled.
+        app.state::<feedback::DoneCues>().cancel();
         let started = tauri::async_runtime::spawn_blocking(move || {
             audio::start_recording_live(
                 &captured_app.state::<AudioCaptureState>(),
@@ -841,7 +844,9 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
             (None, false)
         };
     if session.settings.sound_enabled && warnings.is_empty() {
-        feedback::play_detached(Cue::Done);
+        // The same productive Done as a batch recording's, so the next
+        // recording of either kind can silence it.
+        let _ = app.state::<feedback::DoneCues>().play();
     }
     Ok(ProcessResult {
         history_entry,

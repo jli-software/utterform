@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.6 — v0.7.6 · Menu-bar workflow and a seamless recording cycle
+
+- Keep Utterform out of the macOS Dock and ⌘-Tab as a permanent menu-bar application, while tray clicks and a second launch still reveal the window.
+- Put GPT Transcribe, GPT Live Transcribe and Local Whisper directly in the main window and save a changed transcription mode immediately.
+- Return to ready as soon as transcription and delivery finish; the completion chime runs independently and the next recording silences any tail still playing.
+- Keep compact layouts fully reachable and add native, interface and production-bundle coverage for the new selector and recording boundary.
+- Continue to ship the Apple-Silicon app with Developer ID signing and Apple notarization; Windows remains unsigned.
+
+See [0.7.6 release notes](docs/releases/v0.7.6.md).
+
 ## 0.7.5 — v0.7.5 · Signed and notarized for macOS
 
 - Sign the Apple-Silicon app with a stable Developer ID identity and submit every release build to Apple's notary service.

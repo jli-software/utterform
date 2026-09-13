@@ -63,6 +63,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
   vi.mocked(api.listBuiltInActions).mockResolvedValue(structuredClone(SHIPPED_ACTIONS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
+  vi.mocked(api.listLocalModels).mockResolvedValue([]);
   let paused = false;
   const status = () => ({ recording: true, paused, limitReached: false, elapsedSeconds: 12, level: paused ? 0 : .3 });
   vi.mocked(api.getRecordingStatus).mockImplementation(async () => status());
@@ -921,5 +922,303 @@ describe("live dictation", () => {
     await waitFor(() => expect(view.queryByText("Connection lost")).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
     expect(api.copyText).toHaveBeenLastCalledWith(snapshot.text);
+  });
+});
+
+describe("the transcription selector in the main window", () => {
+  const base = { id: "base", name: "Whisper Base", description: "", sizeBytes: 1, downloaded: true };
+  const selector = (view: Screen) => view.getByRole("combobox", { name: "Transcription" });
+  async function choose(view: Screen, label: RegExp) {
+    await fireEvent.click(selector(view));
+    await fireEvent.click(view.getByRole("option", { name: label }));
+  }
+  /// Rendered with the stored settings in place — history arrives after them.
+  async function renderReady() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    return view;
+  }
+  const finished = { historyEntry: latest, text: latest.text, durationMs: 1000, engine: "open_ai" as const, savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [] };
+
+  it.each([
+    ["GPT Live Transcribe", { engine: "open_ai", cloud_model: "gpt_live_transcribe" }, DEFAULT_SETTINGS],
+    // Local Whisper keeps the cloud model that was chosen before it.
+    ["Local Whisper", { engine: "local_whisper", cloud_model: "gpt_live_transcribe" }, { ...DEFAULT_SETTINGS, cloud_model: "gpt_live_transcribe" }],
+    ["GPT Transcribe", { engine: "open_ai", cloud_model: "gpt_transcribe" }, { ...DEFAULT_SETTINGS, engine: "local_whisper" }],
+  ] as const)("writes %s at once as engine and cloud model, and nothing else", async (label, expected, stored) => {
+    vi.mocked(api.getSettings).mockResolvedValue(structuredClone(stored) as typeof DEFAULT_SETTINGS);
+    const view = await renderReady();
+    await choose(view, new RegExp(`^${label} `));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledOnce());
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...stored, ...expected });
+    expect(view.queryByRole("dialog")).toBeNull();
+    expect(selector(view).textContent).toContain(label);
+  });
+
+  it("names a failed save, returns to the confirmed choice, and lets the next attempt through", async () => {
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error("Disk full"));
+    const view = await renderReady();
+    await choose(view, /^Local Whisper /);
+    await waitFor(() => expect(view.queryByText(/could not be saved.*Disk full/)).not.toBeNull());
+    expect(selector(view).textContent).toContain("GPT Transcribe");
+    expect(selector(view).textContent).not.toContain("Local Whisper");
+    // Settings shows what the backend confirmed, not what was asked for.
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    expect(view.getByRole("button", { name: "GPT Transcribe" }).classList.contains("active")).toBe(true);
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    await choose(view, /^Local Whisper /);
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledTimes(2));
+    expect(selector(view).textContent).toContain("Local Whisper");
+    expect(view.queryByText(/could not be saved/)).toBeNull();
+  });
+
+  it("keeps an output toggled during the write when the write fails", async () => {
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise<void>((_, reject) => fail = reject));
+    const view = await renderReady();
+    await choose(view, /^Local Whisper /);
+    expect((selector(view) as HTMLButtonElement).disabled).toBe(true);
+    // Settings waits too: a snapshot taken now could outlive the rollback.
+    expect(view.getByRole("button", { name: "Open settings" }).hasAttribute("disabled")).toBe(true);
+    await fireEvent.click(view.getByRole("button", { name: /^File/ }));
+    fail(new Error("Disk full"));
+    await waitFor(() => expect(selector(view).textContent).toContain("GPT Transcribe"));
+    expect((selector(view) as HTMLButtonElement).disabled).toBe(false);
+    expect(view.getByRole("button", { name: /^File/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the same choice as Settings, in both directions, and Cancel there keeps it", async () => {
+    const view = await renderReady();
+    await choose(view, /^Local Whisper /);
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledOnce());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    expect(view.getByRole("button", { name: "Local Whisper" }).classList.contains("active")).toBe(true);
+    await fireEvent.click(view.getByRole("button", { name: "GPT Transcribe" }));
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    expect(selector(view).textContent).toContain("Local Whisper");
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await fireEvent.click(view.getByRole("button", { name: "GPT Transcribe" }));
+    await fireEvent.click(view.getByRole("combobox", { name: "Cloud transcription model" }));
+    await fireEvent.click(view.getByRole("option", { name: /GPT Live Transcribe/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(selector(view).textContent).toContain("GPT Live Transcribe");
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ engine: "open_ai", cloud_model: "gpt_live_transcribe" }));
+  });
+
+  it("names the local model, or its absence, without offering to choose it here", async () => {
+    vi.mocked(api.listLocalModels).mockResolvedValue([base, { ...base, id: "small", name: "Whisper Small", downloaded: false }]);
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), engine: "local_whisper" });
+    const view = await renderReady();
+    expect(selector(view).textContent).toContain("On device · Whisper Base");
+    await fireEvent.click(selector(view));
+    // Three ways to transcribe, and no model list: that stays in Settings.
+    expect(view.getAllByRole("option").map((option) => option.textContent?.replace("✓", "").trim())).toEqual([
+      "GPT TranscribeFinished text · Cloud",
+      "GPT Live TranscribeLive at cursor · Windows and Omarchy",
+      "Local WhisperOn device · Whisper Base",
+    ]);
+    await fireEvent.keyDown(selector(view), { key: "Escape" });
+    view.unmount();
+
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), engine: "local_whisper", local_model_id: "small" });
+    const undownloaded = await renderReady();
+    expect(selector(undownloaded).textContent).toContain("On device · Download Whisper Small in Settings");
+    undownloaded.unmount();
+
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), engine: "local_whisper", local_model_id: null });
+    const unchosen = await renderReady();
+    expect(selector(unchosen).textContent).toContain("On device · Choose a model in Settings");
+  });
+
+  it("switching to GPT Live keeps the action Plain and finishes without typing the text again", async () => {
+    vi.mocked(api.getLiveStatus).mockResolvedValue({ text: "Live words", insertedText: "Live words", deliveryPaused: false, warning: null, phase: "streaming" });
+    vi.mocked(api.finishRecording).mockResolvedValue({ ...finished, historyEntry: null, text: "Live words", copiedToClipboard: false, typedAtCursor: true });
+    const view = await renderReady();
+    await fireEvent.click(view.getByRole("combobox", { name: "Action" }));
+    await fireEvent.click(view.getByRole("option", { name: /^Email/ }));
+    await choose(view, /^GPT Live Transcribe /);
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledOnce());
+    expect(view.queryByRole("combobox", { name: "Action" })).toBeNull();
+    expect(view.getByText("Live · append only").parentElement?.textContent).toContain("Plain");
+    expect(view.queryByText(/Place the cursor in your text field/)).not.toBeNull();
+    // The window's own button only explains; the recording starts from the target field.
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    expect(api.startRecording).not.toHaveBeenCalled();
+    await remoteIntent("start");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledWith(null, "open_ai", "base", "plain"));
+    await remoteIntent("stop");
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    expect(api.finishRecording).toHaveBeenCalledWith(expect.objectContaining({ action: "plain", typeAtCursor: false }));
+  });
+
+  it("says where GPT Live does not run, and turns a remote start away there", async () => {
+    vi.mocked(api.liveSupport).mockResolvedValue({ supported: false, explanation: "Live Dictation in 0.6.0 supports Windows and Omarchy/Hyprland only. Use GPT Transcribe here; macOS Live is planned separately." });
+    const view = await renderReady();
+    await choose(view, /^GPT Live Transcribe /);
+    await waitFor(() => expect(view.queryAllByText(/supports Windows and Omarchy\/Hyprland only/).length).toBeGreaterThan(0));
+    await remoteIntent("start");
+    expect(api.startRecording).not.toHaveBeenCalled();
+    // The hint does not pretend otherwise for the platform it is shown on.
+    await fireEvent.click(selector(view));
+    expect(view.getByRole("option", { name: /^GPT Live Transcribe / }).textContent).toContain("Windows and Omarchy");
+  });
+
+  it("is locked while a recording is starting, running, paused and processing", async () => {
+    let started!: () => void;
+    let processed!: (value: typeof finished) => void;
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((done) => started = done));
+    vi.mocked(api.finishRecording).mockImplementationOnce(() => new Promise((done) => processed = done));
+    const view = await renderReady();
+    const locked = () => (selector(view) as HTMLButtonElement).disabled;
+    expect(locked()).toBe(false);
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    expect(locked()).toBe(true);
+    started();
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(locked()).toBe(true);
+    await fireEvent.click(view.getByRole("button", { name: "Pause recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Resume recording" })).not.toBeNull());
+    expect(locked()).toBe(true);
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    expect(locked()).toBe(true);
+    // A locked selector cannot be opened from the keyboard either.
+    await fireEvent.keyDown(selector(view), { key: "ArrowDown" });
+    expect(view.queryByRole("listbox")).toBeNull();
+    processed(finished);
+    await waitFor(() => expect(locked()).toBe(false));
+    expect(api.saveSettings).toHaveBeenCalledOnce(); // the recording's own save, nothing from the selector
+  });
+
+  it("is driven from the keyboard without leaking keys into the window's shortcuts", async () => {
+    const view = await renderReady();
+    const trigger = selector(view);
+    trigger.focus();
+    await fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(view.getByRole("listbox", { name: "Transcription" })).toBeTruthy();
+    await fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    await fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ engine: "open_ai", cloud_model: "gpt_live_transcribe" })));
+    expect(view.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    // Typeahead reaches Local Whisper; "f" here must not toggle the file output.
+    await fireEvent.keyDown(trigger, { key: "l" });
+    await fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ engine: "local_whisper" })));
+    await fireEvent.keyDown(trigger, { key: "f" });
+    await fireEvent.keyDown(trigger, { key: "Escape" });
+    expect(view.getByRole("button", { name: /^File/ }).getAttribute("aria-pressed")).toBe("false");
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("a recording started while the choice is being written waits for it, then runs with it", async () => {
+    let saved!: () => void;
+    vi.mocked(api.listLocalModels).mockResolvedValue([base]);
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise<void>((done) => saved = done));
+    const view = await renderReady();
+    await choose(view, /^Local Whisper /);
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByText("Preparing the microphone…")).not.toBeNull());
+    // Turned away as long as the choice is not confirmed; a second press meanwhile is too.
+    expect(api.startRecording).not.toHaveBeenCalled();
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    saved();
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    expect(api.startRecording).toHaveBeenCalledWith(null, "local_whisper", "base", "plain");
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+  });
+});
+
+// Once `finish_recording` has answered, Utterform takes the next dictation at
+// once; the Done cue and the ribbon's release run on without holding it. What
+// arrives while the transcript is still being processed is dropped, never
+// queued: a key pressed then must not start a recording seconds later.
+describe("the ready boundary after processing", () => {
+  const finished = { historyEntry: null, text: "Dictated", durationMs: 900, engine: "open_ai" as const, savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [] };
+
+  async function recordUntilProcessing() {
+    let complete!: (value: typeof finished) => void;
+    let fail!: (error: Error) => void;
+    vi.mocked(api.finishRecording).mockImplementationOnce(() => new Promise((done, reject) => { complete = done; fail = reject; }));
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await remoteIntent("toggle");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    expect(view.getByText("Processing", { selector: ".record-status" })).toBeTruthy();
+    return { view, complete: () => complete(finished), fail: () => fail(new Error("Transcription failed")) };
+  }
+
+  it("drops a toggle that arrives during processing, and never replays it", async () => {
+    const { view, complete } = await recordUntilProcessing();
+    await remoteIntent("toggle");
+    await remoteIntent("start");
+    await fireEvent.keyDown(window, { code: "Space" });
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    expect(api.startRecording).toHaveBeenCalledOnce();
+    complete();
+    await waitFor(() => expect(view.queryByText("Copied to clipboard")).not.toBeNull());
+    // Ready, and nothing pending: the dropped presses do not start anything now.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.startRecording).toHaveBeenCalledOnce();
+    expect(api.finishRecording).toHaveBeenCalledOnce();
+    expect(view.getByRole("button", { name: "Start recording" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("starts exactly one recording on the first toggle after the answer", async () => {
+    const { view, complete } = await recordUntilProcessing();
+    complete();
+    await waitFor(() => expect(view.queryByText("Copied to clipboard")).not.toBeNull());
+    await remoteIntent("toggle");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(api.startRecording).toHaveBeenCalledTimes(2);
+    expect(api.finishRecording).toHaveBeenCalledOnce();
+  });
+
+  it("takes a burst of presses at the boundary as one start, not a start and a stop", async () => {
+    let started!: () => void;
+    const { view, complete } = await recordUntilProcessing();
+    complete();
+    await waitFor(() => expect(view.queryByText("Copied to clipboard")).not.toBeNull());
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((done) => started = done));
+    // A bouncing key, a double click, and a hotkey all inside the same moment.
+    listeners.get("remote-intent")!({ payload: "toggle" });
+    listeners.get("remote-intent")!({ payload: "toggle" });
+    listeners.get("remote-intent")!({ payload: "start" });
+    await fireEvent.keyDown(window, { code: "Space" });
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    expect(api.startRecording).toHaveBeenCalledTimes(2);
+    started();
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(api.startRecording).toHaveBeenCalledTimes(2);
+    expect(api.finishRecording).toHaveBeenCalledOnce();
+  });
+
+  it("stays startable after a failed completion", async () => {
+    const { view, fail } = await recordUntilProcessing();
+    fail();
+    await waitFor(() => expect(view.queryByText("Transcription failed")).not.toBeNull());
+    await remoteIntent("toggle");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(api.startRecording).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not stop a recording that is still starting", async () => {
+    let started!: () => void;
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((done) => started = done));
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    await remoteIntent("toggle");
+    await remoteIntent("stop");
+    started();
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(api.finishRecording).not.toHaveBeenCalled();
+    expect(api.startRecording).toHaveBeenCalledOnce();
   });
 });

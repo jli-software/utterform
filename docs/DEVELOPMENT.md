@@ -9,7 +9,49 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.5
+## Current handoff — 0.7.6
+
+Three changes, all built and tested on Linux; the branch is handed over uncommitted for
+review, the Desktop-builds run, platform checks, signing and the release.
+
+**macOS is a menu-bar application for good.** `LSUIElement = true` in `Info.plist` and
+`ActivationPolicy::Accessory` in `lib.rs`, set before the window can first be shown and
+never switched back: no Dock icon and no ⌘-Tab entry whether the window is showing or
+hidden. The `RunEvent::Reopen` handler stays — it is what a second launch from Finder,
+Launchpad or Spotlight reaches, since Launch Services starts no second process — and its
+comment now says so. A launch that asks for the window goes through
+`activation::reveal_main_window` on macOS, because an accessory application is not
+activated for being launched; tao's `set_focus` does the activation. `package-macos.sh`
+refuses a bundle without a boolean `LSUIElement`. The details and what is still to be
+seen on a real Mac are in [MACOS.md](MACOS.md). **This touches `cfg(target_os = "macos")`
+code, so run Actions → Desktop builds for all three platforms before tagging.**
+
+**The main window chooses the transcription.** The static chip is a `SelectMenu` with
+GPT Transcribe, GPT Live Transcribe and Local Whisper, written at once through
+`save_settings` as exactly `engine` and `cloud_model` — no new setting, no migration;
+Local Whisper keeps the cloud model chosen before it. The selector is locked while its
+write is out and while a recording is starting, running, paused or processing; a failed
+write names itself and returns the two fields to what the backend confirmed. A recording
+started while the write is out waits for it (`transcriptionWork` in `App.svelte`). The
+local model is only named here, with its absence; choosing and downloading stay in
+Settings. Below 600 px the two selectors stack; at 360 × 400 they sit side by side
+again, because a stacked pair pushes the recorder and the output bar out of a 400 px
+window — that is the one layout judgement call in this change.
+
+**The next dictation no longer waits for the Done cue.** `finish_recording` used to
+await the whole Done cue (lead-in, tone and 300 ms tail, up to the three-second
+deadline on a slow output) before answering, and the interface sat in `processing`
+until then. The cue is now started detached through `feedback::DoneCues`, batch and
+live alike, and every real recording start makes it stale before the new start cue is
+scheduled; see [ARCHITECTURE.md](ARCHITECTURE.md) for the generation rule. No new
+backend event was added: the interface already dropped intents during `processing`
+and started exactly once afterwards, which the new interface and Playwright tests now
+pin down. **The Playwright and Vitest coverage proves the interface boundary with mocked
+IPC, not the audio cancellation** — that is proven by the `feedback.rs` tests driving
+the callback logic without a device, and only a real speaker shows whether the silenced
+cue is inaudible in practice (expected: at most a click where the tone was cut).
+
+## Previous handoff — 0.7.5
 
 **macOS releases are Developer ID signed and Apple notarized.** Repository secrets
 form one required set; a partial configuration fails instead of falling back to an

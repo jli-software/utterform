@@ -119,6 +119,11 @@ fn begin_recording(
         }
     }
     let current_settings = settings::load(app)?;
+    // The previous recording's Done cue ends here if it is still sounding,
+    // before the start cue is scheduled: a chime finishing inside the next
+    // dictation would confirm the wrong recording, and its tail must not be
+    // what the microphone hears once the start cue has armed it.
+    app.state::<feedback::DoneCues>().cancel();
     let started = audio::start_recording(
         &app.state::<AudioCaptureState>(),
         input_device,
@@ -297,8 +302,11 @@ pub async fn finish_recording(
         && transformation_succeeded
         && delivery.all_requested_outputs_succeeded(&request)
     {
-        // Do not block the async executor while the native output buffer drains.
-        let _ = tauri::async_runtime::spawn_blocking(|| feedback::play(Cue::Done)).await;
+        // Not awaited: the interface is ready for the next recording the
+        // moment this command returns, and the cue must never hold that up.
+        // The cue thread logs the outcome; the next recording silences it if
+        // it is still sounding by then.
+        let _ = app.state::<feedback::DoneCues>().play();
     }
     warnings.extend(delivery.warnings);
 

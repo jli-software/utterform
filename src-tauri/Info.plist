@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
+    <!-- A menu-bar application: never in the Dock or ⌘-Tab, the tray is the
+         way in. lib.rs sets the matching activation policy at startup. -->
+    <key>LSUIElement</key>
+    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Utterform needs microphone access to record speech for transcription.</string>
   </dict>
