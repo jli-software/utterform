@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.7 — v0.7.7 · Clearer settings, less text (unreleased)
+## 0.7.7 — v0.7.7 · Clearer settings, less text
 
 - Reorganise Settings into General, Recording, AI & Models, Actions and Output; put shortcuts with recording, API keys with AI models and history with output.
 - Remove navigation subtitles, decorative header copy and repetitive recording hints. Keep descriptions in open selectors and concise help for settings that need it.
