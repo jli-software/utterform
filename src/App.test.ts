@@ -356,7 +356,7 @@ describe("the dictation key recorder", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "Recording");
+    await showSettingsTab(view, "General");
     return view;
   }
 
@@ -461,7 +461,7 @@ describe("the dictation key recorder", () => {
     expect(vi.mocked(api.applyGlobalHotkey).mock.calls.at(-1)).toEqual(["Ctrl+Alt+D"]);
 
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "Recording");
+    await showSettingsTab(view, "General");
     expect(view.getByRole("button", { name: /Shortcut/ }).textContent).toContain("Ctrl+Alt+D");
   });
 
@@ -484,7 +484,7 @@ describe("the dictation key recorder", () => {
 
     await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
     expect(view.getByRole("alert").textContent).toContain("not available");
-    expect(view.getByRole("tab", { name: "Recording" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "General" }).getAttribute("aria-selected")).toBe("true");
     // The rest of the settings are stored; only the key needs another attempt.
     expect(api.saveSettings).toHaveBeenCalled();
     expect(view.queryByRole("dialog")).not.toBeNull();
@@ -516,7 +516,7 @@ describe("the dictation key recorder", () => {
     });
     const view = await openSettings();
     expect(view.getByRole("alert").textContent).toContain("not available");
-    expect(view.getByRole("tab", { name: "Recording" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "General" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("offers a Wayland session the command line instead of a dead recorder", async () => {

@@ -7,8 +7,8 @@ on:
       platform:
         description: Platform to build and verify (does not publish a release)
         type: choice
-        default: all
-        options: [all, linux, windows, macos]
+        default: linux
+        options: [linux, windows, macos, all]
 
 permissions:
   contents: read

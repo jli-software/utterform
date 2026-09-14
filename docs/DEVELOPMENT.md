@@ -4,12 +4,55 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Always release completed work:** Jonas explicitly wants every completed, successfully validated set of Utterform changes published as a new GitHub version with all platform binaries, not left as source-only changes. Unless a version is specified, increment the patch by default (0.3.0 → 0.3.1); increment the minor only when Jonas asks, respecting any explicit version; use normal `vX.Y.Z` releases unless a prerelease is requested. Synchronize versions/installer/docs, run checks, tag, wait for every platform and publishing job, and verify the downloaded assets before calling the work released. No additional release confirmation is needed. Never move a published tag or publish failing/partial work; fix blockers first.
+- **Test one platform before release (supersedes the earlier automatic-release rule):** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.6
+## Current handoff — 0.7.8
+
+Settings has a viewport-bound height (up to 820 px), independent of the active category.
+The header, navigation and Save/Cancel footer stay in place; only the panel scrolls.
+A stable scrollbar gutter keeps form widths unchanged between short and long panels.
+Compact windows retain horizontal navigation and an independently scrolling panel.
+Dictation shortcut is the first group in General; shortcut registration failures return
+there, and the live-dictation setup hint points there. No settings schema, Save/Cancel
+semantics or native recording/input code changes.
+
+Jonas accepted the Linux preview `2eb11b6` on 2026-09-14 and authorized this final shortcut
+move, merge and full Linux/Windows/macOS release. No second manual preview gate is required.
+For future preview handoffs he wants a ready-to-run, verified **curl command**, not just
+manual download/extract steps. Bind it to the exact preview artifact/commit and document
+any required GitHub authentication; never invent an anonymous URL for an Actions artifact
+or put credentials in the shared command. A preview must not silently install `latest`.
+
+### Preview and release procedure
+
+1. Push the validated branch and open/update its PR. Ordinary CI does not package binaries.
+2. Build **only Jonas's selected test platform**, explicitly on that branch:
+   ```sh
+   gh workflow run desktop-builds.yml --ref work/utterform-0.7.8-stable-settings -f platform=linux
+   ```
+   Manual runs default to Linux to avoid an accidental three-platform preview;
+   the tag workflow still calls the full three-platform matrix.
+3. Share the successful run's `utterform-binaries-linux-x86_64` artifact and head SHA.
+   It expires after 30 days; it is not a GitHub Release and does not change `latest`.
+   Download/extract the artifact, verify it, and launch the test binary:
+   ```sh
+   sha256sum -c SHA256SUMS.txt
+   tar -xzf utterform-linux-x86_64-system.tar.gz
+   env -u LD_LIBRARY_PATH GDK_BACKEND=x11 ./utterform-linux-x86_64-system/bin/utterform
+   ```
+   Quit the installed Utterform first (single-instance application). The test uses the
+   existing user settings; no installer is needed. Do **not** run the included release
+   installer for a branch preview: it downloads from a release tag that does not exist yet.
+4. Jonas checks General ↔ Recording ↔ AI & Models ↔ Actions ↔ Output, scrolling,
+   compact windows and Save/Cancel. Revise and rebuild only the chosen platform as needed.
+5. After acceptance and authorization to finalize, update the pending release wording,
+   merge the approved revision into `main`, tag `v0.7.8`, and let the tag workflow build
+   and publish all three platforms. Verify assets/checksums and macOS signing as usual.
+
+## Previous handoff — 0.7.6
 
 Three changes, all built and tested on Linux; the branch is handed over uncommitted for
 review, the Desktop-builds run, platform checks, signing and the release.

@@ -4,14 +4,14 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.7.7 — Clearer settings, less text** reduces UI clutter and organises settings by task. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.7.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.7).
+> Utterform is under active development. **0.7.8 — Stable settings** keeps the settings dialog stationary and puts the dictation shortcut first in General. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.8.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.8).
 
 ## Settings
 
 | Category | Controls |
 | --- | --- |
-| General | Appearance, startup |
-| Recording | Microphone, language hints, dictation shortcut, sounds, vocabulary and context |
+| General | Dictation shortcut, appearance, startup |
+| Recording | Microphone, language hints, sounds, vocabulary and context |
 | AI & Models | Transcription mode, OpenAI key, local models, text model and thinking effort |
 | Actions | Built-in and custom prompts |
 | Output | Typing method, file folder, local history |
@@ -87,7 +87,7 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 
 Press one key, speak, press it again. The window never comes forward, so you stay in whatever you were typing in. How the key reaches Utterform depends on who owns the keyboard.
 
-**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → Recording → Dictation shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
+**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → General → Dictation shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
 
 **Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 
@@ -170,7 +170,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.6 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.6):
+Download the [0.7.8 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.8):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -180,7 +180,7 @@ Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there:
 
 On macOS drag Utterform into Applications. The first recording asks for the microphone, and the first typing at the cursor asks for Accessibility. Since 0.7.5 the stable Developer ID signature identifies updates as the same app, and Apple notarizes the app before release. Windows builds remain unsigned and may trigger SmartScreen. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
-Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) and choose Linux, Windows, macOS, or all; it publishes nothing. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
+Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) on the PR branch and choose the first-test platform requested by Jonas (Linux by default), Windows, macOS, or explicitly all; it publishes nothing. Wait for user acceptance before merging and tagging, unless an immediate full release was explicitly requested. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
 
 ## Features
 

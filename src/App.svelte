@@ -166,7 +166,7 @@
   $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
     : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
       ? `Place the cursor in your text field, then press ${settings.global_hotkey} to start and finish live dictation.`
-      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → Recording.";
+      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → General.";
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
   // Number keys follow the list, so a renamed or added action still has one.
@@ -803,7 +803,7 @@
           // the dialog stays open where the shortcut was entered.
           hotkeyError = String(error);
           hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
-          selectSettingsTab("recording");
+          selectSettingsTab("general");
           return;
         }
       }
@@ -1120,6 +1120,22 @@
 
         <div class="settings-scroll" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
         {#if settingsTab === "general"}
+        <div class="setting-group"><h3>Dictation shortcut</h3>
+          {#if hotkeySupport.supported}
+            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Enable global dictation shortcut</span></label>
+            {#if settings.global_hotkey !== null}
+              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
+                value={settings.global_hotkey || hotkeySupport.default}
+                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
+                oncapture={captureHotkey} />
+            {/if}
+            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
+            <p class="privacy-note">Press once to record, again to finish. Works in other apps without opening Utterform.</p>
+          {:else}
+            <p class="privacy-note">{hotkeySupport.explanation}</p>
+          {/if}
+        </div>
+
         <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
           {#each ["system", "light", "dark"] as theme}
             <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
@@ -1138,22 +1154,6 @@
         <div class="setting-group"><h3>Audio input</h3>
         <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
         <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label>
-        </div>
-
-        <div class="setting-group"><h3>Dictation shortcut</h3>
-          {#if hotkeySupport.supported}
-            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Enable global dictation shortcut</span></label>
-            {#if settings.global_hotkey !== null}
-              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
-                value={settings.global_hotkey || hotkeySupport.default}
-                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
-                oncapture={captureHotkey} />
-            {/if}
-            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
-            <p class="privacy-note">Press once to record, again to finish. Works in other apps without opening Utterform.</p>
-          {:else}
-            <p class="privacy-note">{hotkeySupport.explanation}</p>
-          {/if}
         </div>
 
         <div class="setting-group"><h3>Recording feedback</h3>
