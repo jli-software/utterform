@@ -812,3 +812,59 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 920, height: 720 }
     }
   });
 }
+
+for (const viewport of [
+  { width: 920, height: 720 },
+  { width: 1280, height: 1000 },
+  { width: 360, height: 400 },
+  { width: 920, height: 400 },
+]) {
+  test(`settings geometry stays calm at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open settings" }).click();
+    const tabs = ["General", "Recording", "AI & Models", "Actions", "Output"];
+    const panel = page.getByRole("tabpanel");
+    const geometry = () => page.locator(".settings-modal, .modal-header, .settings-rail, .settings-scroll, .modal-actions").evaluateAll(
+      (elements) => elements.map((element) => {
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { x, y, width, height };
+      }),
+    );
+    const original = await geometry();
+    const cardWidth = (await panel.locator(".setting-group").first().boundingBox())!.width;
+    for (const rect of original) {
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.y).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(viewport.width);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(viewport.height);
+    }
+    for (const name of [...tabs, ...tabs.toReversed()]) {
+      const tab = page.getByRole("tab", { name, exact: true });
+      await tab.click();
+      await expect(tab).toBeInViewport({ ratio: 1 });
+      await expect.poll(geometry).toEqual(original);
+      expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+      expect((await panel.locator(".setting-group").first().boundingBox())!.width).toBe(cardWidth);
+    }
+    await page.getByRole("tab", { name: "Recording", exact: true }).click();
+    // Scroll the dense panel to its last control; the chrome must not move.
+    await page.getByRole("textbox", { name: "Vocabulary", exact: true }).scrollIntoViewIfNeeded();
+    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect(await geometry()).toEqual(original);
+    await expect(page.getByRole("button", { name: "Save settings", exact: true })).toBeInViewport({ ratio: 1 });
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+    expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("stable-settings.png") });
+
+    // Resizing an already open dialog recomputes its viewport cap, not a cached size.
+    await page.setViewportSize({ width: 480, height: 480 });
+    const resized = await geometry();
+    for (const name of tabs) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      await expect.poll(geometry).toEqual(resized);
+    }
+    await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeInViewport({ ratio: 1 });
+  });
+}

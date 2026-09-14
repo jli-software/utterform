@@ -95,10 +95,13 @@ main:not(.has-result) footer { margin-top:20px; }
 .setting-details { margin-top:12px; color:var(--muted); font-size:11px; }
 .setting-details summary { cursor:pointer; }
 .section-description { color:var(--muted); font-size:11px; line-height:1.6; margin:0 0 14px; }
-.settings-modal { width:min(860px,100%); max-height:min(820px,calc(100vh - 48px)); display:flex; flex-direction:column; background:var(--surface-solid); border:1px solid var(--line); border-radius:5px; box-shadow:none; overflow:hidden; }
+/* The viewport, not the active category, owns the dialog geometry. */
+.settings-modal { width:min(860px,100%); height:min(820px,calc(100dvh - 48px)); display:flex; flex-direction:column; background:var(--surface-solid); border:1px solid var(--line); border-radius:5px; box-shadow:none; overflow:hidden; }
+.settings-modal > .modal-header, .settings-modal > .modal-actions { flex-shrink:0; }
+.settings-scroll { min-width:0; min-height:0; scrollbar-gutter:stable; }
 .modal-header { padding:24px 26px 18px; display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid var(--line); }.modal-header small { color:var(--accent); letter-spacing:.14em; font-weight:800; font-size:9px; }.modal-header h2 { margin:4px 0 0; font-size:24px; letter-spacing:-.04em; }.modal-header .icon-button { font-size:25px; line-height:1; color:var(--muted); }
 .settings-body { flex:1; min-height:0; display:grid; grid-template-columns:154px minmax(0,1fr); }
-.settings-rail { display:flex; flex-direction:column; gap:2px; padding:16px 12px; border-right:1px solid var(--line); background:var(--surface-solid); }
+.settings-rail { min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; padding:16px 12px; border-right:1px solid var(--line); background:var(--surface-solid); }
 .settings-rail button { display:flex; align-items:center; min-height:40px; padding:10px 12px; border:0; border-radius:5px; background:transparent; text-align:left; color:var(--muted); transition:background .18s, color .18s; }
 .settings-rail button strong { font-size:12px; font-weight:700; }
 .settings-rail button:hover:not(.active) { background:var(--bg); }
@@ -225,7 +228,7 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .result-title { gap:5px; }
   .result-heading { gap:6px; }
   .modal-backdrop { padding:10px; }
-  .settings-modal { max-height:calc(100vh - 20px); }
+  .settings-modal { height:min(820px,calc(100dvh - 20px)); }
   .settings-scroll { padding:10px; }
   .setting-group { padding:14px; }
   .modal-header { padding:16px; }

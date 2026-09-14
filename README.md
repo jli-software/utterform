@@ -170,7 +170,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.6 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.6):
+Download the [0.7.7 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.7):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
@@ -180,7 +180,9 @@ Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there:
 
 On macOS drag Utterform into Applications. The first recording asks for the microphone, and the first typing at the cursor asks for Accessibility. Since 0.7.5 the stable Developer ID signature identifies updates as the same app, and Apple notarizes the app before release. Windows builds remain unsigned and may trigger SmartScreen. Verify assets against `SHA256SUMS.txt`; do not disable system-wide security protections.
 
-Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) and choose Linux, Windows, macOS, or all; it publishes nothing. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
+**0.7.8 is a branch preview, not yet released.** See the [planned changes](docs/releases/v0.7.8.md) and [test procedure](docs/DEVELOPMENT.md#preview-and-release-procedure). The future [v0.7.8 release](https://github.com/jli-software/utterform/releases/tag/v0.7.8) will become available only after acceptance; stable downloads above remain on 0.7.7.
+
+Push/PR CI runs Linux validation without release compilation. For a test binary — or to check a branch on every platform before tagging it — manually run [Actions → Desktop builds](https://github.com/jli-software/utterform/actions/workflows/desktop-builds.yml) on the PR branch and choose the first-test platform requested by Jonas (Linux by default), Windows, macOS, or explicitly all; it publishes nothing. Wait for user acceptance before merging and tagging, unless an immediate full release was explicitly requested. Tagged releases build all three supported targets once and publish only after all checks and packaging succeed.
 
 ## Features
 
