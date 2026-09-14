@@ -9,13 +9,22 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.8 (awaiting user acceptance)
+## Current handoff — 0.7.8
 
 Settings has a viewport-bound height (up to 820 px), independent of the active category.
 The header, navigation and Save/Cancel footer stay in place; only the panel scrolls.
 A stable scrollbar gutter keeps form widths unchanged between short and long panels.
 Compact windows retain horizontal navigation and an independently scrolling panel.
-No settings schema, Save/Cancel semantics or native recording/input code changes.
+Dictation shortcut is the first group in General; shortcut registration failures return
+there, and the live-dictation setup hint points there. No settings schema, Save/Cancel
+semantics or native recording/input code changes.
+
+Jonas accepted the Linux preview `2eb11b6` on 2026-09-14 and authorized this final shortcut
+move, merge and full Linux/Windows/macOS release. No second manual preview gate is required.
+For future preview handoffs he wants a ready-to-run, verified **curl command**, not just
+manual download/extract steps. Bind it to the exact preview artifact/commit and document
+any required GitHub authentication; never invent an anonymous URL for an Actions artifact
+or put credentials in the shared command. A preview must not silently install `latest`.
 
 ### Preview and release procedure
 

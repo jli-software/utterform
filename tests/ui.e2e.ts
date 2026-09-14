@@ -299,7 +299,7 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
     expect(box.y + box.height).toBeLessThanOrEqual(scroll.y + scroll.height + 1);
     expect(box.x + box.width).toBeLessThanOrEqual(scroll.x + scroll.width + 1);
   };
-  await page.getByRole("tab", { name: /Recording/ }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
   await insideTheScroll(page.getByRole("button", { name: /Shortcut/ }));
   await page.getByRole("tab", { name: /General/ }).click();
   await insideTheScroll(page.getByRole("checkbox", { name: /when I sign in/ }));
@@ -356,7 +356,12 @@ test("the dictation key and the typing method are reachable and readable in Sett
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  await page.getByRole("tab", { name: /Recording/ }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
+
+  await expect(page.getByRole("tabpanel").getByRole("heading").first()).toHaveText("Dictation shortcut");
+  await page.getByRole("tab", { name: "Recording", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Dictation shortcut", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: "General", exact: true }).click();
 
   // The shortcut is recorded, not typed: real key presses through the browser.
   const shortcut = page.getByRole("button", { name: /Shortcut/ });
@@ -382,9 +387,9 @@ test("the dictation key and the typing method are reachable and readable in Sett
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__appliedHotkey"))).toBe("Ctrl+Alt+D");
 
   const shortcutBox = (await shortcut.boundingBox())!;
-  const recordingScroll = (await page.locator(".settings-scroll").boundingBox())!;
-  expect(shortcutBox.x).toBeGreaterThanOrEqual(recordingScroll.x - 1);
-  expect(shortcutBox.x + shortcutBox.width).toBeLessThanOrEqual(recordingScroll.x + recordingScroll.width + 1);
+  const generalScroll = (await page.locator(".settings-scroll").boundingBox())!;
+  expect(shortcutBox.x).toBeGreaterThanOrEqual(generalScroll.x - 1);
+  expect(shortcutBox.x + shortcutBox.width).toBeLessThanOrEqual(generalScroll.x + generalScroll.width + 1);
   await page.getByRole("tab", { name: "Output", exact: true }).click();
 
   // Paste is the default; the keystroke delay only appears once it is needed,
@@ -413,7 +418,7 @@ test("the dictation key and the typing method are reachable and readable in Sett
 test("Escape leaves the shortcut alone before it leaves Settings", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /Recording/ }).click();
+  await page.getByRole("tab", { name: /General/ }).click();
   const shortcut = page.getByRole("button", { name: /Shortcut/ });
   await shortcut.click();
   await page.keyboard.press("Escape");
@@ -850,7 +855,7 @@ for (const viewport of [
     }
     await page.getByRole("tab", { name: "Recording", exact: true }).click();
     // Scroll the dense panel to its last control; the chrome must not move.
-    await page.getByRole("textbox", { name: "Vocabulary", exact: true }).scrollIntoViewIfNeeded();
+    await page.getByRole("textbox", { name: /Recording context/ }).scrollIntoViewIfNeeded();
     expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     expect(await geometry()).toEqual(original);
     await expect(page.getByRole("button", { name: "Save settings", exact: true })).toBeInViewport({ ratio: 1 });

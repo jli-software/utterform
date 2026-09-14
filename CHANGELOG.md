@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.7.8 — v0.7.8 · Stable settings (unreleased)
+## 0.7.8 — v0.7.8 · Stable settings
 
 - Keep the Settings dialog, navigation and footer stationary when switching categories; scroll long content inside the panel.
 - Reserve scrollbar space so form widths do not shift between sparse and dense panels.
+- Put Dictation shortcut first in General, including shortcut error routing and setup guidance.
 - Preview changes on one chosen platform from a branch before user acceptance, merge and the complete release. Manual desktop builds default to Linux; tagged releases still build all three platforms.
 
 See [0.7.8 release notes](docs/releases/v0.7.8.md).
