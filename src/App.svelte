@@ -43,13 +43,14 @@
   /// anywhere: it is read from `engine` and `cloud_model` and written back as
   /// exactly those two, so Settings and the main window cannot disagree.
   type TranscriptionMode = "gpt_transcribe" | "gpt_live_transcribe" | "local_whisper";
-  type SettingsTab = "voice" | "prompts" | "output" | "general";
+  type SettingsTab = "general" | "recording" | "ai" | "actions" | "output";
 
-  const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; hint: string }> = [
-    { id: "voice", label: "Voice", hint: "Engine, microphone, vocabulary" },
-    { id: "prompts", label: "Prompts", hint: "What each action asks for" },
-    { id: "output", label: "Output", hint: "Where the finished text goes" },
-    { id: "general", label: "General", hint: "Appearance, startup, history" },
+  const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
+    { id: "general", label: "General" },
+    { id: "recording", label: "Recording" },
+    { id: "ai", label: "AI & Models" },
+    { id: "actions", label: "Actions" },
+    { id: "output", label: "Output" },
   ];
   const EFFORTS: Array<{ value: TextEffort | null; label: string }> = [
     { value: null, label: "Auto" },
@@ -65,7 +66,7 @@
   let models: LocalModel[] = [];
   let selectedAction: string = "plain";
   let showSettings = false;
-  let settingsTab: SettingsTab = "voice";
+  let settingsTab: SettingsTab = "general";
   // The shipped prompts come from the backend so there is only ever one copy of
   // them; this list stands in until it answers, and in a browser preview.
   let builtInActions: BuiltInAction[] = BUILT_IN_ACTIONS;
@@ -132,7 +133,7 @@
   let unlistenCueTest: UnlistenFn | undefined;
   const apple = isApplePlatform();
   const copyShortcut = apple ? "⌘⇧C" : "Ctrl+Shift+C";
-  let message = "Ready when you are";
+  let message = "";
   let downloadProgress: Record<string, number> = {};
   let busyModel: string | null = null;
   let unlistenProgress: UnlistenFn | null = null;
@@ -165,7 +166,7 @@
   $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
     : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
       ? `Place the cursor in your text field, then press ${settings.global_hotkey} to start and finish live dictation.`
-      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → Output.";
+      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → Recording.";
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
   // Number keys follow the list, so a renamed or added action still has one.
@@ -198,8 +199,8 @@
   // once, so a Settings dialog opened before the backend answered still shows it.
   $: hotkeyMessage = hotkeyError || hotkeySupport.failure || "";
   $: typingNote = settings.typing_method === "paste"
-    ? "The whole text moves at once, so nothing can be dropped or reordered on the way — terminals included. It is left on the clipboard."
-    : "The text is typed one character at a time. Windows that receive it faster than a person could type may drop letters; raise the delay if characters go missing.";
+    ? "Pastes the text at once and leaves it on the clipboard."
+    : "Types character by character. Increase the delay if letters go missing.";
   $: todaySeconds = Math.round(history.filter((entry) => new Date(historyTimestamp(entry) ?? NaN).toDateString() === new Date(now).toDateString()).reduce((total, entry) => total + entry.durationMs, 0) / 1000);
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
 
@@ -300,6 +301,12 @@
     return value.cloud_model === "gpt_live_transcribe" ? "gpt_live_transcribe" : "gpt_transcribe";
   }
 
+  function transcriptionSettings(mode: string): AppSettings {
+    return mode === "local_whisper"
+      ? { ...settings, engine: "local_whisper" }
+      : { ...settings, engine: "open_ai", cloud_model: mode as CloudModel };
+  }
+
   /// Put a choice made in the main window into effect at once, through the
   /// same save Settings uses. Local Whisper keeps whatever cloud model was
   /// chosen before, so switching back returns to it. A write that fails puts
@@ -308,9 +315,7 @@
   function chooseTranscription(mode: string) {
     if (transcriptionSaving || controlsLocked) return;
     const confirmed = { engine: settings.engine, cloud_model: settings.cloud_model };
-    const next: AppSettings = mode === "local_whisper"
-      ? { ...settings, engine: "local_whisper" }
-      : { ...settings, engine: "open_ai", cloud_model: mode as CloudModel };
+    const next = transcriptionSettings(mode);
     if (transcriptionModeOf(next) === transcriptionMode) return;
     transcriptionSaving = true;
     settings = next;
@@ -319,7 +324,7 @@
         await api.saveSettings(next);
         if (phase === "error") {
           phase = "idle";
-          message = "Ready when you are";
+          message = "";
         }
       } catch (error) {
         settings = { ...settings, ...confirmed };
@@ -442,7 +447,7 @@
       elapsedSeconds = status.elapsedSeconds;
       audioLevel = 0;
       phase = status.paused ? "paused" : "recording";
-      message = status.paused ? "Paused — continue when you’re ready" : "Listening…";
+      message = "";
       changingPause = false;
       if (status.limitReached) await finishRecording();
     } catch (error) {
@@ -465,19 +470,19 @@
       return;
     }
     if (settings.save_to_file && !settings.output_directory) {
-      setError("Choose a default output folder in Settings before saving files.");
+      setError("Choose a folder in Settings → Output before saving files.");
       return;
     }
     const requiresApiKey = settings.engine === "open_ai" || effectiveAction !== "plain";
     if (requiresApiKey && !hasApiKey) {
-      setError("Add an OpenAI API key in Settings before recording with this configuration.");
+      setError("Add an OpenAI API key in Settings → AI & Models before recording.");
       return;
     }
     if (
       settings.engine === "local_whisper" &&
       !models.some((model) => model.id === settings.local_model_id && model.downloaded)
     ) {
-      setError("Download and select a local Whisper model in Settings before recording.");
+      setError("Download and select a model in Settings → AI & Models before recording.");
       return;
     }
     try {
@@ -502,7 +507,7 @@
       );
       elapsedSeconds = 0;
       phase = "recording";
-      message = liveMode ? "Listening — text streams at your cursor" : "Listening…";
+      message = "";
       // Only visual/status polling lives in JS. Native capture and its ten-minute
       // cutoff do not depend on focus or WebView timer scheduling.
       timer = setInterval(() => void pollRecording(), 100);
@@ -798,14 +803,14 @@
           // the dialog stays open where the shortcut was entered.
           hotkeyError = String(error);
           hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
-          settingsTab = "output";
+          selectSettingsTab("recording");
           return;
         }
       }
       if (!(await saveAutostart())) {
         // The startup entry is the only thing left undone, and the switch it
         // belongs to is where the reason is waiting.
-        settingsTab = "general";
+        selectSettingsTab("general");
         return;
       }
       showSettings = false;
@@ -859,7 +864,7 @@
   function openSettings() {
     settingsSnapshot = structuredClone(settings);
     confirmClear = false;
-    settingsTab = "voice";
+    settingsTab = "general";
     vocabularyDraft = settings.vocabulary.join("\n");
     selectPrompt(promptExists(selectedPrompt) ? selectedPrompt : firstEditablePrompt());
     showSettings = true;
@@ -877,12 +882,18 @@
       ?? "";
   }
 
+  function selectSettingsTab(tab: SettingsTab) {
+    settingsTab = tab;
+    const panel = document.getElementById("settings-panel");
+    if (panel) panel.scrollTop = 0;
+  }
+
   function moveSettingsTab(event: KeyboardEvent, index: number) {
     const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
     event.preventDefault();
     const next = SETTINGS_TABS[(index + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
-    settingsTab = next.id;
+    selectSettingsTab(next.id);
     // Follow the selection with focus, as a tablist is expected to.
     (document.getElementById(`settings-tab-${next.id}`) as HTMLElement | null)?.focus();
   }
@@ -982,16 +993,16 @@
   <section class="controls" aria-label="Transcription settings">
     <div class="action-control">
       <span class="control-label">Action</span>
-      {#if liveMode}<div class="engine-chip">Plain <small>Live · append only</small></div>
+      {#if liveMode}<div class="engine-chip">Plain</div>
       {:else}<SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />{/if}
     </div>
     <div class="engine-control" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}><span class="control-label">Transcription</span>
-      <SelectMenu id="transcription" label="Transcription" value={transcriptionMode} options={transcriptionOptions} disabled={controlsLocked || transcriptionSaving} onchange={chooseTranscription} />
+      <SelectMenu id="transcription" label="Transcription" value={transcriptionMode} options={transcriptionOptions} showSelectedHint={settings.engine === "local_whisper" && (!settings.local_model_id || !!selectedModel && !selectedModel.downloaded)} disabled={controlsLocked || transcriptionSaving} onchange={chooseTranscription} />
     </div>
   </section>
 
   <section class="recorder" aria-label="Recording">
-    <div class="record-status" aria-hidden="true"><span class="record-dot" class:visible={recordingActive}></span>{phase === "recording" ? "Recording" : phase === "paused" ? "Paused" : phase === "processing" ? "Processing" : phase === "starting" ? "Preparing" : phase === "error" ? "Attention" : "Ready"}</div>
+    <div class="record-status" role="status"><span class="record-dot" class:visible={recordingActive}></span>{phase === "recording" ? "Recording" : phase === "paused" ? "Paused" : phase === "processing" ? "Processing" : phase === "starting" ? "Preparing" : phase === "error" ? "Attention" : "Ready"}</div>
     <div class="timer">{formatTime(elapsedSeconds)}</div>
     <SignalField phase={phase} level={audioLevel} />
     <div class="recording-controls" class:capturing={recordingActive}>
@@ -1021,14 +1032,14 @@
     {/if}
     </div>
     {#if liveMode && !controlsLocked}<p class="live-help">{liveStartHint}</p>{/if}
-    <p role="status" class:error={phase === "error"}>{liveMode && phase === "recording" && liveStatus?.deliveryPaused ? "Listening — insertion paused; transcript retained" : phase === "recording" && message === "Listening…" ? "Keeps recording when you switch apps" : message}</p>
+    <p class="recorder-message" role="status" class:error={phase === "error"}>{message}</p>
   </section>
 
   {#if liveMode && controlsLocked}
     <section class="live-preview" aria-label="Live dictation">
       <strong>Live transcript</strong>
       <p role="status" class:error={liveStatus?.deliveryPaused || liveStatus?.phase === "failed" || !!liveStatusError}>
-        {liveStatusError || liveStatus?.warning || (liveStatus?.deliveryPaused ? "Insertion paused. Finish, then copy the transcript; insertion will not resume automatically." : phase === "processing" ? "Finishing transcript…" : "Text is appended at the cursor. No automatic corrections.")}
+        {liveStatusError || liveStatus?.warning || (liveStatus?.deliveryPaused ? "Insertion paused. Finish, then copy the transcript; insertion will not resume automatically." : phase === "processing" ? "Finishing transcript…" : "")}
       </p>
       <div class="transcript" role="region" aria-label="Live transcript">{liveStatus?.text || "Waiting for speech…"}</div>
       {#if liveStatus?.deliveryPaused}<small>Some text may already be inserted. Copying the full transcript can duplicate it.</small>{/if}
@@ -1093,7 +1104,7 @@
 {#if showSettings}
   <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelSettings()}>
     <div class="settings-modal" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="settings-title" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSettings(); } }}>
-      <div class="modal-header"><div class="settings-brand"><Brand className="settings-mark" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2><p>Make room for your way of working.</p></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="modal-header"><div class="settings-brand"><Brand className="settings-mark" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
 
       <div class="settings-body">
         <div class="settings-rail" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
@@ -1101,46 +1112,86 @@
             <button id={`settings-tab-${tab.id}`} role="tab" class:active={settingsTab === tab.id}
               aria-selected={settingsTab === tab.id} aria-controls="settings-panel"
               tabindex={settingsTab === tab.id ? 0 : -1}
-              onclick={() => (settingsTab = tab.id)} onkeydown={(event) => moveSettingsTab(event, index)}>
-              <strong>{tab.label}</strong><small>{tab.hint}</small>
+              onclick={() => selectSettingsTab(tab.id)} onkeydown={(event) => moveSettingsTab(event, index)}>
+              <strong>{tab.label}</strong>
             </button>
           {/each}
         </div>
 
         <div class="settings-scroll" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
-        {#if settingsTab === "voice"}
-        <div class="setting-group"><h3>Transcription</h3><div class="segmented">
-          <button class:active={settings.engine === "open_ai"} onclick={() => (settings = { ...settings, engine: "open_ai" })}>GPT Transcribe</button>
-          <button class:active={settings.engine === "local_whisper"} onclick={() => (settings = { ...settings, engine: "local_whisper" })}>Local Whisper</button>
+        {#if settingsTab === "general"}
+        <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
+          {#each ["system", "light", "dark"] as theme}
+            <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
+          {/each}
+        </div></div>
+
+        <div class="setting-group"><h3>Startup</h3>
+          <label class="toggle-field"><input type="checkbox" checked={autostartDraft} disabled={autostartChecking || !autostartAvailable} onchange={(event) => (autostartDraft = event.currentTarget.checked)} /><span>Start Utterform when I sign in{#if autostartChecking} <small>checking…</small>{/if}</span></label>
+          <p class="privacy-note">Starts hidden in the system tray. Open it from the tray when needed.</p>
+          {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
         </div>
-        {#if settings.engine === "open_ai"}
-          <div class="field"><span>Cloud transcription model</span>
-            <SelectMenu id="cloud-model" label="Cloud transcription model" value={settings.cloud_model}
-              options={[{ value: "gpt_transcribe", label: "GPT Transcribe", hint: "Finished text after recording · all actions" }, { value: "gpt_live_transcribe", label: "GPT Live Transcribe", hint: "Live at cursor · Windows and Omarchy" }]}
-              onchange={(value) => settings = { ...settings, cloud_model: value as AppSettings["cloud_model"] }} />
-          </div>
-          {#if liveMode}
-            <p class="privacy-note">Live streams audio to OpenAI while you speak and appends text at your cursor. Plain only: no Clean, Polish or other rewriting. Start from your target text field with the dictation shortcut. Window focus loss stops insertion for the rest of the recording; it does not resume automatically.</p>
-            <p class="privacy-note">Do not move the cursor, switch text fields or type while dictating. Changes within the same window cannot always be detected. Line breaks become spaces; live dictation never presses Enter.</p>
-            {#if !liveSupport.supported}<p class="setting-error" role="status">{liveSupport.explanation}</p>{/if}
-          {/if}
+
         {/if}
+
+        {#if settingsTab === "recording"}
+        <div class="setting-group"><h3>Audio input</h3>
         <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
         <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label>
-        <p class="privacy-note">Cloud transcription sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
+        </div>
 
-        <div class="setting-group"><div class="group-heading"><h3>Vocabulary</h3><span class="section-badge">Both engines</span></div>
-          <p class="section-description">Names, products and spellings the model would otherwise guess at. One per line.</p>
+        <div class="setting-group"><h3>Dictation shortcut</h3>
+          {#if hotkeySupport.supported}
+            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Enable global dictation shortcut</span></label>
+            {#if settings.global_hotkey !== null}
+              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
+                value={settings.global_hotkey || hotkeySupport.default}
+                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
+                oncapture={captureHotkey} />
+            {/if}
+            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
+            <p class="privacy-note">Press once to record, again to finish. Works in other apps without opening Utterform.</p>
+          {:else}
+            <p class="privacy-note">{hotkeySupport.explanation}</p>
+          {/if}
+        </div>
+
+        <div class="setting-group"><h3>Recording feedback</h3>
+          <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play recording sounds</span></label>
+          <button class="cue-test" disabled={cueTestPending} onclick={testCues}>{cueTestPending ? "Playing in 5 seconds…" : "Test sounds (5s delay)"}</button>
+          <p class="privacy-note">Start/stop clicks and a chime when text is ready.</p>
+          {#if cueTestMessage}<pre class="cue-report" role="status">{cueTestMessage}</pre>{/if}
+          {#if logPath}<details class="setting-details"><summary>Log file</summary><p class="privacy-note"><code>{logPath}</code></p></details>{/if}
+        </div>
+        <div class="setting-group"><h3>Vocabulary</h3>
+          <p class="section-description">Names and terms to recognise, one per line. Works with both engines.</p>
           <label class="field"><span class="visually-hidden">Vocabulary</span><textarea class="vocabulary" rows="4" aria-label="Vocabulary" placeholder={"Careum\nUtterform\nOmarchy"} value={vocabularyDraft} oninput={(event) => updateVocabulary(event.currentTarget.value)}></textarea></label>
           {#if rejectedTerms.length}
             <p class="setting-error" role="alert">Not sent, because the transcription API refuses a term containing &lt; or &gt;: {rejectedTerms.join(", ")}</p>
           {/if}
           <label class="field"><span>Recording context <small>optional, cloud only</small></span><textarea rows="2" placeholder="A standup about the billing rewrite." value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })}></textarea></label>
-          <p class="privacy-note">GPT Transcribe takes the words as keywords; local Whisper is given them as the text it starts from. They are hints either way — the model still transcribes what it hears.</p>
         </div>
 
+        {/if}
+
+        {#if settingsTab === "ai"}
+        <div class="setting-group"><h3>Transcription</h3>
+          <div class="field"><span>Transcription mode</span>
+            <SelectMenu id="settings-transcription" label="Transcription mode" value={transcriptionMode}
+              options={transcriptionOptions} onchange={(value) => settings = transcriptionSettings(value)} />
+          </div>
+          {#if liveMode}
+            <p class="privacy-note">Live dictation streams audio to OpenAI and inserts text at your cursor. Plain only. Start with the dictation shortcut in your target field. Switching windows stops insertion for the rest of the recording.</p>
+            <p class="privacy-note">Do not move the cursor, change fields or type while dictating: changes within a window may go undetected. Line breaks become spaces; Enter is never pressed.</p>
+            {#if !liveSupport.supported}<p class="setting-error" role="status">{liveSupport.explanation}</p>{/if}
+          {/if}
+        <p class="privacy-note">Cloud transcription sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
+
+        <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
+        <p class="privacy-note">Stored in your system keyring. Used for cloud transcription and text actions.</p></div>
+
         <div class="setting-group local-models"><div class="group-heading"><h3>Local Whisper models</h3><span class="section-badge">On-device audio</span></div>
-          <p class="section-description">Your voice stays here. Choose the balance of speed and accuracy that suits you.</p>
+          <p class="section-description">Larger models are more accurate but slower.</p>
           <div class="model-list">{#each models as model}<div class="model-row" class:selected={model.downloaded && settings.local_model_id === model.id}>
             <div class="model-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/></svg></div>
             <div class="model-info"><strong>{model.name}<span class="model-state">{model.downloaded ? settings.local_model_id === model.id ? "Selected" : "Ready" : formatBytes(model.sizeBytes)}</span></strong><span class="model-description">{model.description}</span>
@@ -1151,18 +1202,24 @@
           <div class="field"><span>Selected local model</span><SelectMenu id="local-model" label="Selected local model" value={settings.local_model_id ?? ""} options={modelOptions} onchange={(value) => settings = { ...settings, local_model_id: value }} upwards /></div>
         </div>
 
-        <div class="setting-group"><h3>Recording feedback</h3>
-          <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play start/stop clicks and a chime when the text is ready</span></label>
-          <button class="cue-test" disabled={cueTestPending} onclick={testCues}>{cueTestPending ? "Playing in 5 seconds…" : "Play the sounds in 5 seconds"}</button>
-          <p class="privacy-note">Click, then switch to another window — that is how a hotkey recording plays them. What each sound did is shown here afterwards{#if logPath} and written to the log at <code>{logPath}</code>{/if}.</p>
-          {#if cueTestMessage}<pre class="cue-report" role="status">{cueTestMessage}</pre>{/if}
+        <div class="setting-group"><h3>Text model</h3>
+          <p class="section-description">Used for Actions other than Plain.</p>
+          <label class="field"><span>Model</span><input bind:value={settings.text_model} /></label>
+          <div class="field"><span>Thinking effort <small>lower is faster and cheaper</small></span>
+            <div class="segmented five">
+              {#each EFFORTS as effort}
+                <button class:active={settings.text_effort === effort.value} onclick={() => (settings = { ...settings, text_effort: effort.value })}>{effort.label}</button>
+              {/each}
+            </div>
+          </div>
+          <p class="privacy-note">Auto uses the model’s default. Unsupported effort levels fall back to the plain transcript.</p>
         </div>
         {/if}
 
-        {#if settingsTab === "prompts"}
+        {#if settingsTab === "actions"}
         {#if liveMode}<p class="privacy-note">Live dictation uses Plain only. These prompts remain available when you switch back to GPT Transcribe or Local Whisper.</p>{/if}
         <div class="setting-group prompts-group"><div class="group-heading"><h3>Prompts</h3><button onclick={addCustomAction}>Add prompt</button></div>
-          <p class="section-description">Every prompt Utterform ships with is a starting point. Rewrite any of them — Reset brings the original back.</p>
+          <p class="section-description">Choose an action to edit its instructions. Reset restores the original.</p>
           <div class="prompt-workbench">
             <div class="prompt-list" role="group" aria-label="Prompts">
               {#each builtInActions as action}
@@ -1183,17 +1240,17 @@
             <div class="prompt-editor">
               {#if editedCustom}
                 <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "name", nameDraft); }} /></label>
-                <label class="field"><span>Instructions <small>sent with every recording that uses it</small></span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" placeholder="Describe exactly how the transcript should be transformed…" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "prompt", promptDraft); }}></textarea></label>
+                <label class="field"><span>Instructions</span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" placeholder="Describe exactly how the transcript should be transformed…" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "prompt", promptDraft); }}></textarea></label>
                 <div class="prompt-footer"><span>{promptDraft.trim().length} characters</span>
                   <button class="danger-text" onclick={() => removeCustomAction(editedCustom.id)}>Delete prompt</button>
                 </div>
               {:else if editedPrompt && !editedPrompt.prompt}
                 <div class="prompt-empty"><strong>{actionName(editedPrompt, settings.action_overrides)}</strong>
-                  <p>Delivers what you said, word for word. It never reaches a text model, so there is no prompt to write — and no API cost when Local Whisper does the transcribing.</p>
+                  <p>Transcription only — no rewriting or text model. Free with Local Whisper.</p>
                 </div>
               {:else if editedPrompt}
                 <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; overrideAction(editedPrompt, "name", nameDraft); }} /></label>
-                <label class="field"><span>Instructions <small>sent with every recording that uses it</small></span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; overrideAction(editedPrompt, "prompt", promptDraft); }}></textarea></label>
+                <label class="field"><span>Instructions</span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; overrideAction(editedPrompt, "prompt", promptDraft); }}></textarea></label>
                 <div class="prompt-footer">
                   <span>{promptDraft.trim().length} characters{isActionEdited(editedPrompt.id, settings.action_overrides) ? " · edited" : ""}</span>
                   <span class="prompt-footer-actions">
@@ -1207,38 +1264,10 @@
           </div>
         </div>
 
-        <div class="setting-group"><h3>Text model</h3>
-          <p class="section-description">The model that runs these prompts. Plain never reaches it.</p>
-          <label class="field"><span>Model</span><input bind:value={settings.text_model} /></label>
-          <div class="field"><span>Thinking effort <small>lower is faster and cheaper</small></span>
-            <div class="segmented five">
-              {#each EFFORTS as effort}
-                <button class:active={settings.text_effort === effort.value} onclick={() => (settings = { ...settings, text_effort: effort.value })}>{effort.label}</button>
-              {/each}
-            </div>
-          </div>
-          <p class="privacy-note">Auto leaves the model its own default. Not every model offers every level; one that does not know the level you chose refuses the request, and the plain transcript is delivered instead.</p>
-        </div>
         {/if}
 
         {#if settingsTab === "output"}
-        <div class="setting-group"><h3>Dictation key</h3>
-          {#if hotkeySupport.supported}
-            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Start and finish a recording from anywhere, without raising the window</span></label>
-            {#if settings.global_hotkey !== null}
-              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
-                value={settings.global_hotkey || hotkeySupport.default}
-                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
-                oncapture={captureHotkey} />
-            {/if}
-            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
-            <p class="privacy-note">The key is reserved for Utterform while it runs. Press it once to start and again to finish; the sounds are the confirmation, since the window never comes forward.</p>
-          {:else}
-            <p class="privacy-note">{hotkeySupport.explanation}</p>
-          {/if}
-        </div>
-
-        {#if liveMode}<p class="privacy-note">Live dictation always inserts text as you speak. The settings below apply only to finished-text dictation. Clipboard and File outputs run after you finish, without typing the transcript again.</p>{/if}
+        {#if liveMode}<p class="privacy-note">Live dictation ignores the typing method. Clipboard and File still run when you finish.</p>{/if}
         <div class="setting-group"><h3>Typing at the cursor</h3><div class="segmented">
           <button class:active={settings.typing_method === "paste"} onclick={() => (settings = { ...settings, typing_method: "paste" })}>Paste</button>
           <button class:active={settings.typing_method === "keystrokes"} onclick={() => (settings = { ...settings, typing_method: "keystrokes" })}>Keystrokes</button>
@@ -1251,32 +1280,15 @@
         </div>
 
         <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>
-        {/if}
-
-        {#if settingsTab === "general"}
-        <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
-          {#each ["system", "light", "dark"] as theme}
-            <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
-          {/each}
-        </div></div>
-
-        <div class="setting-group"><h3>Startup</h3>
-          <label class="toggle-field"><input type="checkbox" checked={autostartDraft} disabled={autostartChecking || !autostartAvailable} onchange={(event) => (autostartDraft = event.currentTarget.checked)} /><span>Start Utterform when I sign in{#if autostartChecking} <small>checking…</small>{/if}</span></label>
-          <p class="privacy-note">Starts hidden in the system tray. Open it from the tray when needed.</p>
-          {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
-        </div>
-
-        <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
-        <p class="privacy-note">The key is kept in the operating system keyring, never in the settings file.</p></div>
-
         <div class="setting-group"><h3>Recent texts</h3>
           <label class="toggle-field"><input type="checkbox" bind:checked={settings.history_enabled} /><span>Remember the last 100 texts on this device</span></label>
-          <p class="privacy-note">Stored locally, unencrypted, including clipboard-only results. Titles are made from the text without an AI request. Turning this off keeps existing history until you clear it.</p>
+          <p class="privacy-note">Stored on this device, unencrypted. Turning this off does not delete existing history.</p>
           <button class="clear-history" onclick={clearHistory}>{confirmClear ? "Confirm: delete all saved texts" : "Clear saved history"}</button>
           {#if confirmClear}<button class="clear-history" onclick={() => confirmClear = false}>Keep history</button>{/if}
           {#if historyMessage}<p class="privacy-note" role="status">{historyMessage}</p>{/if}
         </div>
         {/if}
+
         </div>
       </div>
 

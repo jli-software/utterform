@@ -15,10 +15,12 @@ describe("themed select menu", () => {
     const onchange = vi.fn();
     const { getByRole, queryByRole } = render(SelectMenu, { id: "action", label: "Action", value: "plain", options, onchange });
     const trigger = getByRole("combobox");
+    expect(trigger.textContent).not.toContain("Transcription only");
     const windowKey = vi.fn();
     window.addEventListener("keydown", windowKey);
     await fireEvent.keyDown(trigger, { key: "ArrowDown" });
     expect(getByRole("listbox")).toBeTruthy();
+    expect(getByRole("option", { name: /Plain/ }).textContent).toContain("Transcription only");
     await fireEvent.keyDown(trigger, { key: "ArrowDown" });
     await fireEvent.keyDown(trigger, { key: "Enter" });
     expect(onchange).toHaveBeenCalledWith("polish");
