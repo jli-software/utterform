@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.7 — v0.7.7 · Clearer settings, less text
+
+- Reorganise Settings into General, Recording, AI & Models, Actions and Output; put shortcuts with recording, API keys with AI models and history with output.
+- Remove navigation subtitles, decorative header copy and repetitive recording hints. Keep descriptions in open selectors and concise help for settings that need it.
+- Use one transcription-mode selector in Settings, matching the main window, while preserving Save/Cancel behaviour.
+- Retain live-dictation restrictions, privacy notes, delivery warnings and missing-model guidance.
+
+See [0.7.7 release notes](docs/releases/v0.7.7.md).
+
 ## 0.7.6 — v0.7.6 · Menu-bar workflow and a seamless recording cycle
 
 - Keep Utterform out of the macOS Dock and ⌘-Tab as a permanent menu-bar application, while tray clicks and a second launch still reveal the window.

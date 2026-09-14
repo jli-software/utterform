@@ -63,7 +63,7 @@ Omarchy is detected only in a Hyprland desktop session with an Omarchy installat
 
 Settings uses the same theme tokens and custom `SelectMenu` as the main controls, including microphone/model selection. Opening motion is disabled under reduced motion; keyboard focus is contained and restored, and Escape closes an open selector before closing the dialog.
 
-The dialog is a tablist — Voice, Prompts, Output, General — with arrow-key navigation and roving focus; the rail lies down above the panel below 760 px. Cancel still restores the snapshot taken when the dialog opened, across every tab.
+The dialog is a tablist — General, Recording, AI & Models, Actions, Output — with arrow-key navigation and roving focus; the rail lies down above the panel below 760 px. General is the initial tab. Cancel restores the preference snapshot across every tab; explicit resource operations (model downloads/removal, API key removal and confirmed history deletion) remain immediate. Closed selectors show labels, with opt-in hints for missing local models; option descriptions and history timestamps remain available in the open menu. Recording status is announced by its visible status label, without duplicate helper text.
 
 ## Prompts
 

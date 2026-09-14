@@ -7,6 +7,7 @@
   export let options: Array<{ value: string; label: string; hint?: string; key?: string }>;
   export let disabled = false;
   export let compact = false;
+  export let showSelectedHint = false;
   export let upwards = false;
   export let onchange: (value: string) => void = () => {};
 
@@ -85,7 +86,7 @@
     aria-label={label} aria-haspopup="listbox" aria-expanded={expanded} aria-controls={`${id}-list`}
     aria-activedescendant={expanded ? `${id}-option-${activeIndex}` : undefined}
     {disabled} onkeydown={keydown} onclick={() => expanded ? expanded = false : void reveal()}>
-    <span class="select-value"><strong>{selected?.label ?? label}</strong>{#if selected?.hint && !compact}<small>{selected.hint}</small>{/if}</span>
+    <span class="select-value"><strong>{selected?.label ?? label}</strong>{#if selected?.hint && showSelectedHint && !compact}<small>{selected.hint}</small>{/if}</span>
     <svg viewBox="0 0 20 20" aria-hidden="true" class:expanded><path d="m5 7.5 5 5 5-5" /></svg>
   </button>
   {#if expanded}

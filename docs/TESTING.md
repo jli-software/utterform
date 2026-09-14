@@ -267,3 +267,12 @@ No user's microphone recording, API request, clipboard replacement, or transcrip
 Two isolated local smoke tests produced a `WebKitWebProcess` SIGABRT during process exit, with `free(): corrupted unsorted chunks`. One followed forced test termination; the other followed normal tray Quit. The Utterform parent did not dump core; normal Quit returned exit code 0. No recording was active and no user text was involved. The core shows libc exit/free handling, with WebKit/Mesa renderer teardown on another thread; that is evidence of a shutdown-time renderer issue, **not proof of its original cause**. There was no OOM.
 
 Observed runtime: WebKitGTK 2.52.6, Mesa 26.2.1, Omarchy/XWayland. Subsequent short and 65-second beta startup/quit tests, an alpha comparison, and the downloaded CI Linux binary completed without the warning. The issue is not reliably reproducible and is **not claimed fixed**. No speculative renderer or system-wide workaround was installed. If it recurs, retain the timestamp, runtime versions and whether the window was active/hidden, then isolate the renderer teardown. Do not upload raw core dumps: they can contain credentials or user text.
+
+## 0.7.7 settings navigation
+
+Run `npm run check`, `npm test`, `npm run build` and `npx playwright test`.
+Production-browser coverage exercises all five categories at 360×400 and 920×720,
+keyboard wraparound, multi-category Save/Cancel, model selection, prompt editing,
+shortcut capture, typing delay and history retention. Per-panel dark/light screenshots
+are written to the ignored `test-results/` directory for visual inspection. Desktop IPC
+is mocked: native WebKit/WebView rendering and physical audio/input remain manual checks.
