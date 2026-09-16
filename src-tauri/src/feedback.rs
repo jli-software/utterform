@@ -327,10 +327,11 @@ fn start_with(cue: Cue, ticket: Option<Ticket>) -> Playback {
         });
     if let Err(error) = spawned {
         // The receiver simply sees a closed channel; `finish` reports it.
-        diagnostics::log(format!(
-            "the {} cue could not get a thread: {error}",
-            cue.name()
-        ));
+        diagnostics::warning!(
+            "cue.thread_failed",
+            cue = cue.name(),
+            detail = diagnostics::io_detail(&error)
+        );
     }
     Playback { outcome }
 }
@@ -354,8 +355,19 @@ pub fn play_detached(cue: Cue) {
 fn play_here(cue: Cue, ticket: Option<Ticket>) -> Result<Report, String> {
     let outcome = play_to_the_end(cue, ticket);
     match &outcome {
-        Ok(report) => diagnostics::log(format!("{} cue {report}", cue.name())),
-        Err(reason) => diagnostics::log(format!("{} cue not played: {reason}", cue.name())),
+        Ok(report) => diagnostics::info!(
+            if report.silenced {
+                "cue.silenced"
+            } else {
+                "cue.played"
+            },
+            cue = cue.name(),
+            device = report.device,
+            open_ms = report.opened_in.as_millis(),
+            played_ms = report.played_in.as_millis(),
+        ),
+        // The reasons name the device and the audio backend's error, nothing else.
+        Err(reason) => diagnostics::warning!("cue.not_played", cue = cue.name(), reason = reason),
     }
     outcome
 }

@@ -17,7 +17,7 @@ use cpal::{
 };
 
 use crate::{
-    diagnostics,
+    diagnostics::{self, Failure},
     domain::AudioDeviceInfo,
     feedback::{self, Cue},
 };
@@ -55,7 +55,7 @@ struct CaptureSignals {
 #[derive(Default)]
 struct CaptureInner {
     active: Option<ActiveRecording>,
-    completed: Option<Result<RecordingArtifact, String>>,
+    completed: Option<Result<RecordingArtifact, Failure>>,
     // Retained through stop/limit so the transport can still observe a final flush error.
     live_signals: Option<CaptureSignals>,
 }
@@ -78,10 +78,12 @@ pub enum LimitCheck {
 
 struct ActiveRecording {
     started_at: Instant,
+    /// The diagnostic id every event of this recording carries.
+    recording: u64,
     sound_enabled: bool,
     stream: Stream,
     sender: SyncSender<Vec<f32>>,
-    writer: thread::JoinHandle<Result<RecordingArtifact, String>>,
+    writer: thread::JoinHandle<Result<RecordingArtifact, Failure>>,
     signals: CaptureSignals,
     clock: RecordingClock,
 }
@@ -109,19 +111,26 @@ impl RecordingClock {
             .saturating_sub(self.paused_duration)
     }
 
-    fn set_paused(&mut self, paused: bool, now: Instant) {
+    /// Whether this changed anything: a repeated pause or resume does not.
+    fn set_paused(&mut self, paused: bool, now: Instant) -> bool {
         match (paused, self.paused_at) {
-            (true, None) => self.paused_at = Some(now),
+            (true, None) => {
+                self.paused_at = Some(now);
+                true
+            }
             (false, Some(start)) => {
                 self.paused_duration += now.saturating_duration_since(start);
                 self.paused_at = None;
+                true
             }
-            _ => {}
+            _ => false,
         }
     }
 }
 
 pub struct RecordingArtifact {
+    /// The diagnostic id of the recording this audio came from.
+    pub recording: u64,
     pub path: PathBuf,
     pub sample_rate: u32,
     pub channels: u16,
@@ -137,18 +146,33 @@ impl TemporaryRecording {
         Self { path: Some(path) }
     }
 
-    fn into_path(mut self) -> Result<PathBuf, String> {
+    fn into_path(mut self) -> Result<PathBuf, Failure> {
         self.path
             .take()
-            .ok_or_else(|| "Temporary recording path is unavailable".to_string())
+            .ok_or_else(|| Failure::new("audio_writer", "Temporary recording path is unavailable"))
     }
 }
 
 impl Drop for TemporaryRecording {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
-            let _ = std::fs::remove_file(path);
+            remove_recording_file(path, "unfinished");
         }
+    }
+}
+
+/// Deletes a temporary WAV. A file that stays behind holds audio, so a
+/// failure is recorded — its kind, never its path. The next start's stale
+/// cleanup retries it after a day.
+fn remove_recording_file(path: &std::path::Path, which: &'static str) {
+    if let Err(error) = std::fs::remove_file(path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        diagnostics::warning!(
+            "recording.temporary_file_kept",
+            which = which,
+            detail = diagnostics::io_detail(&error)
+        );
     }
 }
 
@@ -158,13 +182,21 @@ impl RecordingArtifact {
         frames.saturating_mul(1_000) / u64::from(self.sample_rate.max(1))
     }
 
-    pub fn whisper_pcm(&self) -> Result<Vec<f32>, String> {
-        let mut reader = hound::WavReader::open(&self.path)
-            .map_err(|error| format!("Could not read the recording: {error}"))?;
+    pub fn whisper_pcm(&self) -> Result<Vec<f32>, Failure> {
+        let mut reader = hound::WavReader::open(&self.path).map_err(|error| {
+            Failure::new(
+                "recording_read",
+                format!("Could not read the recording: {error}"),
+            )
+        })?;
         let channels = usize::from(reader.spec().channels.max(1));
         let samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-        let samples =
-            samples.map_err(|error| format!("Could not decode the recording: {error}"))?;
+        let samples = samples.map_err(|error| {
+            Failure::new(
+                "recording_decode",
+                format!("Could not decode the recording: {error}"),
+            )
+        })?;
 
         let mono = samples
             .chunks(channels)
@@ -184,19 +216,23 @@ impl RecordingArtifact {
 
 impl Drop for RecordingArtifact {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        remove_recording_file(&self.path, "processed");
     }
 }
 
-pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, Failure> {
     let host = cpal::default_host();
     let default_id = host
         .default_input_device()
         .and_then(|device| device.id().ok())
         .map(|id| id.to_string());
-    let devices = host
-        .input_devices()
-        .map_err(|error| format!("Could not enumerate microphones: {error}"))?;
+    let devices = host.input_devices().map_err(|error| {
+        Failure::new(
+            "devices",
+            format!("Could not enumerate microphones: {error}"),
+        )
+        .detail(&error)
+    })?;
 
     devices
         .enumerate()
@@ -215,14 +251,19 @@ pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
         .collect()
 }
 
-pub fn cleanup_stale_recordings() -> Result<(), String> {
+pub fn cleanup_stale_recordings() -> Result<(), Failure> {
     let directory = recording_directory();
     if !directory.exists() {
         return Ok(());
     }
 
-    let entries = std::fs::read_dir(&directory)
-        .map_err(|error| format!("Could not inspect temporary recordings: {error}"))?;
+    let entries = std::fs::read_dir(&directory).map_err(|error| {
+        Failure::io(
+            "stale_recordings",
+            &error,
+            format!("Could not inspect temporary recordings: {error}"),
+        )
+    })?;
     for entry in entries.flatten() {
         let path = entry.path();
         let is_recording = path
@@ -235,7 +276,7 @@ pub fn cleanup_stale_recordings() -> Result<(), String> {
             .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
             .is_ok_and(|age| age >= STALE_RECORDING_AGE);
         if is_recording && is_stale {
-            let _ = std::fs::remove_file(path);
+            remove_recording_file(&path, "stale");
         }
     }
     Ok(())
@@ -250,9 +291,11 @@ pub fn cleanup_stale_recordings() -> Result<(), String> {
 /// audio once the cue has actually been played.
 pub struct StartedRecording {
     pub session: Instant,
+    pub recording: u64,
     signals: CaptureSignals,
     /// `None` when cues are switched off.
     cue: Option<feedback::Playback>,
+    cue_requested: bool,
 }
 
 impl StartedRecording {
@@ -267,14 +310,16 @@ impl StartedRecording {
             None => Ok(()),
             Some(playback) => playback.finish().map(|_| ()),
         };
-        diagnostics::log(format!(
-            "recording armed {} ms after the microphone opened{}",
-            self.session.elapsed().as_millis(),
-            match &played {
-                Ok(()) => "",
-                Err(_) => " — without a start cue",
-            }
-        ));
+        diagnostics::info!(
+            "recording.armed",
+            recording = self.recording,
+            armed_ms = self.session.elapsed().as_millis(),
+            start_cue = match (&played, self.cue_requested) {
+                (_, false) => "off",
+                (Ok(()), true) => "played",
+                (Err(_), true) => "not_played",
+            },
+        );
         // The recording limit counts kept audio, so its clock starts here and
         // not when the device was opened. A session that ended while the cue
         // was playing is left alone.
@@ -295,8 +340,9 @@ pub fn start_recording(
     state: &AudioCaptureState,
     requested_device: Option<&str>,
     sound_enabled: bool,
-) -> Result<StartedRecording, String> {
-    start_recording_inner(state, requested_device, sound_enabled, None)
+    recording: u64,
+) -> Result<StartedRecording, Failure> {
+    start_recording_inner(state, requested_device, sound_enabled, recording, None)
 }
 
 /// Opens the same recording path, additionally tapping bounded 24 kHz mono
@@ -306,9 +352,16 @@ pub fn start_recording_live(
     state: &AudioCaptureState,
     requested_device: Option<&str>,
     sound_enabled: bool,
+    recording: u64,
     live_sender: tokio::sync::mpsc::Sender<Vec<u8>>,
-) -> Result<StartedRecording, String> {
-    start_recording_inner(state, requested_device, sound_enabled, Some(live_sender))
+) -> Result<StartedRecording, Failure> {
+    start_recording_inner(
+        state,
+        requested_device,
+        sound_enabled,
+        recording,
+        Some(live_sender),
+    )
 }
 
 /// A latched failure is retained until the next successful recording start.
@@ -355,29 +408,39 @@ fn latch_live_error(signals: &CaptureSignals, error: String) {
     }
 }
 
+fn state_unavailable() -> Failure {
+    Failure::new("audio_state", "Audio state is unavailable")
+}
+
 fn start_recording_inner(
     state: &AudioCaptureState,
     requested_device: Option<&str>,
     sound_enabled: bool,
+    recording: u64,
     live_sender: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
-) -> Result<StartedRecording, String> {
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable".to_string())?;
+) -> Result<StartedRecording, Failure> {
+    let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
     if guard.active.is_some() || guard.completed.is_some() {
-        return Err("A recording is already active".into());
+        return Err(Failure::guidance(
+            "recording_active",
+            "A recording is already active",
+        ));
     }
     // A microphone macOS has refused would open fine and deliver silence.
     #[cfg(target_os = "macos")]
-    crate::macos::microphone_access()?;
+    crate::macos::microphone_access()
+        .map_err(|message| Failure::guidance("microphone_denied", message))?;
 
     let opening = Instant::now();
     let host = cpal::default_host();
     let device = select_device(&host, requested_device)?;
-    let supported = device
-        .default_input_config()
-        .map_err(|error| format!("Could not read the microphone configuration: {error}"))?;
+    let supported = device.default_input_config().map_err(|error| {
+        Failure::new(
+            "microphone_config",
+            format!("Could not read the microphone configuration: {error}"),
+        )
+        .detail(&error)
+    })?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
     let device_name = device.to_string();
@@ -391,21 +454,36 @@ fn start_recording_inner(
     let writer_signals = signals.clone();
     let writer_config = config;
     let writer = thread::spawn(move || {
-        let result: Result<RecordingArtifact, String> = (|| {
+        let result: Result<RecordingArtifact, Failure> = (|| {
             let mut live = live_sender.map(|sender| {
                 LiveTap::new(sender, writer_config.sample_rate, writer_config.channels)
             });
             let directory = recording_directory();
-            std::fs::create_dir_all(&directory)
-                .map_err(|error| format!("Could not create the recording directory: {error}"))?;
+            std::fs::create_dir_all(&directory).map_err(|error| {
+                Failure::io(
+                    "audio_writer",
+                    &error,
+                    format!("Could not create the recording directory: {error}"),
+                )
+            })?;
             let temporary = tempfile::Builder::new()
                 .prefix("utterform-")
                 .suffix(".wav")
                 .tempfile_in(directory)
-                .map_err(|error| format!("Could not create a temporary recording: {error}"))?;
-            let (file, path) = temporary
-                .keep()
-                .map_err(|error| format!("Could not retain the temporary recording: {error}"))?;
+                .map_err(|error| {
+                    Failure::io(
+                        "audio_writer",
+                        &error,
+                        format!("Could not create a temporary recording: {error}"),
+                    )
+                })?;
+            let (file, path) = temporary.keep().map_err(|error| {
+                Failure::io(
+                    "audio_writer",
+                    &error.error,
+                    format!("Could not retain the temporary recording: {error}"),
+                )
+            })?;
             let temporary = TemporaryRecording::new(path);
             let spec = hound::WavSpec {
                 channels: writer_config.channels,
@@ -413,8 +491,12 @@ fn start_recording_inner(
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
             };
-            let mut wav = hound::WavWriter::new(BufWriter::new(file), spec)
-                .map_err(|error| format!("Could not initialize the recording: {error}"))?;
+            let mut wav = hound::WavWriter::new(BufWriter::new(file), spec).map_err(|error| {
+                Failure::new(
+                    "audio_writer",
+                    format!("Could not initialize the recording: {error}"),
+                )
+            })?;
             let mut sample_count = 0_u64;
             while let Ok(chunk) = receiver.recv() {
                 if let Some(tap) = live.as_mut() {
@@ -430,8 +512,12 @@ fn start_recording_inner(
                 for sample in chunk {
                     let normalized = sample.clamp(-1.0, 1.0);
                     let pcm = (normalized * f32::from(i16::MAX)).round() as i16;
-                    wav.write_sample(pcm)
-                        .map_err(|error| format!("Could not write the recording: {error}"))?;
+                    wav.write_sample(pcm).map_err(|error| {
+                        Failure::new(
+                            "audio_writer",
+                            format!("Could not write the recording: {error}"),
+                        )
+                    })?;
                     sample_count += 1;
                 }
             }
@@ -441,17 +527,22 @@ fn start_recording_inner(
             {
                 latch_live_error(&writer_signals, error);
             }
-            wav.finalize()
-                .map_err(|error| format!("Could not finalize the recording: {error}"))?;
+            wav.finalize().map_err(|error| {
+                Failure::new(
+                    "audio_writer",
+                    format!("Could not finalize the recording: {error}"),
+                )
+            })?;
             Ok(RecordingArtifact {
+                recording,
                 path: temporary.into_path()?,
                 sample_rate: writer_config.sample_rate,
                 channels: writer_config.channels,
                 sample_count,
             })
         })();
-        if let Err(error) = &result {
-            latch_live_error(&writer_signals, error.clone());
+        if let Err(failure) = &result {
+            latch_live_error(&writer_signals, failure.message().to_string());
         }
         result
     });
@@ -463,15 +554,23 @@ fn start_recording_inner(
         sender.clone(),
         signals.clone(),
     )?;
-    stream
-        .play()
-        .map_err(|error| format!("Could not start the microphone: {error}"))?;
-    diagnostics::log(format!(
-        "microphone \"{device_name}\" open after {} ms: {} Hz, {} channel(s), {sample_format:?}",
-        opening.elapsed().as_millis(),
-        config.sample_rate,
-        config.channels
-    ));
+    stream.play().map_err(|error| {
+        Failure::new(
+            "microphone_start",
+            format!("Could not start the microphone: {error}"),
+        )
+        .detail(&error)
+    })?;
+    diagnostics::info!(
+        "recording.opened",
+        recording = recording,
+        device = device_name,
+        open_ms = opening.elapsed().as_millis(),
+        sample_rate = config.sample_rate,
+        channels = config.channels,
+        format = format!("{sample_format:?}"),
+        live = signals.live_enabled,
+    );
 
     // Only now, with the microphone already running: opening a capture stream
     // can reconfigure the device that plays the cue — a headset switching
@@ -485,6 +584,7 @@ fn start_recording_inner(
     guard.live_signals = signals.live_enabled.then(|| signals.clone());
     guard.active = Some(ActiveRecording {
         started_at,
+        recording,
         sound_enabled,
         stream,
         sender,
@@ -494,7 +594,9 @@ fn start_recording_inner(
     });
     Ok(StartedRecording {
         session: started_at,
+        recording,
         signals: started,
+        cue_requested: cue.is_some(),
         cue,
     })
 }
@@ -503,11 +605,8 @@ fn recording_directory() -> PathBuf {
     std::env::temp_dir().join(RECORDING_DIRECTORY)
 }
 
-pub fn status(state: &AudioCaptureState) -> Result<RecordingStatus, String> {
-    let guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable")?;
+pub fn status(state: &AudioCaptureState) -> Result<RecordingStatus, Failure> {
+    let guard = state.inner.lock().map_err(|_| state_unavailable())?;
     Ok(status_inner(&guard))
 }
 
@@ -537,19 +636,27 @@ fn status_inner(guard: &CaptureInner) -> RecordingStatus {
     }
 }
 
-pub fn set_paused(state: &AudioCaptureState, paused: bool) -> Result<RecordingStatus, String> {
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable")?;
+pub fn set_paused(state: &AudioCaptureState, paused: bool) -> Result<RecordingStatus, Failure> {
+    let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
     if let Some(active) = guard.active.as_mut() {
         // Keep the device stream open across platforms. Paused callbacks discard
         // samples before allocating/writing; no silence or paused speech is stored.
         active.signals.paused.store(paused, Ordering::Release);
-        active.clock.set_paused(paused, Instant::now());
+        let now = Instant::now();
+        if active.clock.set_paused(paused, now) {
+            diagnostics::info!(
+                if paused {
+                    "recording.paused"
+                } else {
+                    "recording.resumed"
+                },
+                recording = active.recording,
+                elapsed_ms = active.clock.elapsed(now).as_millis(),
+            );
+        }
         active.signals.level.store(0, Ordering::Relaxed);
     } else if guard.completed.is_none() {
-        return Err("No recording is active".into());
+        return Err(Failure::guidance("not_active", "No recording is active"));
     }
     // The watchdog may have won the race. Return its completed status so the UI
     // consumes that artifact once rather than getting stuck in a paused phase.
@@ -557,11 +664,8 @@ pub fn set_paused(state: &AudioCaptureState, paused: bool) -> Result<RecordingSt
 }
 
 // Runs on a native watchdog, not a WebView timer (which can be throttled when hidden).
-pub fn check_limit(state: &AudioCaptureState, session: Instant) -> Result<LimitCheck, String> {
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable")?;
+pub fn check_limit(state: &AudioCaptureState, session: Instant) -> Result<LimitCheck, Failure> {
+    let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
     match guard.active.as_ref() {
         Some(active) if active.started_at == session => {
             if active.clock.elapsed(Instant::now()) < MAX_RECORDING_DURATION {
@@ -571,24 +675,34 @@ pub fn check_limit(state: &AudioCaptureState, session: Instant) -> Result<LimitC
         _ => return Ok(LimitCheck::Gone),
     }
     if let Some(active) = guard.active.take() {
-        guard.completed = Some(finalize(active));
+        diagnostics::info!(
+            "recording.limit_reached",
+            recording = active.recording,
+            limit_s = MAX_RECORDING_DURATION.as_secs(),
+        );
+        guard.completed = Some(finalize(active, "limit"));
     }
     Ok(LimitCheck::Stopped)
 }
 
-pub fn stop_recording(state: &AudioCaptureState) -> Result<RecordingArtifact, String> {
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable")?;
+/// Ends capture and hands over the audio. A failure is returned for the
+/// caller to report: it knows whether the user will see it.
+pub fn stop_recording(state: &AudioCaptureState) -> Result<RecordingArtifact, Failure> {
+    let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
     if let Some(completed) = guard.completed.take() {
         return completed;
     }
-    let active = guard.active.take().ok_or("No recording is active")?;
-    finalize(active)
+    let active = guard
+        .active
+        .take()
+        .ok_or_else(|| Failure::guidance("not_active", "No recording is active"))?;
+    finalize(active, "stop")
 }
 
-fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
+/// Stops capture and collects what the writer and the stream reported, after
+/// the fact: nothing here runs in the real-time callback. `recording.stopped`
+/// is written for audio that is kept; a failure is left to the caller.
+fn finalize(active: ActiveRecording, reason: &'static str) -> Result<RecordingArtifact, Failure> {
     drop(active.stream);
     drop(active.sender);
     if active.sound_enabled {
@@ -599,60 +713,95 @@ fn finalize(active: ActiveRecording) -> Result<RecordingArtifact, String> {
     let artifact = active
         .writer
         .join()
-        .map_err(|_| "The audio writer stopped unexpectedly".to_string())??;
+        .map_err(|_| Failure::new("audio_writer", "The audio writer stopped unexpectedly"))??;
 
     if let Some(error) = capture_live_error(&active.signals) {
-        return Err(error);
+        return Err(Failure::new("live_audio", error));
     }
     if let Some(error) = active
         .signals
         .stream_error
         .lock()
-        .map_err(|_| "Audio state is unavailable".to_string())?
+        .map_err(|_| state_unavailable())?
         .take()
     {
-        return Err(error);
+        return Err(Failure::new("microphone_stream", error.clone()).detail(error));
     }
     if active.signals.overrun.load(Ordering::Relaxed) {
-        return Err("The microphone produced audio faster than it could be stored".into());
-    }
-    let glitches = active.signals.glitches.load(Ordering::Relaxed);
-    if glitches > 0 {
-        diagnostics::log(format!(
-            "the microphone reported {glitches} gap(s) during the recording"
+        return Err(Failure::new(
+            "overrun",
+            "The microphone produced audio faster than it could be stored",
         ));
     }
+    let glitches = active.signals.glitches.load(Ordering::Relaxed);
     if artifact.sample_count == 0 {
-        return Err("The recording is empty".into());
+        return Err(Failure::new("empty_recording", "The recording is empty"));
+    }
+    if reason != "cancel" {
+        diagnostics::info!(
+            "recording.stopped",
+            recording = active.recording,
+            reason = reason,
+            audio_ms = artifact.duration_ms(),
+            glitches = glitches,
+        );
     }
     Ok(artifact)
 }
 
-pub fn cancel_recording(state: &AudioCaptureState) -> Result<(), String> {
-    let mut guard = state
-        .inner
-        .lock()
-        .map_err(|_| "Audio state is unavailable")?;
-    guard.completed = None;
+pub fn cancel_recording(state: &AudioCaptureState) -> Result<(), Failure> {
+    let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
+    // Audio the ten-minute limit already stopped: its `recording.limit_reached`
+    // named the recording.
+    match guard.completed.take() {
+        Some(Ok(artifact)) => {
+            diagnostics::info!(
+                "recording.cancelled",
+                recording = artifact.recording,
+                after = "limit"
+            )
+        }
+        Some(Err(failure)) => diagnostics::info!(
+            "recording.cancelled",
+            after = "limit",
+            discarded_failure = failure.class()
+        ),
+        None => {}
+    }
+
     if let Some(active) = guard.active.take() {
-        let _ = finalize(active);
+        let recording = active.recording;
+        // Discarded either way; a failure only says what was thrown away.
+        match finalize(active, "cancel") {
+            Ok(_) => diagnostics::info!("recording.cancelled", recording = recording),
+            Err(failure) => diagnostics::info!(
+                "recording.cancelled",
+                recording = recording,
+                discarded_failure = failure.class()
+            ),
+        }
     }
     Ok(())
 }
 
-fn select_device(host: &cpal::Host, requested: Option<&str>) -> Result<Device, String> {
+fn select_device(host: &cpal::Host, requested: Option<&str>) -> Result<Device, Failure> {
     if let Some(requested) = requested {
-        let devices = host
-            .input_devices()
-            .map_err(|error| format!("Could not enumerate microphones: {error}"))?;
+        let devices = host.input_devices().map_err(|error| {
+            Failure::new(
+                "devices",
+                format!("Could not enumerate microphones: {error}"),
+            )
+            .detail(&error)
+        })?;
         for device in devices {
             if device.id().ok().map(|id| id.to_string()).as_deref() == Some(requested) {
                 return Ok(device);
             }
         }
+        diagnostics::warning!("recording.device_fallback", reason = "not_found");
     }
     host.default_input_device()
-        .ok_or_else(|| "No input device is available".to_string())
+        .ok_or_else(|| Failure::new("no_input_device", "No input device is available"))
 }
 
 fn build_input_stream(
@@ -661,7 +810,7 @@ fn build_input_stream(
     format: SampleFormat,
     sender: SyncSender<Vec<f32>>,
     signals: CaptureSignals,
-) -> Result<Stream, String> {
+) -> Result<Stream, Failure> {
     macro_rules! stream {
         ($sample:ty, $convert:expr) => {{
             let signals = signals.clone();
@@ -683,12 +832,20 @@ fn build_input_stream(
         SampleFormat::I16 => stream!(i16, |sample| f32::from(sample) / 32_768.0),
         SampleFormat::U16 => stream!(u16, |sample| f32::from(sample) / 32_767.5 - 1.0),
         unsupported => {
-            return Err(format!(
-                "The microphone sample format {unsupported:?} is not supported yet"
-            ));
+            return Err(Failure::new(
+                "sample_format",
+                format!("The microphone sample format {unsupported:?} is not supported yet"),
+            )
+            .detail(format!("{unsupported:?}")));
         }
     };
-    result.map_err(|error| format!("Could not open the microphone: {error}"))
+    result.map_err(|error| {
+        Failure::new(
+            "microphone_open",
+            format!("Could not open the microphone: {error}"),
+        )
+        .detail(&error)
+    })
 }
 
 /// What the backend reports about the stream while it runs.
@@ -1122,8 +1279,10 @@ mod tests {
     fn clock_excludes_repeated_pauses_and_keeps_the_active_time_limit() {
         let start = Instant::now();
         let mut clock = RecordingClock::new(start);
-        clock.set_paused(true, start + Duration::from_secs(12));
-        clock.set_paused(true, start + Duration::from_secs(60));
+        // Only an actual change is one: the pause and resume events rely on it.
+        assert!(clock.set_paused(true, start + Duration::from_secs(12)));
+        assert!(!clock.set_paused(true, start + Duration::from_secs(60)));
+
         assert_eq!(
             clock.elapsed(start + Duration::from_secs(900)),
             Duration::from_secs(12)
@@ -1213,7 +1372,8 @@ mod tests {
     fn pause_after_limit_returns_completed_status_without_consuming_audio() {
         let state = AudioCaptureState::default();
         assert!(set_paused(&state, true).is_err());
-        state.inner.lock().unwrap().completed = Some(Err("Synthetic artifact".into()));
+        state.inner.lock().unwrap().completed =
+            Some(Err(Failure::new("synthetic", "Synthetic artifact")));
         let status = set_paused(&state, true).unwrap();
         assert!(status.limit_reached);
         assert!(!status.paused);
@@ -1249,6 +1409,7 @@ mod tests {
         let path = directory.path().join("recording.wav");
         std::fs::write(&path, []).unwrap();
         state.inner.lock().unwrap().completed = Some(Ok(RecordingArtifact {
+            recording: 1,
             path: path.clone(),
             sample_rate: 16000,
             channels: 1,

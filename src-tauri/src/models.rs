@@ -1,4 +1,7 @@
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -6,7 +9,10 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
-use crate::domain::LocalModelInfo;
+use crate::{
+    diagnostics::{self, Failure},
+    domain::LocalModelInfo,
+};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -59,26 +65,36 @@ struct DownloadProgress {
     total_bytes: u64,
 }
 
-fn model_directory(app: &AppHandle) -> Result<PathBuf, String> {
+fn model_directory(app: &AppHandle) -> Result<PathBuf, Failure> {
     app.path()
         .app_data_dir()
         .map(|path| path.join("models"))
-        .map_err(|error| format!("Could not resolve the model directory: {error}"))
+        .map_err(|error| {
+            Failure::new(
+                "model_path",
+                format!("Could not resolve the model directory: {error}"),
+            )
+        })
 }
 
-fn definition(id: &str) -> Result<&'static ModelDefinition, String> {
+fn definition(id: &str) -> Result<&'static ModelDefinition, Failure> {
     MODELS
         .iter()
         .find(|model| model.id == id)
-        .ok_or_else(|| format!("Unknown Whisper model: {id}"))
+        .ok_or_else(|| Failure::guidance("unknown_model", format!("Unknown Whisper model: {id}")))
 }
 
-pub fn model_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+/// A catalog id as a diagnostic event may name it.
+pub fn diagnostic_id(id: &str) -> &'static str {
+    definition(id).map_or("other", |model| model.id)
+}
+
+pub fn model_path(app: &AppHandle, id: &str) -> Result<PathBuf, Failure> {
     let model = definition(id)?;
     Ok(model_directory(app)?.join(model.file_name))
 }
 
-pub fn list(app: &AppHandle) -> Result<Vec<LocalModelInfo>, String> {
+pub fn list(app: &AppHandle) -> Result<Vec<LocalModelInfo>, Failure> {
     let directory = model_directory(app)?;
     Ok(MODELS
         .iter()
@@ -92,83 +108,173 @@ pub fn list(app: &AppHandle) -> Result<Vec<LocalModelInfo>, String> {
         .collect())
 }
 
-pub async fn download(app: &AppHandle, id: &str) -> Result<(), String> {
+/// What kind of network failure a download met, without its URL.
+fn network(error: reqwest::Error) -> Failure {
+    let class = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_status() {
+        "http"
+    } else {
+        "network"
+    };
+    let failure = Failure::new(class, format!("Model download failed: {error}"));
+    match error.status() {
+        Some(status) => failure.status(status.as_u16()),
+        None => failure,
+    }
+}
+
+pub async fn download(app: &AppHandle, id: &str) -> Result<(), Failure> {
     let model = definition(id)?;
     let directory = model_directory(app)?;
     tokio::fs::create_dir_all(&directory)
         .await
-        .map_err(|error| format!("Could not create the model directory: {error}"))?;
+        .map_err(|error| {
+            Failure::io(
+                "model_directory",
+                &error,
+                format!("Could not create the model directory: {error}"),
+            )
+        })?;
     let destination = directory.join(model.file_name);
     if destination.is_file() {
         return Ok(());
     }
     let partial = destination.with_extension("bin.part");
+    let began = Instant::now();
+    diagnostics::info!("models.download_started", model = model.id);
+    // Progress reaches the interface once per chunk; a failure to deliver it
+    // is counted and reported once, never per chunk.
+    let mut undelivered_progress = 0_u64;
 
     let result = async {
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(DOWNLOAD_TIMEOUT)
             .build()
-            .map_err(|error| format!("Could not initialize the download client: {error}"))?;
+            .map_err(|error| {
+                Failure::new(
+                    "client_init",
+                    format!("Could not initialize the download client: {error}"),
+                )
+            })?;
         let response = client
             .get(model.url)
             .send()
             .await
-            .map_err(|error| format!("Model download failed: {error}"))?
+            .map_err(network)?
             .error_for_status()
-            .map_err(|error| format!("Model download failed: {error}"))?;
+            .map_err(network)?;
         let total = response.content_length().unwrap_or(model.size_bytes);
         let mut stream = response.bytes_stream();
-        let mut file = tokio::fs::File::create(&partial)
-            .await
-            .map_err(|error| format!("Could not create the model file: {error}"))?;
+        let mut file = tokio::fs::File::create(&partial).await.map_err(|error| {
+            Failure::io(
+                "model_write",
+                &error,
+                format!("Could not create the model file: {error}"),
+            )
+        })?;
         let mut downloaded = 0_u64;
         let mut hasher = Sha256::new();
 
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|error| format!("Model download failed: {error}"))?;
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| format!("Could not write the model file: {error}"))?;
+            let chunk = chunk.map_err(network)?;
+            file.write_all(&chunk).await.map_err(|error| {
+                Failure::io(
+                    "model_write",
+                    &error,
+                    format!("Could not write the model file: {error}"),
+                )
+            })?;
             hasher.update(&chunk);
             downloaded += chunk.len() as u64;
-            let _ = app.emit(
-                "model-download-progress",
-                DownloadProgress {
-                    model_id: model.id,
-                    downloaded_bytes: downloaded,
-                    total_bytes: total,
-                },
-            );
+            if app
+                .emit(
+                    "model-download-progress",
+                    DownloadProgress {
+                        model_id: model.id,
+                        downloaded_bytes: downloaded,
+                        total_bytes: total,
+                    },
+                )
+                .is_err()
+            {
+                undelivered_progress += 1;
+            }
         }
-        file.flush()
-            .await
-            .map_err(|error| format!("Could not flush the model file: {error}"))?;
+        file.flush().await.map_err(|error| {
+            Failure::io(
+                "model_write",
+                &error,
+                format!("Could not flush the model file: {error}"),
+            )
+        })?;
         drop(file);
 
         let actual = format!("{:x}", hasher.finalize());
         if actual != model.sha256 {
-            return Err("The downloaded model failed SHA-256 verification".to_string());
+            return Err(Failure::new(
+                "checksum",
+                "The downloaded model failed SHA-256 verification",
+            ));
         }
         tokio::fs::rename(&partial, &destination)
             .await
-            .map_err(|error| format!("Could not activate the model: {error}"))?;
-        Ok(())
+            .map_err(|error| {
+                Failure::io(
+                    "model_activate",
+                    &error,
+                    format!("Could not activate the model: {error}"),
+                )
+            })?;
+        Ok(downloaded)
     }
     .await;
 
-    if result.is_err() {
-        let _ = tokio::fs::remove_file(&partial).await;
+    if undelivered_progress > 0 {
+        diagnostics::warning!(
+            "interface.event_failed",
+            event = "model-download-progress",
+            count = undelivered_progress
+        );
     }
-    result
+    match result {
+        Ok(bytes) => {
+            diagnostics::info!(
+                "models.download_completed",
+                model = model.id,
+                bytes = bytes,
+                elapsed_ms = began.elapsed().as_millis()
+            );
+            Ok(())
+        }
+        Err(failure) => {
+            if let Err(error) = tokio::fs::remove_file(&partial).await
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                diagnostics::warning!(
+                    "models.partial_cleanup_failed",
+                    model = model.id,
+                    detail = diagnostics::io_detail(&error)
+                );
+            }
+            Err(failure)
+        }
+    }
 }
 
-pub async fn delete(app: &AppHandle, id: &str) -> Result<(), String> {
+pub async fn delete(app: &AppHandle, id: &str) -> Result<(), Failure> {
     let path = model_path(app, id)?;
     match tokio::fs::remove_file(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("Could not delete the model: {error}")),
+        Err(error) => Err(Failure::io(
+            "model_delete",
+            &error,
+            format!("Could not delete the model: {error}"),
+        )),
     }
 }
 

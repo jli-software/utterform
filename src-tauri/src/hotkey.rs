@@ -18,10 +18,10 @@
 
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_global_shortcut::{GlobalShortcut, Shortcut, ShortcutState};
 
-use crate::cli::Intent;
+use crate::{cli::Intent, diagnostics};
 
 /// Dictate. Win+D belongs to the Windows shell and cannot be reserved, and a
 /// bare function key would collide with whatever the user already has, so the
@@ -119,31 +119,70 @@ pub fn parse(spec: &str) -> Result<Shortcut, String> {
 /// the setting is stored, it simply has nothing to act on here.
 ///
 /// Must not be called from the main thread — see the module note.
-pub fn apply<R: Runtime>(app: &AppHandle<R>, spec: Option<&str>) -> Result<(), String> {
-    let outcome = register(app, spec);
+///
+/// `during` says who asked — `startup`, or `settings` for every change the
+/// interface makes — for the one event recording the outcome. The key
+/// combination is logged: it is what a conflict with another application is
+/// diagnosed by, and it is not text.
+pub fn apply<R: Runtime>(
+    app: &AppHandle<R>,
+    spec: Option<&str>,
+    during: &'static str,
+) -> Result<(), String> {
+    let shortcut = spec.unwrap_or("none");
+    let outcome = match register(app, spec) {
+        Ok(state) => {
+            diagnostics::info!(
+                "hotkey.applied",
+                during = during,
+                state = state,
+                shortcut = shortcut
+            );
+            Ok(())
+        }
+        Err(failure) => Err(diagnostics::fallback!(
+            "hotkey.apply_failed",
+            &failure,
+            during = during,
+            shortcut = shortcut
+        )),
+    };
     if let Some(state) = app.try_state::<Failure>() {
         state.record(outcome.as_ref().err().cloned());
     }
     outcome
 }
 
-fn register<R: Runtime>(app: &AppHandle<R>, spec: Option<&str>) -> Result<(), String> {
-    let shortcut = spec.map(parse).transpose()?;
+fn register<R: Runtime>(
+    app: &AppHandle<R>,
+    spec: Option<&str>,
+) -> Result<&'static str, diagnostics::Failure> {
+    let shortcut = spec
+        .map(parse)
+        .transpose()
+        .map_err(|message| diagnostics::Failure::guidance("invalid_shortcut", message))?;
     let Some(manager) = app.try_state::<GlobalShortcut<R>>() else {
-        return Ok(());
+        return Ok("unsupported_session");
     };
-    manager
-        .unregister_all()
-        .map_err(|error| format!("Could not release the previous shortcut: {error}"))?;
+    manager.unregister_all().map_err(|error| {
+        diagnostics::Failure::new(
+            "release_failed",
+            format!("Could not release the previous shortcut: {error}"),
+        )
+    })?;
     let Some(shortcut) = shortcut else {
-        return Ok(());
+        return Ok("cleared");
     };
     manager.register(shortcut).map_err(|error| {
-        format!(
-            "{} is not available — another application may already hold it ({error})",
-            spec.unwrap_or_default()
+        diagnostics::Failure::new(
+            "unavailable",
+            format!(
+                "{} is not available — another application may already hold it ({error})",
+                spec.unwrap_or_default()
+            ),
         )
-    })
+    })?;
+    Ok("registered")
 }
 
 /// Install the plugin the shortcuts live in, on the sessions that have them.
@@ -152,8 +191,9 @@ fn register<R: Runtime>(app: &AppHandle<R>, spec: Option<&str>) -> Result<(), St
 /// create a hotkey manager costs the dictation key and not the application, and
 /// deliberately with no shortcut of its own: one the OS rejects would fail the
 /// whole installation and leave Settings with nothing to correct it through.
-pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), diagnostics::Failure> {
     if !supported() {
+        diagnostics::info!("hotkey.unsupported_session");
         return Ok(());
     }
     let plugin = tauri_plugin_global_shortcut::Builder::new()
@@ -161,14 +201,23 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
             // A hotkey reports both edges; acting on the release too would
             // start and immediately finish the same recording.
             if event.state == ShortcutState::Pressed {
+                diagnostics::info!(
+                    "intent.received",
+                    source = "hotkey",
+                    intent = Intent::Toggle.as_str()
+                );
                 // Deliberately not revealing the window: the point of the key
                 // is to dictate into whatever the user is already typing in.
-                let _ = app.emit("remote-intent", Intent::Toggle);
+                diagnostics::notify_interface(app, "remote-intent", Intent::Toggle);
             }
         })
         .build();
-    app.plugin(plugin)
-        .map_err(|error| format!("Global shortcuts are unavailable: {error}"))
+    app.plugin(plugin).map_err(|error| {
+        diagnostics::Failure::new(
+            "plugin",
+            format!("Global shortcuts are unavailable: {error}"),
+        )
+    })
 }
 
 #[cfg(test)]

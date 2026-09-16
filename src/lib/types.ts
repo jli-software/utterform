@@ -199,3 +199,28 @@ export interface LiveStatus {
   warning: string | null;
   phase: "connecting" | "streaming" | "finishing" | "completed" | "failed";
 }
+
+/// Where the backend writes its log. The path is only ever shown; nothing the
+/// interface sends back names a file.
+export interface DiagnosticsInfo {
+  logPath: string | null;
+}
+
+/// What **Copy diagnostics** put on the clipboard.
+export interface CopiedDiagnostics {
+  bytes: number;
+  lines: number;
+  truncated: boolean;
+}
+
+/// Where a failure only the interface saw came from.
+export type FrontendErrorSource = "window.error" | "unhandled_rejection" | "autostart" | "dialog" | "state";
+
+/// The most a frontend failure report carries: a category, a bounded message
+/// and stack, and the recording phase — never the error object or app state.
+export interface FrontendErrorReport {
+  source: FrontendErrorSource;
+  message: string;
+  stack: string | null;
+  phase: string;
+}

@@ -79,6 +79,16 @@ pub fn find(id: &str) -> Option<&'static BuiltInAction> {
     BUILT_INS.iter().find(|action| action.id == id)
 }
 
+/// The action as a diagnostic event may name it: a shipped id, `custom`, or
+/// `other` — never the name or prompt the user gave it.
+pub fn diagnostic_id(id: &str) -> &'static str {
+    match find(id) {
+        Some(action) => action.id,
+        None if id == "custom" => "custom",
+        None => "other",
+    }
+}
+
 /// The instructions a built-in action runs with: the user's replacement where
 /// there is one, the shipped text otherwise. An override that was emptied falls
 /// back to the default rather than failing the recording that used it.

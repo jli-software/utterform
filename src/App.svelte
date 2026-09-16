@@ -37,6 +37,7 @@
   import SignalField from "./lib/SignalField.svelte";
   import { formatHistoryTime, fullHistoryDate, historyTimestamp } from "./lib/history-time";
   import { modalFocus } from "./lib/modal-focus";
+  import { copiedSummary, createFailureReporter } from "./lib/diagnostics";
 
   type Phase = "idle" | "starting" | "recording" | "paused" | "processing" | "done" | "error";
   /// The one choice the main window offers for transcription. Not stored
@@ -44,6 +45,7 @@
   /// exactly those two, so Settings and the main window cannot disagree.
   type TranscriptionMode = "gpt_transcribe" | "gpt_live_transcribe" | "local_whisper";
   type SettingsTab = "general" | "recording" | "ai" | "actions" | "output";
+  type SupportAction = "copy" | "file" | "folder";
 
   const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
     { id: "general", label: "General" },
@@ -130,6 +132,14 @@
   let cueTestMessage = "";
   let cueTestPending = false;
   let logPath: string | null = null;
+  // Support actions are immediate, like model downloads: Save and Cancel
+  // neither apply nor undo them, and each disables only itself while it runs.
+  let supportBusy: Record<SupportAction, boolean> = { copy: false, file: false, folder: false };
+  let supportMessage = "";
+  let supportError = "";
+  // Failures the backend never saw go to the local log from here; a command
+  // that fails has already recorded itself natively.
+  const failures = createFailureReporter(() => phase);
   let unlistenCueTest: UnlistenFn | undefined;
   const apple = isApplePlatform();
   const copyShortcut = apple ? "⌘⇧C" : "Ctrl+Shift+C";
@@ -211,6 +221,8 @@
     // not leave a keyboard handler bound to the window after it is gone.
     window.addEventListener("keydown", handleKeyDown);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("error", failures.onError);
+    window.addEventListener("unhandledrejection", failures.onUnhandledRejection);
     if (!isTauri()) {
       message = "UI preview — launch the desktop app to record";
       return;
@@ -269,11 +281,7 @@
       unlistenCueTest?.();
       return;
     }
-    try {
-      logPath = await api.diagnosticsLogPath();
-    } catch {
-      logPath = null;
-    }
+    await refreshDiagnosticsInfo();
     // A hotkey that had to start Utterform still means "record now".
     try {
       await applyIntent(await api.takeStartupIntent());
@@ -294,7 +302,51 @@
     unlistenCueTest?.();
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("keydown", handleKeyDown);
+    window.removeEventListener("error", failures.onError);
+    window.removeEventListener("unhandledrejection", failures.onUnhandledRejection);
   });
+
+  /// The path the backend writes to, shown for manual recovery. A query:
+  /// failing it only leaves the path unknown.
+  async function refreshDiagnosticsInfo() {
+    try {
+      logPath = (await api.diagnosticsInfo()).logPath;
+    } catch {
+      logPath = null;
+    }
+  }
+
+  async function runSupportAction(action: SupportAction) {
+    if (supportBusy[action]) return;
+    supportBusy = { ...supportBusy, [action]: true };
+    supportMessage = "";
+    supportError = "";
+    try {
+      if (action === "copy") {
+        const copied = await api.copyDiagnostics();
+        supportMessage = copiedSummary(copied.bytes, copied.lines, copied.truncated);
+      } else if (action === "file") {
+        await api.openLogFile();
+        supportMessage = "Log file opened";
+      } else {
+        await api.openLogFolder();
+        supportMessage = "Log folder opened";
+      }
+    } catch (error) {
+      // The backend's message already carries the reference of its event.
+      supportError = error instanceof Error ? error.message : String(error);
+    } finally {
+      supportBusy = { ...supportBusy, [action]: false };
+    }
+  }
+
+  /// Shows `text` at once, then adds the reference of the logged failure if
+  /// the text is still the one showing when the backend answers.
+  async function withReference(source: "autostart" | "state", reason: unknown, shown: () => string, show: (text: string) => void) {
+    const text = shown();
+    const reference = await failures.report(source, reason);
+    if (reference && shown() === text) show(`${text} (ref ${reference})`);
+  }
 
   function transcriptionModeOf(value: AppSettings): TranscriptionMode {
     if (value.engine === "local_whisper") return "local_whisper";
@@ -632,6 +684,9 @@
     stopTimer();
     phase = "error";
     message = error instanceof Error ? error.message : String(error);
+    // A command rejects with its message, a string that already carries the
+    // reference of its native event. An `Error` was thrown in the interface.
+    if (error instanceof Error) void withReference("state", error, () => message, (text) => (message = text));
   }
 
   function completionMessage(value: ProcessResult) {
@@ -749,6 +804,7 @@
       // recording, the other settings and the app itself go on working.
       autostartAvailable = false;
       autostartError = `Utterform could not read your startup settings: ${error}`;
+      void withReference("autostart", error, () => autostartError, (text) => (autostartError = text));
     } finally {
       autostartChecking = false;
     }
@@ -768,12 +824,14 @@
         autostartError = wanted
           ? "Utterform could not be added to your startup items."
           : "Utterform could not be removed from your startup items.";
+        void withReference("autostart", `the startup entry did not change after ${wanted ? "enable" : "disable"}`, () => autostartError, (text) => (autostartError = text));
         return false;
       }
       autostartError = "";
       return true;
     } catch (error) {
       autostartError = String(error);
+      void withReference("autostart", error, () => autostartError, (text) => (autostartError = text));
       return false;
     }
   }
@@ -833,7 +891,14 @@
   }
 
   async function chooseOutputFolder() {
-    const selected = await open({ directory: true, multiple: false, title: "Choose output folder" });
+    let selected: string | string[] | null;
+    try {
+      selected = await open({ directory: true, multiple: false, title: "Choose output folder" });
+    } catch (error) {
+      // The dialog plugin answers the interface alone; no command saw this.
+      void failures.report("dialog", error);
+      return;
+    }
     if (typeof selected === "string") settings = { ...settings, output_directory: selected };
   }
 
@@ -867,8 +932,13 @@
     settingsTab = "general";
     vocabularyDraft = settings.vocabulary.join("\n");
     selectPrompt(promptExists(selectedPrompt) ? selectedPrompt : firstEditablePrompt());
+    supportMessage = "";
+    supportError = "";
     showSettings = true;
-    if (isTauri()) void refreshAutostart();
+    if (isTauri()) {
+      void refreshAutostart();
+      void refreshDiagnosticsInfo();
+    }
   }
 
   function promptExists(id: string) {
@@ -1148,6 +1218,18 @@
           {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
         </div>
 
+        <div class="setting-group support-group"><h3>Support &amp; diagnostics</h3>
+          <p class="section-description">Logs stay on this device and contain no transcripts or audio. Copy them only when you want to share them.</p>
+          <div class="support-actions">
+            <button class="support-action" aria-busy={supportBusy.copy} disabled={supportBusy.copy} onclick={() => runSupportAction("copy")}>Copy diagnostics</button>
+            <button class="support-action" aria-busy={supportBusy.file} disabled={supportBusy.file} onclick={() => runSupportAction("file")}>Open log file</button>
+            <button class="support-action" aria-busy={supportBusy.folder} disabled={supportBusy.folder} onclick={() => runSupportAction("folder")}>Open log folder</button>
+          </div>
+          {#if supportMessage}<p class="privacy-note" role="status">{supportMessage}</p>{/if}
+          {#if supportError}<p class="setting-error" role="alert">{supportError}</p>{/if}
+          <p class="privacy-note log-location">Log file: <code>{logPath ?? "not available in this session"}</code></p>
+        </div>
+
         {/if}
 
         {#if settingsTab === "recording"}
@@ -1161,7 +1243,6 @@
           <button class="cue-test" disabled={cueTestPending} onclick={testCues}>{cueTestPending ? "Playing in 5 seconds…" : "Test sounds (5s delay)"}</button>
           <p class="privacy-note">Start/stop clicks and a chime when text is ready.</p>
           {#if cueTestMessage}<pre class="cue-report" role="status">{cueTestMessage}</pre>{/if}
-          {#if logPath}<details class="setting-details"><summary>Log file</summary><p class="privacy-note"><code>{logPath}</code></p></details>{/if}
         </div>
         <div class="setting-group"><h3>Vocabulary</h3>
           <p class="section-description">Names and terms to recognise, one per line. Works with both engines.</p>

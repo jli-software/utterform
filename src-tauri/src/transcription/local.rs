@@ -1,27 +1,43 @@
+use std::time::Instant;
+
 use tauri::AppHandle;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::{audio::RecordingArtifact, diagnostics, domain::AppSettings, models};
+use crate::{
+    audio::RecordingArtifact,
+    diagnostics::{self, Failure},
+    domain::AppSettings,
+    models,
+};
 
 pub async fn transcribe(
     app: &AppHandle,
     artifact: &RecordingArtifact,
     settings: &AppSettings,
-) -> Result<String, String> {
-    let model_id = settings
-        .local_model_id
-        .as_deref()
-        .ok_or_else(|| "Select a local Whisper model in Settings".to_string())?;
+) -> Result<String, Failure> {
+    let model_id = settings.local_model_id.as_deref().ok_or_else(|| {
+        Failure::guidance(
+            "model_not_selected",
+            "Select a local Whisper model in Settings",
+        )
+    })?;
     let model_path = models::model_path(app, model_id)?;
     if !model_path.exists() {
-        return Err(format!(
-            "The {model_id} Whisper model is not downloaded. Open Settings to download it."
+        return Err(Failure::guidance(
+            "model_missing",
+            format!(
+                "The {model_id} Whisper model is not downloaded. Open Settings to download it."
+            ),
         ));
     }
     let audio = artifact.whisper_pcm()?;
     if audio.is_empty() {
-        return Err("The recording contains no audio samples".into());
+        return Err(Failure::new(
+            "empty_recording",
+            "The recording contains no audio samples",
+        ));
     }
+    let recording = artifact.recording;
     let language = settings
         .language_hints
         .iter()
@@ -34,14 +50,30 @@ pub async fn transcribe(
 
     tokio::task::spawn_blocking(move || {
         report_build_once();
+        let loading = Instant::now();
         let context = WhisperContext::new_with_params(
             model_path.to_string_lossy().as_ref(),
             WhisperContextParameters::default(),
         )
-        .map_err(|error| format!("Could not load the Whisper model: {error}"))?;
-        let mut state = context
-            .create_state()
-            .map_err(|error| format!("Could not initialize Whisper: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                "model_load",
+                format!("Could not load the Whisper model: {error}"),
+            )
+            .detail(error)
+        })?;
+        let mut state = context.create_state().map_err(|error| {
+            Failure::new(
+                "whisper_init",
+                format!("Could not initialize Whisper: {error}"),
+            )
+            .detail(error)
+        })?;
+        diagnostics::info!(
+            "whisper.model_loaded",
+            recording = recording,
+            load_ms = loading.elapsed().as_millis(),
+        );
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -51,21 +83,28 @@ pub async fn transcribe(
         if let Some(prompt) = vocabulary.as_deref() {
             params.set_initial_prompt(prompt);
         }
-        state
-            .full(params, &audio)
-            .map_err(|error| format!("Local Whisper transcription failed: {error}"))?;
+        state.full(params, &audio).map_err(|error| {
+            Failure::new(
+                "whisper_run",
+                format!("Local Whisper transcription failed: {error}"),
+            )
+            .detail(error)
+        })?;
         let transcript = state
             .as_iter()
             .map(|segment| segment.to_string())
             .collect::<Vec<_>>()
             .join("");
         if transcript.trim().is_empty() {
-            return Err("Local Whisper returned an empty transcription".into());
+            return Err(Failure::new(
+                "empty_result",
+                "Local Whisper returned an empty transcription",
+            ));
         }
         Ok(transcript.trim().to_string())
     })
     .await
-    .map_err(|error| format!("Local Whisper worker failed: {error}"))?
+    .map_err(|error| Failure::new("worker", format!("Local Whisper worker failed: {error}")))?
 }
 
 /// Which instruction set this build of whisper.cpp was compiled for, written
@@ -79,10 +118,10 @@ pub async fn transcribe(
 fn report_build_once() {
     static REPORTED: std::sync::Once = std::sync::Once::new();
     REPORTED.call_once(|| {
-        diagnostics::log(format!(
-            "local whisper build: {}",
-            whisper_rs::print_system_info()
-        ));
+        diagnostics::info!(
+            "whisper.build",
+            system_info = whisper_rs::print_system_info()
+        );
     });
 }
 

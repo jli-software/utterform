@@ -277,15 +277,15 @@ pub(super) fn verify_live_integrity(
 /// Press the paste chord the focused window listens for, and say which.
 fn press_paste(target: &FocusedWindow) -> Result<(), String> {
     let paste = paste_for_window(target.class.as_deref(), target.program.as_deref());
-    diagnostics::log(format!(
-        "pasting into window class {:?} of program {:?} with {}",
-        target.class.as_deref().unwrap_or("unknown"),
-        target.program.as_deref().unwrap_or("unknown"),
-        match paste {
+    diagnostics::info!(
+        "typing.paste",
+        window_class = target.class.as_deref().unwrap_or("unknown"),
+        program = target.program.as_deref().unwrap_or("unknown"),
+        chord = match paste {
             Paste::Plain => "Ctrl+V",
             Paste::Terminal => "Shift+Insert",
         }
-    ));
+    );
     let (modifier, key) = match paste {
         Paste::Plain => (VK_LCONTROL, VK_V),
         Paste::Terminal => (VK_LSHIFT, VK_INSERT),
@@ -307,9 +307,13 @@ pub fn insert<R: Runtime>(
     let target = focused_window();
     if target.outranks_us {
         let program = target.program.as_deref().unwrap_or("The focused window");
-        diagnostics::log(format!(
-            "not typing into {program}: it runs at a higher integrity level than Utterform, and Windows would drop the keystrokes"
-        ));
+        // Windows would drop keystrokes into a window of higher integrity.
+        diagnostics::warning!(
+            "typing.refused",
+            reason = "elevated_target",
+            program = program
+        );
+
         return Err(format!(
             "{program} is running as administrator, and Windows lets no ordinary program type into it. Paste from the clipboard, or start Utterform as administrator too."
         ));
