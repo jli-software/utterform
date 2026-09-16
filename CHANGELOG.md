@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.10 — v0.7.10 · Cross-platform run markers
+
+- Treat an unavailable diagnostics marker parent consistently on Windows, Linux and macOS instead of allowing Windows' `NotFound` error to look like a clean previous run.
+- Preserve all local diagnostics, privacy bounds and support actions introduced in 0.7.9.
+
+See [0.7.10 release notes](docs/releases/v0.7.10.md).
+
 ## 0.7.9 — v0.7.9 · Local diagnostics
 
 - Keep local INFO/WARN/ERROR logs for the complete recording, transcription, transformation and delivery flow, with run/recording ids and user-visible failure references.

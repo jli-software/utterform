@@ -4,7 +4,7 @@
 
 Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
 
-> Utterform is under active development. **0.7.9 — Local diagnostics** adds bounded, privacy-safe logs with references for failures and simple copy/open actions in Settings. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.9.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.9).
+> Utterform is under active development. **0.7.10 — Local diagnostics** adds bounded, privacy-safe logs with references for failures and simple copy/open actions in Settings, with consistent run-marker handling on every desktop. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.10.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.10).
 
 ## Settings
 
@@ -170,7 +170,7 @@ A term containing `<` or `>` is refused by the transcription API, and it refuses
 
 ## Windows and macOS
 
-Download the [0.7.9 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.9):
+Download the [0.7.10 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.10):
 
 - **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
 - **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).

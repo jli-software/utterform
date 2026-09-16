@@ -756,7 +756,11 @@ pub fn begin_run(directory: &Path, run: &str) -> (PreviousRun, io::Result<()>) {
                 .find_map(|line| line.strip_prefix("run="))
                 .map(|run| redact::line(run, 32)),
         ),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => PreviousRun::Clean,
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound && marker_absence_is_expected(directory) =>
+        {
+            PreviousRun::Clean
+        }
         Err(_) => PreviousRun::Unknown,
     };
     let written = fs::create_dir_all(directory).and_then(|()| {
@@ -765,6 +769,16 @@ pub fn begin_run(directory: &Path, run: &str) -> (PreviousRun, io::Result<()>) {
         fs::rename(&temporary, &marker)
     });
     (previous, written)
+}
+
+/// Windows reports a missing child below a file as `NotFound`, while Unix
+/// reports `NotADirectory`. Only call a missing marker clean when its parent is
+/// a directory or does not exist yet; every other parent state is unknown.
+fn marker_absence_is_expected(directory: &Path) -> bool {
+    match fs::metadata(directory) {
+        Ok(metadata) => metadata.is_dir(),
+        Err(error) => error.kind() == io::ErrorKind::NotFound,
+    }
 }
 
 /// Removes the marker if it is this run's. A marker another run wrote is left
@@ -776,7 +790,11 @@ pub fn end_run(directory: &Path, run: &str) -> io::Result<()> {
             fs::remove_file(marker)
         }
         Ok(_) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound && marker_absence_is_expected(directory) =>
+        {
+            Ok(())
+        }
         Err(error) => Err(error),
     }
 }
