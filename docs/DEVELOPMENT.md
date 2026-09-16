@@ -9,7 +9,42 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.8
+## Planned handoff — 0.7.9
+
+0.7.9 turns the existing `utterform.log` troubleshooting aid into bounded, privacy-safe
+local diagnostics for the complete Record → Transcribe → Transform → Deliver workflow.
+There is no telemetry, background upload or remote crash service. Settings exposes immediate
+**Copy diagnostics**, **Open log file** and **Open log folder** actions; they do not participate
+in Settings Save/Cancel. Rust panics, unhandled WebView errors and an unclean previous exit are
+covered, while native process crash dumps remain explicitly outside this release.
+
+The implementation contract, code map, privacy rules, test matrix and Claude Code handoff are
+in [the 0.7.9 diagnostics plan](plans/v0.7.9-diagnostics.md). This planning revision contains
+no application implementation and does not bump the version. Claude Code implements code and
+targeted local tests in an isolated current clone and returns an uncommitted diff; ADA reviews,
+integrates, versions, commits, pushes, runs platform builds and owns preview/release work.
+
+## Diagnostics and logging invariant
+
+Diagnostics are part of a feature's definition of done, not follow-up work. Every new or changed
+operation that can fail, fall back, wait on an external system or leave durable state must define
+privacy-safe lifecycle and outcome events at the same time as its behavior. A pull request must:
+
+- log actionable boundaries and failures with a stable event name and correlation/session id;
+- aggregate or rate-limit repeated events and never write from audio, input or rendering hot loops;
+- never log API keys, authorization material, transcript/history/clipboard/file contents, audio,
+  prompts, vocabulary, recording context, window titles or raw network bodies;
+- treat device names, process/application identifiers and HTTP status codes as diagnostic metadata,
+  while redacting user-home prefixes and user-selected file paths;
+- add or update tests for event formatting, error/fallback coverage, redaction and bounded output;
+- update the diagnostics documentation when an event or privacy rule changes.
+
+Pure getters and successful high-frequency polling do not need success records. Their failures do.
+Logging must never change the functional completion boundary: history remains attempted before
+external delivery, every requested output finishes before the command answers, and decorative
+feedback such as the Done cue remains detached and safely superseded by the next recording.
+
+## Previous handoff — 0.7.8
 
 Settings has a viewport-bound height (up to 820 px), independent of the active category.
 The header, navigation and Save/Cancel footer stay in place; only the panel scrolls.
