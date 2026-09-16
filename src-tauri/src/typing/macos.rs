@@ -130,18 +130,18 @@ pub fn insert<R: Runtime>(
     clipboard_holds_text: bool,
 ) -> Result<(), String> {
     if !macos::accessibility_trusted(true) {
-        diagnostics::log(
-            "not typing: Utterform is not trusted for Accessibility, and macOS would drop the keystrokes; the system request dialog was opened",
-        );
+        // macOS would drop the keystrokes; the system request dialog was opened.
+        diagnostics::warning!("typing.refused", reason = "accessibility_not_trusted");
         return Err(macos::ACCESSIBILITY_HELP.into());
     }
     let target = frontmost_application();
     match method {
         TypingMethod::Keystrokes => {
-            diagnostics::log(format!(
-                "typing {} characters into {target}",
-                text.chars().count()
-            ));
+            diagnostics::info!(
+                "typing.keystrokes",
+                application = target,
+                characters = text.chars().count()
+            );
             type_text(text, delay_ms)
         }
         TypingMethod::Paste => {
@@ -151,7 +151,8 @@ pub fn insert<R: Runtime>(
                     .map_err(|error| format!("Could not put the text on the clipboard: {error}"))?;
             }
             thread::sleep(CLIPBOARD_SETTLE);
-            diagnostics::log(format!("pasting into {target} with Cmd+V"));
+            diagnostics::info!("typing.paste", application = target, chord = "Cmd+V");
+
             press_paste()
         }
     }

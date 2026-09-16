@@ -36,6 +36,9 @@ vi.mock("./lib/api", () => ({ api: {
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
   copyText: vi.fn(), clearHistory: vi.fn(),
+  playTestCues: vi.fn(),
+  diagnosticsInfo: vi.fn(), copyDiagnostics: vi.fn(), openLogFile: vi.fn(), openLogFolder: vi.fn(),
+  reportFrontendError: vi.fn(),
 } }));
 
 // What the backend answers with: the prompts live in Rust, so the interface
@@ -74,7 +77,15 @@ beforeEach(() => {
   vi.mocked(api.autostartEnabled).mockImplementation(async () => startupEntry);
   vi.mocked(api.enableAutostart).mockImplementation(async () => { startupEntry = true; });
   vi.mocked(api.disableAutostart).mockImplementation(async () => { startupEntry = false; });
+  vi.mocked(api.diagnosticsInfo).mockResolvedValue({ logPath: LOG_PATH });
+  vi.mocked(api.copyDiagnostics).mockResolvedValue({ bytes: 12_698, lines: 318, truncated: false });
+  vi.mocked(api.openLogFile).mockResolvedValue(undefined);
+  vi.mocked(api.openLogFolder).mockResolvedValue(undefined);
+  vi.mocked(api.reportFrontendError).mockResolvedValue(null);
+  vi.mocked(api.playTestCues).mockResolvedValue(undefined);
 });
+
+const LOG_PATH = "/home/tester/.local/share/software.jli.utterform/logs/utterform.log";
 
 let startupEntry = false;
 
@@ -1233,5 +1244,187 @@ describe("the ready boundary after processing", () => {
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
     expect(api.finishRecording).not.toHaveBeenCalled();
     expect(api.startRecording).toHaveBeenCalledOnce();
+  });
+});
+
+// Support actions are immediate resource operations, like a model download:
+// they neither take part in the settings draft nor close the dialog.
+describe("support and diagnostics", () => {
+  async function openGeneral() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    await waitFor(() => expect(view.queryByText(LOG_PATH)).not.toBeNull());
+    return view;
+  }
+
+  it("ends General with the support group and the path the backend reported", async () => {
+    const view = await openGeneral();
+    const headings = view.getByRole("tabpanel").querySelectorAll("h3");
+    expect(headings[headings.length - 1].textContent).toBe("Support & diagnostics");
+    expect(view.getByText(/contain no transcripts or audio/)).toBeTruthy();
+    for (const name of ["Copy diagnostics", "Open log file", "Open log folder"]) {
+      expect((view.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+
+  it("runs each action at once, never saves, and leaves Cancel with nothing to undo", async () => {
+    const view = await openGeneral();
+    await fireEvent.click(view.getByRole("button", { name: "Copy diagnostics" }));
+    await waitFor(() => expect(view.queryByText("Diagnostics copied · 12.4 KB · 318 lines")?.getAttribute("role")).toBe("status"));
+    await fireEvent.click(view.getByRole("button", { name: "Open log file" }));
+    await waitFor(() => expect(view.queryByText("Log file opened")).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open log folder" }));
+    await waitFor(() => expect(view.queryByText("Log folder opened")).not.toBeNull());
+    expect(api.copyDiagnostics).toHaveBeenCalledOnce();
+    expect(api.openLogFile).toHaveBeenCalledOnce();
+    expect(api.openLogFolder).toHaveBeenCalledOnce();
+    // No path ever travels from the interface to the backend.
+    for (const call of [api.copyDiagnostics, api.openLogFile, api.openLogFolder]) {
+      expect(vi.mocked(call).mock.calls[0]).toEqual([]);
+    }
+    expect(view.queryByRole("dialog")).not.toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.copyDiagnostics).toHaveBeenCalledOnce();
+  });
+
+  it("disables only the action in flight and keeps a failure in front of the user", async () => {
+    let finishCopy!: (value: { bytes: number; lines: number; truncated: boolean }) => void;
+    vi.mocked(api.copyDiagnostics).mockImplementationOnce(() => new Promise((done) => finishCopy = done));
+    vi.mocked(api.openLogFolder).mockRejectedValueOnce("The log folder could not be opened (ref 0a1b2c3d-4)");
+    const view = await openGeneral();
+    const copy = view.getByRole("button", { name: "Copy diagnostics" }) as HTMLButtonElement;
+    await fireEvent.click(copy);
+    expect(copy.disabled).toBe(true);
+    expect(copy.getAttribute("aria-busy")).toBe("true");
+    expect((view.getByRole("button", { name: "Open log file" }) as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(copy);
+    expect(api.copyDiagnostics).toHaveBeenCalledOnce();
+    await fireEvent.click(view.getByRole("button", { name: "Open log folder" }));
+    await waitFor(() => expect(view.getByRole("alert").textContent).toBe("The log folder could not be opened (ref 0a1b2c3d-4)"));
+    // The path stays readable for opening it by hand.
+    expect(view.queryByText(LOG_PATH)).not.toBeNull();
+    finishCopy({ bytes: 900, lines: 1, truncated: true });
+    await waitFor(() => expect(copy.disabled).toBe(false));
+    expect(view.queryByText("Diagnostics copied · 900 bytes · 1 line · newest lines only")).not.toBeNull();
+    expect(view.queryByRole("dialog")).not.toBeNull();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("says when no log file could be opened in this session", async () => {
+    vi.mocked(api.diagnosticsInfo).mockResolvedValue({ logPath: null });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    await waitFor(() => expect(view.queryByText("not available in this session")).not.toBeNull());
+  });
+
+  it("leaves the sound test and its report in Recording, without the log path", async () => {
+    const view = await openGeneral();
+    await showSettingsTab(view, "Recording");
+    expect(view.queryByText(LOG_PATH)).toBeNull();
+    expect(view.queryByRole("button", { name: "Copy diagnostics" })).toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "Test sounds (5s delay)" }));
+    expect(api.playTestCues).toHaveBeenCalledWith(5);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Playing in 5 seconds…" })).not.toBeNull());
+    listeners.get("test-cues-finished")!({ payload: "Start: played\nStop: played\nDone: played" });
+    await waitFor(() => expect(view.container.querySelector(".cue-report")?.textContent).toContain("Done: played"));
+  });
+});
+
+describe("failures only the interface sees", () => {
+  function rejection(reason: unknown) {
+    const event = new Event("unhandledrejection") as PromiseRejectionEvent;
+    Object.defineProperty(event, "reason", { value: reason });
+    return event;
+  }
+
+  it("reports a global error and an unhandled rejection once each, and stops listening when destroyed", async () => {
+    // Even a log that cannot be written must not become the next rejection.
+    vi.mocked(api.reportFrontendError).mockRejectedValue("logging is unavailable");
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    window.dispatchEvent(new ErrorEvent("error", { error: new TypeError("state is undefined"), message: "state is undefined" }));
+    await waitFor(() => expect(api.reportFrontendError).toHaveBeenCalledOnce());
+    expect(api.reportFrontendError).toHaveBeenLastCalledWith(expect.objectContaining({
+      source: "window.error", message: "TypeError: state is undefined", phase: "idle",
+    }));
+    window.dispatchEvent(rejection({ settings: { vocabulary: ["CANARY"] } }));
+    await waitFor(() => expect(api.reportFrontendError).toHaveBeenCalledTimes(2));
+    const sent = vi.mocked(api.reportFrontendError).mock.calls[1][0];
+    expect(sent).toEqual({ source: "unhandled_rejection", message: "Non-error value of type object", stack: null, phase: "idle" });
+    expect(JSON.stringify(sent)).not.toContain("CANARY");
+    view.unmount();
+    // The very handlers that were added are the ones removed.
+    for (const type of ["error", "unhandledrejection"]) {
+      const handler = added.mock.calls.find(([name]) => name === type)?.[1];
+      expect(handler).toBeTypeOf("function");
+      expect(removed.mock.calls.some(([name, fn]) => name === type && fn === handler)).toBe(true);
+    }
+    window.dispatchEvent(rejection(new Error("after unmount")));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.reportFrontendError).toHaveBeenCalledTimes(2);
+    added.mockRestore();
+    removed.mockRestore();
+  });
+
+  it("gives an unexpected interface failure the reference of its log event", async () => {
+    vi.mocked(api.reportFrontendError).mockResolvedValue("0a1b2c3d-7");
+    vi.mocked(api.finishRecording).mockRejectedValueOnce(new TypeError("result is undefined"));
+    // Ready once settings, the key and history have arrived.
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(view.queryByText("result is undefined (ref 0a1b2c3d-7)")).not.toBeNull());
+    expect(api.reportFrontendError).toHaveBeenCalledWith(expect.objectContaining({ source: "state", phase: "error" }));
+  });
+
+  it("does not report a command's own failure a second time", async () => {
+    vi.mocked(api.finishRecording).mockRejectedValueOnce("OpenAI transcription request failed (ref 0a1b2c3d-2)");
+    // Ready once settings, the key and history have arrived.
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(view.queryByText("OpenAI transcription request failed (ref 0a1b2c3d-2)")).not.toBeNull());
+    expect(api.reportFrontendError).not.toHaveBeenCalled();
+  });
+
+  it("reports a folder picker that failed to open, instead of leaving an unhandled rejection", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockRejectedValueOnce("the portal is unavailable");
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "Output");
+    await fireEvent.click(view.getByRole("button", { name: "Browse" }));
+    await waitFor(() => expect(api.reportFrontendError).toHaveBeenCalledWith({
+      source: "dialog", message: "the portal is unavailable", stack: null, phase: "idle",
+    }));
+    expect(view.queryByRole("dialog")).not.toBeNull();
+  });
+
+  it("reports a startup entry the system would not read, with its reference", async () => {
+    vi.mocked(api.reportFrontendError).mockResolvedValue("0a1b2c3d-9");
+    vi.mocked(api.autostartEnabled).mockRejectedValue("no startup items on this system");
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "General");
+    await waitFor(() => expect(view.getByRole("alert").textContent).toBe(
+      "Utterform could not read your startup settings: no startup items on this system (ref 0a1b2c3d-9)",
+    ));
+    expect(api.reportFrontendError).toHaveBeenCalledWith({
+      source: "autostart", message: "no startup items on this system", stack: null, phase: "idle",
+    });
   });
 });

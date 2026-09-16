@@ -9,7 +9,7 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Planned handoff — 0.7.9
+## Current handoff — 0.7.9
 
 0.7.9 turns the existing `utterform.log` troubleshooting aid into bounded, privacy-safe
 local diagnostics for the complete Record → Transcribe → Transform → Deliver workflow.
@@ -18,11 +18,35 @@ There is no telemetry, background upload or remote crash service. Settings expos
 in Settings Save/Cancel. Rust panics, unhandled WebView errors and an unclean previous exit are
 covered, while native process crash dumps remain explicitly outside this release.
 
-The implementation contract, code map, privacy rules, test matrix and Claude Code handoff are
-in [the 0.7.9 diagnostics plan](plans/v0.7.9-diagnostics.md). This planning revision contains
-no application implementation and does not bump the version. Claude Code implements code and
-targeted local tests in an isolated current clone and returns an uncommitted diff; ADA reviews,
-integrates, versions, commits, pushes, runs platform builds and owns preview/release work.
+The implementation contract, code map and privacy rules are in
+[the 0.7.9 diagnostics plan](plans/v0.7.9-diagnostics.md); the final design is in
+[ARCHITECTURE.md → Diagnostics](ARCHITECTURE.md#diagnostics) and validation evidence in
+[TESTING.md](TESTING.md).
+
+**Implementation state (2026-09-16).** The reviewed implementation and synchronized 0.7.9
+metadata are on the diagnostics PR branch. Linux frontend, browser and native checks pass,
+including `release:check`; no desktop preview, merge, tag or release has been made. Four reviewed
+decisions differ from the plan's initial wording:
+
+- `tauri-plugin-log` is **2.9.1**, not 2.7.0. Its stable Tauri-2 logger/filter integration is used,
+  but its file target retains failed writes without a memory bound. Utterform therefore supplies
+  the file target through `Dispatch`: one-record memory, 2 MiB active file and exactly two numbered
+  rotations. `tauri-plugin-opener` is 2.5.5 as planned.
+- The logger is built with the plugin's `split` and attached first thing in `setup`, not
+  registered with `.plugin(...)`: the plugin would add a WebView `log` command, and an
+  uncreatable log directory would fail the launch instead of falling back to stderr.
+- The opener plugin is registered with `open_js_links_on_click(false)`; no capability entry
+  was added for either plugin.
+- A keyring that cannot be read now says so ("could not be read from the operating system
+  keyring", with a reference) instead of "No OpenAI API key is stored"; a missing entry still
+  gets the old guidance.
+
+Before tagging: run PR CI, the Linux manual checks in
+the plan (startup, successful recording, induced API failure and its reference, the three
+support actions, rotation/truncation, force-kill and restart) and Desktop builds on all three
+platforms — the Windows and macOS typing and Live files changed their log calls and cannot be
+compiled on the Linux host. Then verify Finder, Explorer and the Linux file manager and the
+actual log paths on each desktop.
 
 ## Diagnostics and logging invariant
 
@@ -217,7 +241,7 @@ and silencing it because a dialog is up would take away the Omarchy workflow the
 
 **Fix:** only `activewindowv2` with a different non-empty address or `closewindow` of the target is a loss; an empty active window blocks only text due while it lasts; one Hyprland query per chunk with retries; technical faults worded as such; characters allocated on quiet, DOM-code-backed keycodes (keypad, F13–F19/F24, Intl, legacy keys) before ordinary keys, never Escape/Tab/Backspace/Return/modifiers/F1–F12/navigation/media/print/power; a 700 ms typing hold after every stop request (`STOP_HOLD` in `live.rs`); numbered sessions whose worker releases the virtual keyboard and event socket before the next start, with privacy-safe per-session log lines (`utterform.log`). The input worker is driven through the `LiveInput` trait so its lifecycle is unit-tested with a fake typer.
 
-**Still to confirm on the real Omarchy desktop (Tony):** ten `Super+D → speak → Super+D → restart in the same field` rounds in a native editor, Chromium and an XWayland app; no workspace change, no old or duplicated text; a real window switch still stops insertion; "ä", "s" and "-" arrive in Chromium; the log shows one `live session N` block per round. If a workspace reaction remains, send the `live session` lines of the log — they name the classified Hyprland events without any text.
+**Still to confirm on the real Omarchy desktop (Tony):** ten `Super+D → speak → Super+D → restart in the same field` rounds in a native editor, Chromium and an XWayland app; no workspace change, no old or duplicated text; a real window switch still stops insertion; "ä", "s" and "-" arrive in Chromium; the log shows one `live session N` block per round. If a workspace reaction remains, send the `live.*` lines of the log (since 0.7.9: Settings → General → Copy diagnostics) — they name the classified Hyprland events without any text.
 
 **Build note:** the portable CMake described below had been removed from `.tools/`; it was re-downloaded (official 4.4.3 tarball, SHA-256 verified) into `.tools/cmake-4.4.3-linux-x86_64`, still ignored by Git. `cargo test` needs its `bin` on `PATH` because `whisper-rs-sys` builds whisper.cpp with CMake.
 
@@ -225,7 +249,7 @@ and silencing it because a dialog is up would take away the Omarchy workflow the
 
 **Confirmed on Windows by Jonas on 2026-09-08, on 0.4.6.** Paste into Windows Terminal works, the administrator warning shows, changing the dictation key to `Alt+C` works, and his verdict on Windows overall was "sensationell". Nothing is open on Windows from his side. What remains unconfirmed in words is only the start click with the window in the background (see below); the 0.4.5 log shows it playing.
 
-**Jonas's Windows setup, for the next diagnosis:** Windows Terminal started as administrator; a Jabra Link 390 headset as the output; a Logitech C270 webcam as the microphone at 48 kHz stereo F32; the log lives at `%LOCALAPPDATA%\software.jli.utterform\utterform.log` and he sends it when asked. Ask for it before theorising: the 0.4.5 round was settled by one log line.
+**Jonas's Windows setup, for the next diagnosis:** Windows Terminal started as administrator; a Jabra Link 390 headset as the output; a Logitech C270 webcam as the microphone at 48 kHz stereo F32; the log lives at `%LOCALAPPDATA%\software.jli.utterform\utterform.log` up to 0.7.8 and at `%LOCALAPPDATA%\software.jli.utterform\logs\utterform.log` from 0.7.9, where Settings → General → Copy diagnostics puts a bounded report on the clipboard; he sends it when asked. Ask for it before theorising: the 0.4.5 round was settled by one log line.
 
 **How this was found, for whoever debugs Windows next:**
 
@@ -335,7 +359,7 @@ All three platforms have now been exercised by a person; macOS since 0.7.0 beta 
 | Tray click opens the window | works, confirmed | never tried | the recording dot is confirmed (0.4.4, smaller since 0.4.5); the click was not mentioned |
 | Recording, transcription, clipboard, file | works, confirmed | **works, confirmed 2026-09-10** (microphone dialog, GPT Transcribe, Local Whisper); 0.6.1 never asked for the microphone | **works, confirmed 2026-09-08** (dock and webcam microphone, Jabra headset) |
 
-Jonas tested Windows on 2026-09-08 across 0.4.4 to 0.4.6; the answers are in the handoffs above. If a paste does not arrive in some window, read the `pasting into window class …` line in the log first: it names the class, the program and the chord. An elevated window is refused by design; an unrecognised terminal is added to `typing::TERMINALS`; the last fallback is Settings → Output → Typing at the cursor → Keystrokes.
+Jonas tested Windows on 2026-09-08 across 0.4.4 to 0.4.6; the answers are in the handoffs above. If a paste does not arrive in some window, read the `typing.paste` event in the log first (`pasting into window class …` before 0.7.9): it names the class, the program and the chord. An elevated window is refused by design; an unrecognised terminal is added to `typing::TERMINALS`; the last fallback is Settings → Output → Typing at the cursor → Keystrokes.
 
 The misleading "needs a graphical session" message on Windows is gone — the platform is implemented. macOS typing arrived in 0.7.0 beta 1; what it needs and how it is built on the Mac mini is in `MACOS.md`.
 

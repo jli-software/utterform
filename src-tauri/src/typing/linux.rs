@@ -17,7 +17,7 @@ use tauri::{AppHandle, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use super::{Paste, paste_for};
-use crate::domain::TypingMethod;
+use crate::{diagnostics, domain::TypingMethod};
 
 /// A tool that can type into the focused window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,21 +174,40 @@ fn run(tool: Tool, args: &[String], stdin_text: Option<&str>) -> Result<(), Stri
         } else {
             Stdio::null()
         });
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Could not run {program}: {error}"))?;
+    // Which step failed, and how the tool exited; the text itself is only
+    // ever written to the tool's stdin.
+    let failed = |stage: &'static str, exit_code: Option<i32>| {
+        diagnostics::warning!(
+            "typing.tool_failed",
+            tool = program,
+            stage = stage,
+            exit_code = exit_code.map_or_else(|| "none".to_string(), |code| code.to_string())
+        );
+    };
+    let mut child = command.spawn().map_err(|error| {
+        failed("spawn", None);
+        format!("Could not run {program}: {error}")
+    })?;
     if let Some(text) = stdin_text {
         child
             .stdin
             .take()
-            .ok_or_else(|| format!("Could not send the text to {program}"))?
+            .ok_or_else(|| {
+                failed("stdin", None);
+                format!("Could not send the text to {program}")
+            })?
             .write_all(text.as_bytes())
-            .map_err(|error| format!("Could not send the text to {program}: {error}"))?;
+            .map_err(|error| {
+                failed("stdin", None);
+                format!("Could not send the text to {program}: {error}")
+            })?;
     }
-    let status = child
-        .wait()
-        .map_err(|error| format!("{program} did not finish: {error}"))?;
+    let status = child.wait().map_err(|error| {
+        failed("wait", None);
+        format!("{program} did not finish: {error}")
+    })?;
     if !status.success() {
+        failed("exit", status.code());
         return Err(format!("{program} could not reach the focused window"));
     }
     Ok(())
@@ -207,10 +226,21 @@ pub fn insert<R: Runtime>(
     clipboard_holds_text: bool,
 ) -> Result<(), String> {
     let (wayland, x11) = session();
-    let tool = tool(wayland, x11, installed).ok_or_else(|| missing_tool_message(wayland, x11))?;
+    let tool = tool(wayland, x11, installed).ok_or_else(|| {
+        diagnostics::warning!("typing.tool_missing", wayland = wayland, x11 = x11);
+        missing_tool_message(wayland, x11)
+    })?;
 
     match method {
-        TypingMethod::Keystrokes => run(tool, &type_args(tool, delay_ms), Some(text)),
+        TypingMethod::Keystrokes => {
+            diagnostics::info!(
+                "typing.keystrokes",
+                tool = tool.program(),
+                characters = text.chars().count(),
+                delay_ms = delay_ms
+            );
+            run(tool, &type_args(tool, delay_ms), Some(text))
+        }
         TypingMethod::Paste => {
             if !clipboard_holds_text {
                 app.clipboard()
@@ -218,7 +248,17 @@ pub fn insert<R: Runtime>(
                     .map_err(|error| format!("Could not put the text on the clipboard: {error}"))?;
             }
             thread::sleep(CLIPBOARD_SETTLE);
-            let paste = paste_for(active_window_class().as_deref());
+            let class = active_window_class();
+            let paste = paste_for(class.as_deref());
+            diagnostics::info!(
+                "typing.paste",
+                tool = tool.program(),
+                window_class = class.as_deref().unwrap_or("unknown"),
+                chord = match paste {
+                    Paste::Plain => "plain",
+                    Paste::Terminal => "terminal",
+                }
+            );
             run(tool, &paste_args(tool, paste), None)
         }
     }

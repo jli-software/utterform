@@ -12,12 +12,32 @@ pub enum TranscriptionEngine {
     LocalWhisper,
 }
 
+impl TranscriptionEngine {
+    /// The stored name, for diagnostic events.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::OpenAi => "open_ai",
+            Self::LocalWhisper => "local_whisper",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CloudModel {
     #[default]
     GptTranscribe,
     GptLiveTranscribe,
+}
+
+impl CloudModel {
+    /// The stored name, for diagnostic events.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GptTranscribe => "gpt_transcribe",
+            Self::GptLiveTranscribe => "gpt_live_transcribe",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -49,6 +69,16 @@ pub enum TypingMethod {
     #[default]
     Paste,
     Keystrokes,
+}
+
+impl TypingMethod {
+    /// The stored name, for diagnostic events.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Paste => "paste",
+            Self::Keystrokes => "keystrokes",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

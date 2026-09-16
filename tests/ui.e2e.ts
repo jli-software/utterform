@@ -33,6 +33,10 @@ test.beforeEach(async ({ page }) => {
       // What the operating system's startup entry would hold, and every write
       // the interface asked for, in order.
       __autostartWrites: [] as string[],
+      // Support actions and frontend failure reports, in the order they arrived.
+      __supportCalls: [] as string[],
+      __failSupport: "",
+      __frontendReports: [] as unknown[],
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
       __TAURI_INTERNALS__: {
         transformCallback: (callback: (event: unknown) => void) => { callbacks.set(++counter, callback); return counter; },
@@ -78,6 +82,15 @@ test.beforeEach(async ({ page }) => {
             case "cancel_recording": started = 0; pausedAt = 0; return;
             case "get_recording_status": return recordingStatus();
             case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
+            case "play_test_cues": return;
+            case "diagnostics_info": return { logPath: "/home/tester/.local/share/software.jli.utterform/logs/utterform.log" };
+            case "copy_diagnostics": case "open_log_file": case "open_log_folder":
+              (Reflect.get(window, "__supportCalls") as string[]).push(command);
+              if (Reflect.get(window, "__failSupport") === command) throw "The log folder could not be opened (ref 0a1b2c3d-4)";
+              return command === "copy_diagnostics" ? { bytes: 12698, lines: 318, truncated: false } : undefined;
+            case "report_frontend_error":
+              (Reflect.get(window, "__frontendReports") as unknown[]).push(args.report);
+              return "0a1b2c3d-9";
             case "plugin:event|listen": eventHandlers.set(args.event as string, args.handler as number); return ++counter;
             case "plugin:event|unlisten": return;
             default: throw new Error(`Unexpected IPC command: ${command}`);
@@ -873,3 +886,86 @@ for (const viewport of [
     await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeInViewport({ ratio: 1 });
   });
 }
+
+const LOG_PATH = "/home/tester/.local/share/software.jli.utterform/logs/utterform.log";
+
+for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
+  test(`support actions run at once from General and stay reachable at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+    const panel = page.getByRole("tabpanel");
+    await expect(panel.getByRole("heading").last()).toHaveText("Support & diagnostics");
+    const scroll = page.locator(".settings-scroll");
+    const reachable = async (control: ReturnType<typeof page.getByRole>) => {
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeVisible();
+      await control.focus();
+      await expect(control).toBeFocused();
+      const area = (await scroll.boundingBox())!;
+      const box = (await control.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(area.x - 1);
+      expect(box.y).toBeGreaterThanOrEqual(area.y - 1);
+      expect(box.x + box.width).toBeLessThanOrEqual(area.x + area.width + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(area.y + area.height + 1);
+    };
+    const copy = page.getByRole("button", { name: "Copy diagnostics", exact: true });
+    const openFile = page.getByRole("button", { name: "Open log file", exact: true });
+    const openFolder = page.getByRole("button", { name: "Open log folder", exact: true });
+    for (const control of [copy, openFile, openFolder]) await reachable(control);
+    const path = page.getByText(LOG_PATH, { exact: true });
+    await path.scrollIntoViewIfNeeded();
+    await expect(path).toBeVisible();
+    expect(await path.evaluate((element) => element.getBoundingClientRect().right <= element.closest(".setting-group")!.getBoundingClientRect().right + 1)).toBe(true);
+    expect(await scroll.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+    // From the keyboard, at once, with the result announced in the group.
+    await copy.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("status").filter({ hasText: "Diagnostics copied" })).toHaveText("Diagnostics copied · 12.4 KB · 318 lines");
+    await openFile.click();
+    await expect(page.getByText("Log file opened", { exact: true })).toBeVisible();
+    await page.evaluate(() => Reflect.set(window, "__failSupport", "open_log_folder"));
+    await openFolder.click();
+    await expect(page.getByRole("alert")).toHaveText("The log folder could not be opened (ref 0a1b2c3d-4)");
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await expect(path).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("support-dark.png") });
+    await page.evaluate(() => document.documentElement.dataset.theme = "light");
+    await expect(page.getByRole("alert")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("support-light.png") });
+
+    // The sound test stays where recording is configured, without the path.
+    await page.getByRole("tab", { name: "Recording", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Test sounds (5s delay)" })).toBeVisible();
+    await expect(page.getByText(LOG_PATH, { exact: true })).toHaveCount(0);
+    await page.getByRole("tab", { name: "General", exact: true }).click();
+
+    // Cancel has nothing to undo, and nothing was saved.
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toBeNull();
+    expect(await page.evaluate(() => Reflect.get(window, "__supportCalls"))).toEqual(["copy_diagnostics", "open_log_file", "open_log_folder"]);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("an error the interface did not catch reaches the local log once, without state", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Start recording", exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    setTimeout(() => { throw new TypeError("synthetic interface failure"); });
+    void Promise.reject({ transcript: "CANARY never leaves the page" });
+  });
+  await expect.poll(() => page.evaluate(() => (Reflect.get(window, "__frontendReports") as unknown[]).length)).toBe(2);
+  const reports = await page.evaluate(() => Reflect.get(window, "__frontendReports") as Array<Record<string, unknown>>);
+  expect(reports.map((report) => report.source).sort()).toEqual(["unhandled_rejection", "window.error"]);
+  expect(reports.find((report) => report.source === "window.error")).toMatchObject({ message: "TypeError: synthetic interface failure", phase: "idle" });
+  expect(JSON.stringify(reports)).not.toContain("CANARY");
+  expect(JSON.stringify(reports)).not.toContain("127.0.0.1");
+});

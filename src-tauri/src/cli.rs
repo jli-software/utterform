@@ -36,6 +36,18 @@ pub enum Intent {
 }
 
 impl Intent {
+    /// The command-line spelling, for diagnostic events.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Show => "show",
+            Self::Toggle => "toggle",
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Cancel => "cancel",
+            Self::Autostart => "autostart",
+        }
+    }
+
     /// Only an explicit request for the window should raise it. A dictation
     /// hotkey must leave the user in the application they are typing into.
     pub fn raises_window(self) -> bool {

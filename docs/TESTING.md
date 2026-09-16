@@ -1,5 +1,95 @@
 # Validation
 
+## 0.7.9 local diagnostics
+
+**Implementation state:** reviewed and versioned as 0.7.9 on the diagnostics PR branch, tested on
+Linux only. `npm run release:check -- v0.7.9` passes. No desktop preview, merge, tag or release has
+been made.
+
+Automated, on Linux (Rust 1.93, Node 24, Playwright Chromium 1243), from the implementation
+checkout: `npm ci`, `npm run check` (0 errors, 0 warnings), `npm test` — 127 interface tests
+(111 before), `npm run build`, `npm run test:e2e` — 31 production-bundle scenarios (28 before),
+`cargo fmt --check`, `cargo clippy --all-targets -D warnings`, and `dbus-run-session -- cargo
+test` — 164 native tests (135 before). `cargo tree -e features -i zbus` shows no `tokio`
+feature: `tauri-plugin-opener` brings zbus with its default `async-io` executor only.
+
+New native coverage: a record is one stable line naming timestamp, level, target, run, event
+and fields, quoting and escaping values; canary API keys, bearer and `Authorization` material,
+home directories of this and other accounts (Linux, macOS, Windows drive forms), control and
+direction-override characters and oversized values are removed or bounded, idempotently; only
+Utterform targets pass the filter; `info!`, `fallback!`, `failure!` and guidance each emit
+exactly one event, the failure's message — a canary standing in for an OpenAI error body —
+never reaches the record while the user's text keeps it with the matching `ref`; the limiter
+stops at its bound and counts the rest, and the Linux focus guard writes 200 events and one
+`live.focus_events_suppressed … suppressed=5`; recording and reference ids are distinct and
+references name the run; the run marker reports clean, unclean (with the previous run id) and
+unavailable storage, is removed only by the run that wrote it, and removal twice is harmless;
+a panic message loses the text std quotes for all three kinds of bad string slice while an
+`unwrap` message keeps its backticks, and a backtrace becomes one line without the panic
+machinery's frames or build-machine directories, keeping up to 8 KiB in the stored record
+instead of the 1 KiB bound of an ordinary field; frontend reports lose script origins, unknown sources
+and phases, and key material. Report assembly finds legacy, rotated and current files in
+order and ignores anything else, keeps a small report whole and oldest-first with legacy
+secrets and homes redacted, caps a multi-megabyte UTF-8 log at 256 KiB, 4 KiB and 1 KiB with
+the marker and every kept line whole, stops at the first file that no longer fits so no older
+file leaves a gap, and survives a missing file. Workflow sinks: `deliver_to` with a canary
+transcript failing on clipboard and cursor and saving into a private folder writes three
+events, none with the text, the folder or the user name, the summary naming only
+`file_name=utterform-2026.txt`; the Live input worker, fed canary chunks with a failing
+insert, writes its start, pause and release events without any chunk. The refusal sentences
+of the Linux, macOS and Windows typing modules (missing tool, Accessibility, elevated window)
+and of Live capture (no external field, unsupported session) are guidance, while tool, count and
+clipboard faults are not; a typed text model that does not look like a model id is `custom`. The existing audio,
+Live transport and worker, cue, input and history tests are unchanged apart from the typed
+failures they now inspect, and the pause clock also proves a repeated pause is not a change.
+
+New interface coverage: General ends with Support & diagnostics and the backend's path; Copy,
+Open log file and Open log folder run at once with no argument, report `Diagnostics copied ·
+12.4 KB · 318 lines` and their other results, never call `saveSettings` and leave Cancel
+nothing to undo; the action in flight alone is disabled and `aria-busy`, a failure stays as
+an alert in the group with the path still readable, and a truncated copy says so; a session
+without a log file says so; Recording keeps the sound test and its report without the path.
+The global listeners report a `TypeError` and a rejected plain object once each — the object
+as `Non-error value of type object`, its canary never sent — survive a failing report command
+without a new rejection, and the handlers added are the ones removed on destroy; an `Error`
+thrown in the interface is shown with the reference its report returns, a command's own
+string failure is not reported again, an unreadable startup entry is reported with its
+reference, and a folder picker that fails to open is reported as `dialog` instead of becoming
+an unhandled rejection. A `file:///` stack location keeps its leading slash, so the backend's
+home redaction still applies. `diagnostics.test.ts` covers the message and stack bounds, origin removal, the
+phase sent, the reporter's allowance of 20 and its swallowing of failures, and the summary.
+
+The bounded file writer has direct filesystem coverage: records rotate during one process into
+exactly the active file plus `.1` and `.2`, and a deliberately blocked rotation drops its one
+pending record instead of retaining an unbounded queue.
+
+In the production bundle, synthetic IPC now answers every new command instead of the
+unexpected-command fallback. At 920 × 720 and 360 × 400 with reduced motion: the group is the
+last in General; the three buttons are visible, focusable and inside the scrolling panel; the
+path wraps inside its card with no horizontal overflow; Enter on Copy announces the summary;
+Open log file reports success; a failing Open log folder shows its referenced message while
+the dialog stays open; dark and light screenshots are written; Recording still has the sound
+test and no path; Cancel closes with nothing saved and exactly the three support calls made.
+An uncaught `TypeError` and an unhandled rejection of an object in the bundle reach
+`report_frontend_error` once each, without the rejected object's contents or the page origin.
+
+**Pre-review integration evidence:** the original implementation was also compiled into a scratch
+crate against Tauri's mock runtime with isolated XDG directories. It resolved the log directory,
+detected a planted unclean marker, wrote startup/debug/redacted/panic records with a run id,
+filtered a dependency target, built a bounded report and removed the marker on clean finish. Its
+plugin-owned rotation check was superseded during review by the final bounded writer and the two
+filesystem tests above; this scratch run is not a substitute for the pending real-desktop checks.
+
+**Not exercised by anyone yet — needs the real desktops:** the app itself was not launched
+(this host has no display server). Open for ADA and the platform owners: startup, a real
+recording, an induced API failure with its reference found in the log, Copy diagnostics
+pasted elsewhere, Open log file, Open log folder (FileManager1, the portal fallback and the
+open-folder fallback on Omarchy; Finder; Explorer), rotation over a long session,
+force-kill and restart showing the unclean exit, and the standard log paths on macOS and
+Windows. `cfg(target_os = "windows")` and `cfg(target_os = "macos")` typing and Live code
+changed only in its log calls, but cannot be compiled here: run Desktop builds on all three
+platforms before tagging.
+
 ## 0.7.6 menu-bar macOS, transcription selector, seamless recording cycle
 
 Automated, on Linux: 135 native tests (129 before), 111 interface tests (94 before) and

@@ -284,12 +284,26 @@ struct FocusGuard {
     address: String,
     /// Last known keyboard-focus state from the event stream.
     focused: bool,
-    label: String,
-    logged: usize,
+    /// The recording whose events these are.
+    recording: u64,
+    /// Bounds this session's focus lines; see [`MAX_LOGGED_EVENTS`].
+    limiter: diagnostics::Limiter,
+}
+
+impl Drop for FocusGuard {
+    fn drop(&mut self) {
+        if self.limiter.suppressed() > 0 {
+            diagnostics::warning!(
+                "live.focus_events_suppressed",
+                recording = self.recording,
+                suppressed = self.limiter.suppressed()
+            );
+        }
+    }
 }
 
 impl FocusGuard {
-    fn capture(label: String) -> Result<Self, String> {
+    fn capture(recording: u64) -> Result<Self, String> {
         if std::env::var_os("WAYLAND_DISPLAY").is_none() {
             return Err("Live typing on Linux needs an Omarchy/Hyprland Wayland session".into());
         }
@@ -315,8 +329,8 @@ impl FocusGuard {
             pending: Vec::new(),
             address: String::new(),
             focused: true,
-            label,
-            logged: 0,
+            recording,
+            limiter: diagnostics::Limiter::new(MAX_LOGGED_EVENTS),
         };
         let window = guard.query_active_window()?;
         let address = window
@@ -353,13 +367,13 @@ impl FocusGuard {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         guard.address = address.to_owned();
-        diagnostics::log(format!(
-            "{}: target window {} on workspace {}{}; Hyprland focus events subscribed",
-            guard.label,
-            guard.address,
-            workspace,
-            if xwayland { " (XWayland)" } else { "" }
-        ));
+        diagnostics::info!(
+            "live.focus_target",
+            recording = guard.recording,
+            window = guard.address,
+            workspace = workspace,
+            xwayland = xwayland
+        );
         guard.confirm()?;
         Ok(guard)
     }
@@ -409,10 +423,11 @@ impl FocusGuard {
         Err(technical(&last))
     }
 
+    /// One focus observation, within this session's bound. The text is built
+    /// from event names, window addresses and workspace ids only.
     fn log(&mut self, message: impl std::fmt::Display) {
-        if self.logged < MAX_LOGGED_EVENTS {
-            self.logged += 1;
-            diagnostics::log(format!("{}: {message}", self.label));
+        if self.limiter.admit() {
+            diagnostics::info!("live.focus", recording = self.recording, detail = message);
         }
     }
 
@@ -608,8 +623,7 @@ impl LiveTyper {
     }
 
     pub(super) fn capture(session_id: u64) -> Result<Self, String> {
-        let label = format!("live session {session_id}");
-        let focus = FocusGuard::capture(label)?;
+        let focus = FocusGuard::capture(session_id)?;
         let connection = Connection::connect_to_env()
             .map_err(|_| "Could not connect to the Wayland compositor")?;
         let mut queue = connection.new_event_queue();
@@ -719,7 +733,14 @@ impl LiveTyper {
 impl Drop for LiveTyper {
     fn drop(&mut self) {
         self.keyboard.destroy();
-        let _ = self.connection.flush();
+        if self.connection.flush().is_err() {
+            // The compositor connection is already gone; it releases the
+            // keyboard itself when the socket closes.
+            diagnostics::warning!(
+                "live.keyboard_release_unconfirmed",
+                recording = self.focus.recording
+            );
+        }
         self.focus.log(format!(
             "virtual keyboard destroyed after {} keymap upload(s)",
             self.uploads
@@ -743,8 +764,8 @@ mod tests {
             pending: Vec::new(),
             address: "0xabc".into(),
             focused: true,
-            label: "test".into(),
-            logged: 0,
+            recording: 0,
+            limiter: diagnostics::Limiter::new(MAX_LOGGED_EVENTS),
         }
     }
 
@@ -862,6 +883,29 @@ mod tests {
                 "{event}"
             );
         }
+    }
+
+    #[test]
+    fn a_chatty_desktop_is_bounded_and_the_rest_is_counted() {
+        let (reader, _writer) = UnixStream::pair().unwrap();
+        let ((), records) = diagnostics::capture::records(|| {
+            let mut guard = guard_with(reader, PathBuf::from("/nonexistent"));
+            guard.recording = 9;
+            for _ in 0..MAX_LOGGED_EVENTS + 5 {
+                guard.log("event workspacev2 3 -> Unrelated");
+            }
+            drop(guard);
+        });
+        assert_eq!(records.len(), MAX_LOGGED_EVENTS + 1);
+        assert!(
+            records[..MAX_LOGGED_EVENTS]
+                .iter()
+                .all(|record| record.contains("live.focus recording=9"))
+        );
+        assert!(
+            records[MAX_LOGGED_EVENTS]
+                .contains("live.focus_events_suppressed recording=9 suppressed=5")
+        );
     }
 
     #[test]
