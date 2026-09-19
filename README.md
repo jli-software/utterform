@@ -1,24 +1,101 @@
-# Utterform
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="Utterform icon" width="104">
+  <h1>Utterform</h1>
+  <p><strong>Type anywhere. Speak naturally.</strong></p>
+  <p>A focused desktop dictation app for Windows, macOS, and Linux.</p>
+  <p>
+    <a href="https://github.com/jli-software/utterform/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jli-software/utterform?style=flat-square&color=111111"></a>
+    <a href="https://github.com/jli-software/utterform/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/jli-software/utterform/actions/workflows/ci.yml/badge.svg"></a>
+    <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-111111?style=flat-square"></a>
+    <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-111111?style=flat-square">
+    <img alt="macOS signed and notarized" src="https://img.shields.io/badge/macOS-signed%20%26%20notarized-111111?style=flat-square">
+  </p>
+  <p>
+    <a href="https://github.com/jli-software/utterform/releases/latest"><strong>Download</strong></a>
+    · <a href="#how-it-works">How it works</a>
+    · <a href="#privacy-model">Privacy</a>
+  </p>
+</div>
 
-**Speak once. Shape the text.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/utterform-main-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/utterform-main-light.png">
+  <img src="docs/images/utterform-main-light.png" alt="Utterform ready to record with Local Whisper selected">
+</picture>
 
-Utterform is a lightweight desktop voice-to-text utility for Windows, Linux, and macOS. Record a short voice clip, transcribe it with OpenAI GPT Transcribe or local Whisper, optionally transform the text, and send the result to the clipboard, a TXT/Markdown file, or both.
+Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcribe** or
+**local Whisper**, optionally reshapes the result, then copies, saves, or types it at
+the cursor. The window can stay out of the way while a global shortcut controls the
+whole flow.
 
 > Utterform is under active development. **0.7.10 — Local diagnostics** adds bounded, privacy-safe logs with references for failures and simple copy/open actions in Settings, with consistent run-marker handling on every desktop. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.10.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.10).
 
-## Settings
+## How it works
+
+| 1. Trigger | 2. Speak | 3. Keep working |
+| --- | --- | --- |
+| Press `Ctrl+Alt+D` or click **Record**. | Use GPT Transcribe, GPT Live Transcribe, or offline Local Whisper. | Copy to the clipboard, save TXT/Markdown, or type directly into the focused app. |
+
+- **Dictate anywhere.** Start and stop from another application without bringing
+  Utterform forward.
+- **Stay local when you want.** Local Whisper with the Plain action keeps audio and
+  text on the device.
+- **Shape the result.** Clean, polish, summarize, or run prompts you can rewrite.
+- **Choose every destination.** Clipboard, file, and typing at the cursor are
+  independent and can be combined.
+- **Keep control.** API keys use the operating system credential store; recordings
+  are temporary and the local log never contains spoken or transcribed content.
+
+## Download
+
+The current stable release is
+**[0.7.10 — Local diagnostics](https://github.com/jli-software/utterform/releases/tag/v0.7.10)**.
+
+| Platform | Download | Notes |
+| --- | --- | --- |
+| Windows x86_64 | [Installer](https://github.com/jli-software/utterform/releases/latest/download/utterform-windows-x86_64-setup.exe) · [Standalone](https://github.com/jli-software/utterform/releases/latest/download/utterform-windows-x86_64.exe) | WebView2 required; builds are currently unsigned. |
+| macOS Apple Silicon | [DMG](https://github.com/jli-software/utterform/releases/latest/download/utterform-macos-aarch64.dmg) · [App ZIP](https://github.com/jli-software/utterform/releases/latest/download/utterform-macos-aarch64.app.zip) | Developer ID signed and notarized; macOS 11+. |
+| Omarchy / Arch Linux x86_64 | [Install script](https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh) | User-local install; system GTK/WebKitGTK runtime. |
+
+Verify downloads with
+[`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
+See the [0.7.10 release notes](docs/releases/v0.7.10.md) for the current changes.
+
+### Omarchy / Arch Linux
+
+```bash
+curl -fsSL https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh | sh
+```
+
+Required runtime packages:
+
+```bash
+sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
+```
+
+## Tune it once, then stay in flow
+
+The global dictation shortcut is prominent, theme and startup controls are nearby,
+and the remaining settings are grouped by recording, models, actions, and output.
+
+![Utterform General settings with the global dictation shortcut](docs/images/utterform-settings-general-dark.png)
+
+Every built-in action is readable and editable. Add your own prompt, or keep **Plain**
+for a transcript that never calls a text model.
+
+![Utterform Actions settings with the editable Clean prompt](docs/images/utterform-settings-actions-dark.png)
 
 | Category | Controls |
 | --- | --- |
 | General | Dictation shortcut, appearance, startup, support and diagnostics |
-| Recording | Microphone, language hints, sounds, vocabulary and context |
-| AI & Models | Transcription mode, OpenAI key, local models, text model and thinking effort |
+| Recording | Microphone, language hints, sounds, vocabulary, and context |
+| AI & Models | Transcription mode, OpenAI key, local models, text model, and thinking effort |
 | Actions | Built-in and custom prompts |
-| Output | Typing method, file folder, local history |
+| Output | Typing method, file folder, and local history |
 
 Settings opens on General. Save applies edits across categories; Cancel restores the
-previous preferences. Explicit model downloads/removals, key removal and confirmed
-history deletion take effect immediately, as before.
+previous preferences. Explicit model downloads/removals, key removal, and confirmed
+history deletion take effect immediately.
 
 ## Live dictation — Windows and Omarchy
 
@@ -66,22 +143,6 @@ See the [0.6.1 release notes](docs/releases/v0.6.1.md) and the [0.6.0 release no
 A focused monochrome interface: white and graphite, a geometric U mark, crisp controls, and a broad, flowing pixel ribbon with fine interwoven filaments driven by your real microphone level. Light, dark, and system appearance apply across recording, settings and menus. The ribbon fills the available recording width, including compact windows. Particles flow independently in response to speech, transitions through processing stay smooth, and the ribbon settles gently over about 1.8 seconds after completion. Pause still freezes the ribbon immediately; reduced-motion preferences keep it still, and hidden windows do no decorative animation work.
 
 The new mark is included in the executable, tray, Windows setup/uninstaller, Linux desktop icon and macOS bundle. Reinstall using the normal installer to update the desktop integration; data and product identity stay the same. Linux refreshes its local icon cache, and Windows notifies Explorer after installation/removal.
-
-## Install on Omarchy / Arch Linux
-
-An unsigned x86_64 build is available. It installs for the current user and does not require `sudo`:
-
-```bash
-curl -fsSL https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh | sh
-```
-
-The `releases/latest` URL always selects the newest stable GitHub release. Then launch **Utterform** from the app menu or run `utterform`. The installer verifies SHA-256, installs the executable below `~/.local/share/utterform`, and creates a launcher in `~/.local/bin`. The application deliberately uses Omarchy's system GTK, WebKitGTK, and graphics libraries instead of mixing them with an Ubuntu AppImage runtime. Quit the old running app, then re-run the command to update or repair the installation; settings, models and history are preserved.
-
-Required Omarchy/Arch runtime packages:
-
-```bash
-sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
-```
 
 ## Dictate from anywhere
 
@@ -168,13 +229,7 @@ GPT Transcribe receives them as `keywords`, the parameter it offers for exactly 
 
 A term containing `<` or `>` is refused by the transcription API, and it refuses the whole request with it, so Settings names such a term and leaves it out rather than letting one stray character cost a recording.
 
-## Windows and macOS
-
-Download the [0.7.10 assets](https://github.com/jli-software/utterform/releases/tag/v0.7.10):
-
-- **Windows x86_64:** `utterform-windows-x86_64-setup.exe`, or the standalone `utterform-windows-x86_64.exe` with WebView2 installed.
-- **macOS Apple Silicon:** `utterform-macos-aarch64.dmg` (or `.app.zip`).
-- **macOS Intel:** no longer built or supported; macOS 11+ Apple Silicon only.
+## Platform notes
 
 Windows has been used for real since 0.4.4 and 0.4.6 is confirmed working there: recording, the dictation key and changing it (`Alt+C`, for one), the sounds, the tray dot, and typing at the cursor into Windows Terminal, with the warning when a window runs as administrator. macOS is confirmed working since 0.7.0 beta 1, on a MacBook Air (M2, macOS 26) on 2026-09-10: the microphone dialog, GPT Transcribe and Local Whisper, the dictation key and changing it, and typing at the cursor. 0.6.1 and earlier never asked for the microphone because the bundle was signed without the entitlement the hardened runtime requires; 0.7.1 also renames the icon file so the Dock stops showing the logo macOS cached for an earlier version. If `Ctrl+Alt+D` is already taken on your system, Settings reports it where you pressed it; on a Mac it is ⌃⌥D, and `Cmd` in Settings means ⌘. The shortcut recorder and the startup switch in 0.7.2 are built and tested on all three platforms but have not yet been used on a real Windows or macOS desktop.
 
