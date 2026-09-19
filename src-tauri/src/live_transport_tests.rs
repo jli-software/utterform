@@ -165,7 +165,7 @@ async fn abrupt_disconnect_keeps_received_transcript_without_replay() {
             drop(peer);
         };
         let (outcome, ()) = tokio::join!(transport, server);
-        assert!(outcome.unwrap_err().contains("retained"));
+        assert!(outcome.unwrap_err().message().contains("retained"));
         assert_eq!(session.snapshot().text, "Keep this text");
         assert!(audio_tx.is_closed());
         assert!(matches!(
@@ -224,7 +224,10 @@ async fn cancellation_and_audio_failure_stop_an_open_connection() {
             };
             let (outcome, ()) = tokio::join!(transport, server);
             if capture_fails {
-                assert_eq!(outcome.unwrap_err(), "Synthetic microphone overrun");
+                assert_eq!(
+                    outcome.unwrap_err().message(),
+                    "Synthetic microphone overrun"
+                );
             } else {
                 outcome.unwrap();
             }

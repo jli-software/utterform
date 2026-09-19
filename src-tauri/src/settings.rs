@@ -2,18 +2,34 @@ use std::{fs, path::PathBuf};
 
 use tauri::{AppHandle, Manager};
 
-use crate::domain::AppSettings;
+use crate::{diagnostics::Failure, domain::AppSettings};
 
 const SETTINGS_FILE: &str = "settings.json";
 
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn settings_path(app: &AppHandle) -> Result<PathBuf, Failure> {
     app.path()
         .app_config_dir()
         .map(|path| path.join(SETTINGS_FILE))
-        .map_err(|error| format!("Could not resolve the settings directory: {error}"))
+        .map_err(|error| {
+            Failure::new(
+                "settings_path",
+                format!("Could not resolve the settings directory: {error}"),
+            )
+        })
 }
 
-pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
+/// Where in the file JSON stopped making sense, and why in general terms —
+/// never the text around it, which is the user's settings.
+fn json_detail(error: &serde_json::Error) -> String {
+    format!(
+        "{:?} at line {} column {}",
+        error.classify(),
+        error.line(),
+        error.column()
+    )
+}
+
+pub fn load(app: &AppHandle) -> Result<AppSettings, Failure> {
     let path = settings_path(app)?;
     let backup = path.with_extension("json.bak");
     let source = if path.exists() {
@@ -24,41 +40,83 @@ pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
         return Ok(AppSettings::default());
     };
 
-    let contents =
-        fs::read_to_string(&source).map_err(|error| format!("Could not read settings: {error}"))?;
-    serde_json::from_str(&contents).map_err(|error| format!("Settings are invalid: {error}"))
+    let contents = fs::read_to_string(&source).map_err(|error| {
+        Failure::io(
+            "settings_read",
+            &error,
+            format!("Could not read settings: {error}"),
+        )
+    })?;
+    serde_json::from_str(&contents).map_err(|error| {
+        Failure::new("settings_invalid", format!("Settings are invalid: {error}"))
+            .detail(json_detail(&error))
+    })
 }
 
-pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), Failure> {
     let path = settings_path(app)?;
     let parent = path
         .parent()
-        .ok_or_else(|| "Settings path has no parent directory".to_string())?;
-    fs::create_dir_all(parent)
-        .map_err(|error| format!("Could not create the settings directory: {error}"))?;
+        .ok_or_else(|| Failure::new("settings_path", "Settings path has no parent directory"))?;
+    fs::create_dir_all(parent).map_err(|error| {
+        Failure::io(
+            "settings_directory",
+            &error,
+            format!("Could not create the settings directory: {error}"),
+        )
+    })?;
 
-    let payload = serde_json::to_vec_pretty(settings)
-        .map_err(|error| format!("Could not serialize settings: {error}"))?;
+    let payload = serde_json::to_vec_pretty(settings).map_err(|error| {
+        Failure::new(
+            "settings_serialize",
+            format!("Could not serialize settings: {error}"),
+        )
+    })?;
     let temporary = path.with_extension("json.tmp");
     let backup = path.with_extension("json.bak");
-    fs::write(&temporary, payload).map_err(|error| format!("Could not write settings: {error}"))?;
+    fs::write(&temporary, payload).map_err(|error| {
+        Failure::io(
+            "settings_write",
+            &error,
+            format!("Could not write settings: {error}"),
+        )
+    })?;
 
     if path.exists() {
         if backup.exists() {
-            fs::remove_file(&backup)
-                .map_err(|error| format!("Could not replace the settings backup: {error}"))?;
+            fs::remove_file(&backup).map_err(|error| {
+                Failure::io(
+                    "settings_backup",
+                    &error,
+                    format!("Could not replace the settings backup: {error}"),
+                )
+            })?;
         }
-        fs::rename(&path, &backup)
-            .map_err(|error| format!("Could not back up settings: {error}"))?;
+        fs::rename(&path, &backup).map_err(|error| {
+            Failure::io(
+                "settings_backup",
+                &error,
+                format!("Could not back up settings: {error}"),
+            )
+        })?;
     }
     if let Err(error) = fs::rename(&temporary, &path) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, &path);
-        }
+        // Restoring is best-effort; the failure that matters is reported.
+        let restored = !backup.exists() || fs::rename(&backup, &path).is_ok();
         let _ = fs::remove_file(&temporary);
-        return Err(format!("Could not activate settings: {error}"));
+        return Err(Failure::io(
+            "settings_activate",
+            &error,
+            format!("Could not activate settings: {error}"),
+        )
+        .detail(format!(
+            "{}; previous settings {}",
+            crate::diagnostics::io_detail(&error),
+            if restored { "restored" } else { "not restored" }
+        )));
     }
     if backup.exists() {
+        // A leftover backup is harmless: the next save replaces it.
         let _ = fs::remove_file(backup);
     }
     Ok(())

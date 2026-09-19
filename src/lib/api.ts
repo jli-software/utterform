@@ -4,7 +4,10 @@ import type {
   AppSettings,
   AudioDevice,
   BuiltInAction,
+  CopiedDiagnostics,
+  DiagnosticsInfo,
   Engine,
+  FrontendErrorReport,
   HistoryEntry,
   HotkeySupport,
   LocalModel,
@@ -59,7 +62,15 @@ export const api = {
   // background — the way a hotkey recording plays them. The outcome arrives
   // on the `test-cues-finished` event.
   playTestCues: (delaySeconds: number) => invoke<void>("play_test_cues", { delaySeconds }),
-  diagnosticsLogPath: () => invoke<string | null>("diagnostics_log_path"),
+  // Support & diagnostics. None of these takes a path: the backend alone
+  // decides which files are read, copied or opened.
+  diagnosticsInfo: () => invoke<DiagnosticsInfo>("diagnostics_info"),
+  copyDiagnostics: () => invoke<CopiedDiagnostics>("copy_diagnostics"),
+  openLogFile: () => invoke<void>("open_log_file"),
+  openLogFolder: () => invoke<void>("open_log_folder"),
+  // A failure only the interface saw; answers with the reference to show.
+  reportFrontendError: (report: FrontendErrorReport) =>
+    invoke<string | null>("report_frontend_error", { report }),
   finishRecording: (request: {
     action: string;
     customPrompt: string | null;

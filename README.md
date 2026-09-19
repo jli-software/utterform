@@ -28,6 +28,8 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
+> Utterform is under active development. **0.7.10 — Local diagnostics** adds bounded, privacy-safe logs with references for failures and simple copy/open actions in Settings, with consistent run-marker handling on every desktop. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.10.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.10).
+
 ## How it works
 
 | 1. Trigger | 2. Speak | 3. Keep working |
@@ -47,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.8 — Stable settings](https://github.com/jli-software/utterform/releases/tag/v0.7.8)**.
+**[0.7.10 — Local diagnostics](https://github.com/jli-software/utterform/releases/tag/v0.7.10)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -57,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.8 release notes](docs/releases/v0.7.8.md) for the current changes.
+See the [0.7.10 release notes](docs/releases/v0.7.10.md) for the current changes.
 
 ### Omarchy / Arch Linux
 
@@ -85,7 +87,7 @@ for a transcript that never calls a text model.
 
 | Category | Controls |
 | --- | --- |
-| General | Dictation shortcut, appearance, startup |
+| General | Dictation shortcut, appearance, startup, support and diagnostics |
 | Recording | Microphone, language hints, sounds, vocabulary, and context |
 | AI & Models | Transcription mode, OpenAI key, local models, text model, and thinking effort |
 | Actions | Built-in and custom prompts |
@@ -115,9 +117,9 @@ from the target with the shortcut, not by clicking Record inside Utterform.
   workspace, monitor, layer, launcher and config-reload events alone do not. Hyprland
   matches its own shortcuts against Utterform's keys by keycode, so Utterform keeps
   characters off the keycodes Omarchy binds and waits briefly after a stop request
-  for the shortcut's modifier to be released. Each Live session is numbered in
-  `utterform.log` (path in Settings) with its target window address, workspace id and
-  the focus events it saw, without any text.
+  for the shortcut's modifier to be released. Each Live recording is numbered in the
+  local log (Settings → General → Support & diagnostics) with its target window address,
+  workspace id and the focus events it saw, without any text.
 - **macOS and other desktops:** keep using GPT Transcribe or Local Whisper. Live support
   for macOS is deferred to a separate future release.
 
@@ -188,7 +190,7 @@ executable, whose path does not change when you update, so it survives a reinsta
 On Wayland (Hyprland, Omarchy) autostart only keeps Utterform ready in the tray;
 dictation is still started by the compositor binding above.
 
-Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording → Recording feedback**. The tray icon carries a small red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow. If a sound stays silent, **Settings → Recording → Recording feedback → Test sounds (5s delay)** plays all three with the window in the background and reports what each did; every sound also leaves a line in the log file, available under **Log file** in the same section.
+Because the window stays where it is, the sounds are the confirmation: a click when recording starts, a click when it stops, and a distinct chime once the text has been transformed and delivered. Turn them off under **Settings → Recording → Recording feedback**. The tray icon carries a small red dot while recording as well — on Windows 11, pin Utterform to the taskbar corner first, or the icon sits hidden behind the overflow arrow. If a sound stays silent, **Settings → Recording → Recording feedback → Test sounds (5s delay)** plays all three with the window in the background and reports what each did; every sound also leaves an event in the local log, which **Settings → General → Support & diagnostics** opens or copies.
 
 ## Typing at the cursor
 
@@ -286,7 +288,19 @@ Global dictation is separate from these: see [Dictate from anywhere](#dictate-fr
 - The OpenAI API key is never written to `settings.json`; it is stored through the native OS keyring.
 - The last 100 completed texts are stored unencrypted on this device in `history.json`, including clipboard-only output. Titles are generated locally, without an AI call. Disable future storage or clear existing history in Settings; exported files and clipboard contents are not cleared.
 - Text history paths: Linux `~/.local/share/software.jli.utterform/history.json` (or `$XDG_DATA_HOME`), macOS `~/Library/Application Support/software.jli.utterform/history.json`, Windows `%LOCALAPPDATA%\\software.jli.utterform\\history.json`.
-- A log of cue, microphone and paste outcomes — no transcripts, no audio — is written next to the history as `utterform.log`, and starts over at one megabyte. Settings → Recording → Recording feedback shows the path.
+- A local diagnostic log records what happened, never what was said: recording, transcription, transformation and delivery outcomes, durations, device and application names, HTTP statuses and error categories. It contains no transcripts, history, clipboard or file contents, audio, prompts, vocabulary, recording context, window titles, API keys or raw responses, and redacts home directories. Nothing is uploaded; see [Support and diagnostics](#support-and-diagnostics).
+
+## Support and diagnostics
+
+**Settings → General → Support & diagnostics** shows where the log is and offers three immediate actions. They are not part of the settings draft: Save and Cancel neither apply nor undo them.
+
+- **Copy diagnostics** puts a report of at most 256 KiB on the clipboard — a short header (version, OS, run, whether the previous run ended cleanly) followed by the newest log lines, sanitized again. This replaces what the clipboard held; paste it wherever you want to share it.
+- **Open log file** opens the current log in the system's default application.
+- **Open log folder** shows the file in Finder, Explorer or the Linux file manager, or opens its folder where the desktop cannot select a file.
+
+The log lives in the operating system's log directory, and Settings shows its actual path. Tauri resolves it to Linux `~/.local/share/software.jli.utterform/logs/utterform.log` (or `$XDG_DATA_HOME`), macOS `~/Library/Logs/software.jli.utterform/utterform.log` and Windows `%LOCALAPPDATA%\software.jli.utterform\logs\utterform.log`. At 2 MiB it is rotated, and only the two newest rotated files are kept, so it never takes more than about 6 MiB. The `utterform.log` that 0.7.8 and earlier wrote next to the history is left in place and never written again; a copied report includes its newest lines when there is room.
+
+An error message that ends in `(ref 1a2b3c4d-7)` names the log event describing it; quote it when you report a problem. A Rust panic, an unexpected interface error and a previous run that did not exit cleanly are recorded too. A crash of the process itself — a killed process, a native driver fault — can only show up as an unclean exit; no crash dumps are collected.
 
 ## Development
 

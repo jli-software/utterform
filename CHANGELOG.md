@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.10 — v0.7.10 · Cross-platform run markers
+
+- Treat an unavailable diagnostics marker parent consistently on Windows, Linux and macOS instead of allowing Windows' `NotFound` error to look like a clean previous run.
+- Preserve all local diagnostics, privacy bounds and support actions introduced in 0.7.9.
+
+See [0.7.10 release notes](docs/releases/v0.7.10.md).
+
+## 0.7.9 — v0.7.9 · Local diagnostics
+
+- Keep local INFO/WARN/ERROR logs for the complete recording, transcription, transformation and delivery flow, with run/recording ids and user-visible failure references.
+- Bound diagnostics to one 2 MiB active file, two 2 MiB rotations and one pending record in memory; filter dependency noise and redact keys, home paths and user content.
+- Add **Copy diagnostics**, **Open log file** and **Open log folder** under Settings → General, without telemetry or automatic upload.
+- Record Rust panics, unexpected interface failures and unclean previous exits while preserving normal recording behaviour when diagnostics fail.
+
+See [0.7.9 release notes](docs/releases/v0.7.9.md).
+
 ## 0.7.8 — v0.7.8 · Stable settings
 
 - Keep the Settings dialog, navigation and footer stationary when switching categories; scroll long content inside the panel.

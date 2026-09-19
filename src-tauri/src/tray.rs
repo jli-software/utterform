@@ -15,7 +15,7 @@ use tauri::{
 };
 
 use crate::activation::{opens_main_window, reveal_main_window};
-use crate::audio;
+use crate::{audio, diagnostics};
 
 /// The id Tauri's tray is registered under, so it can be found again when the
 /// recording state changes.
@@ -30,9 +30,11 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
         return;
     }
     let Some(tray) = app.tray_by_id(NATIVE_TRAY) else {
+        diagnostics::warning!("tray.update_failed", step = "find_tray");
         return;
     };
     let Some(icon) = app.default_window_icon() else {
+        diagnostics::warning!("tray.update_failed", step = "icon");
         return;
     };
     let shown = if recording {
@@ -44,12 +46,27 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
     } else {
         icon.clone()
     };
-    let _ = tray.set_icon(Some(shown));
-    let _ = tray.set_tooltip(Some(if recording {
-        "Utterform — recording"
-    } else {
-        "Utterform"
-    }));
+    if tray.set_icon(Some(shown)).is_err() {
+        diagnostics::warning!(
+            "tray.update_failed",
+            step = "set_icon",
+            recording = recording
+        );
+    }
+    if tray
+        .set_tooltip(Some(if recording {
+            "Utterform — recording"
+        } else {
+            "Utterform"
+        }))
+        .is_err()
+    {
+        diagnostics::warning!(
+            "tray.update_failed",
+            step = "set_tooltip",
+            recording = recording
+        );
+    }
 }
 
 /// The app icon with a small red dot in its lower right corner. Drawn rather
@@ -96,8 +113,12 @@ fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
 
 /// Quitting stops capture first so a recording never outlives the app.
 fn quit<R: Runtime>(app: &AppHandle<R>) {
+    diagnostics::info!("tray.quit_requested");
     let state = app.state::<audio::AudioCaptureState>();
-    let _ = audio::cancel_recording(&state);
+    if let Err(failure) = audio::cancel_recording(&state) {
+        // Quitting goes on: the process ending releases the microphone.
+        diagnostics::warning!("tray.quit_cancel_failed", class = failure.class());
+    }
     app.exit(0);
 }
 
@@ -106,17 +127,25 @@ fn quit<R: Runtime>(app: &AppHandle<R>) {
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     match status_notifier_item::install(app) {
-        Ok(()) => return Ok(()),
+        Ok(()) => {
+            diagnostics::info!("tray.installed", kind = "status_notifier_item");
+            return Ok(());
+        }
         Err(error) => {
             // No StatusNotifierItem host answered. Fall back rather than leave
             // the user without a tray: AppIndicator can still fall back to a
             // GtkStatusIcon, it just cannot report clicks.
-            eprintln!(
-                "Utterform: no StatusNotifierItem host ({error}); using the AppIndicator tray, where only the menu works"
+            diagnostics::warning!(
+                "tray.fallback",
+                from = "status_notifier_item",
+                to = "appindicator",
+                detail = error
             );
         }
     }
-    native(app)
+    native(app)?;
+    diagnostics::info!("tray.installed", kind = "native");
+    Ok(())
 }
 
 /// Tauri's own tray. Left click and double click open the window where the
@@ -132,13 +161,13 @@ fn native<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         tray = tray.icon(icon.clone());
     }
     tray.on_menu_event(|app, event| match event.id.as_ref() {
-        "show" => reveal_main_window(app),
+        "show" => reveal_main_window(app, "tray_menu"),
         "quit" => quit(app),
         _ => {}
     })
     .on_tray_icon_event(|tray, event| {
         if opens_main_window(&event) {
-            reveal_main_window(tray.app_handle());
+            reveal_main_window(tray.app_handle(), "tray_click");
         }
     })
     .build(app)?;
@@ -163,7 +192,7 @@ mod status_notifier_item {
 
     impl<R: Runtime> TrayActions for AppActions<R> {
         fn show(&self) {
-            reveal_main_window(&self.0);
+            reveal_main_window(&self.0, "tray");
         }
 
         fn quit(&self) {
@@ -287,7 +316,15 @@ mod status_notifier_item {
         else {
             return false;
         };
-        handle.update(|tray| tray.recording = recording).is_some()
+        if handle.update(|tray| tray.recording = recording).is_none() {
+            // The tray service has stopped; the native tray does not exist here.
+            crate::diagnostics::warning!(
+                "tray.update_failed",
+                step = "status_notifier_item",
+                recording = recording
+            );
+        }
+        true
     }
 
     #[cfg(test)]

@@ -4,7 +4,7 @@
 //! inject keys. No reconnect/replay: an uncertain delivery remains uncertain.
 use crate::{
     audio::{self, AudioCaptureState},
-    diagnostics,
+    diagnostics::{self, Failure},
     domain::{AppSettings, CloudModel, ProcessRequest, ProcessResult, TranscriptionEngine},
     feedback,
     history::{self, HistoryEntry},
@@ -23,7 +23,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::{
     net::TcpStream,
     sync::{mpsc, oneshot},
@@ -46,7 +46,6 @@ const STOP_HOLD: Duration = Duration::from_millis(700);
 /// Idle cadence of the input worker between deltas: only queued focus events
 /// and cancellation are checked, never the compositor.
 const INPUT_IDLE_TICK: Duration = Duration::from_millis(20);
-static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +71,8 @@ impl Default for LiveStatus {
 #[derive(Default)]
 pub struct LiveState(Mutex<Option<Arc<Session>>>);
 struct Session {
-    /// Unique per process run; labels every diagnostic line of this session.
+    /// The recording's diagnostic id: unique per process run, shared with
+    /// batch recordings, and carried by every event of this session.
     id: u64,
     status: Mutex<LiveStatus>,
     active: AtomicBool,
@@ -116,23 +116,22 @@ impl Session {
         self.update(|s| s.delivery_paused = true);
         self.warn(reason);
     }
-    fn log(&self, message: impl std::fmt::Display) {
-        diagnostics::log(format!("live session {}: {message}", self.id));
-    }
     /// A stop was requested (finish or cancel): hold native typing while the
     /// shortcut settles. Later requests extend the hold.
-    fn request_stop(&self, how: &str) {
+    fn request_stop(&self, how: &'static str) {
         let until = self.started.elapsed().as_millis() as u64 + STOP_HOLD.as_millis() as u64;
         self.hold_until.fetch_max(until, Ordering::AcqRel);
-        self.log(format!(
-            "{how} requested; typing held for {} ms",
-            STOP_HOLD.as_millis()
-        ));
+        diagnostics::info!(
+            "live.stop_requested",
+            recording = self.id,
+            how = how,
+            hold_ms = STOP_HOLD.as_millis()
+        );
     }
 }
 fn new_session(settings: AppSettings) -> Arc<Session> {
     Arc::new(Session {
-        id: NEXT_SESSION_ID.fetch_add(1, Ordering::AcqRel),
+        id: diagnostics::next_recording_id(),
         status: Mutex::new(LiveStatus::default()),
         active: AtomicBool::new(true),
         cancelled: Arc::new(AtomicBool::new(false)),
@@ -185,20 +184,33 @@ fn run_input_worker<T: LiveInput>(
 ) {
     typer.set_cancel_flag(session.cancelled.clone());
     typer.set_stop_hold(session.started, session.hold_until.clone());
-    session.log(format!(
-        "input worker started for {}",
-        typer.target_description()
-    ));
+    // The target is a window identity; the reasons below are the typer's
+    // own, and name no title or text.
+    diagnostics::info!(
+        "live.input_started",
+        recording = session.id,
+        target = typer.target_description()
+    );
     let mut chunks = 0usize;
     loop {
         if session.cancelled.load(Ordering::Acquire) {
-            session.log("input worker leaving: cancelled");
+            diagnostics::info!(
+                "live.input_stopped",
+                recording = session.id,
+                reason = "cancelled",
+                chunks = chunks
+            );
             break;
         }
         if !session.input_stopped.load(Ordering::Acquire)
             && let Err(reason) = typer.poll_events()
         {
-            session.log(format!("input paused while idle: {reason}"));
+            diagnostics::warning!(
+                "live.input_paused",
+                recording = session.id,
+                during = "idle",
+                reason = reason
+            );
             session.block_input(&format!("Live typing paused: {reason} The transcript remains here; start a new recording to type again."));
         }
         match receiver.recv_timeout(INPUT_IDLE_TICK) {
@@ -212,22 +224,31 @@ fn run_input_worker<T: LiveInput>(
                         session.update(|s| s.inserted_text.push_str(&text));
                     }
                     Err(reason) => {
-                        session.log(format!("input paused after {chunks} chunk(s): {reason}"));
+                        diagnostics::warning!(
+                            "live.input_paused",
+                            recording = session.id,
+                            during = "typing",
+                            chunks = chunks,
+                            reason = reason
+                        );
                         session.block_input(&format!("Live typing paused: {reason} This text was not retried; check the target before copying any remainder."));
                     }
                 }
             }
             Err(input_queue::RecvTimeoutError::Timeout) => {}
             Err(input_queue::RecvTimeoutError::Disconnected) => {
-                session.log(format!(
-                    "input worker leaving: queue closed after {chunks} chunk(s)"
-                ));
+                diagnostics::info!(
+                    "live.input_stopped",
+                    recording = session.id,
+                    reason = "queue_closed",
+                    chunks = chunks
+                );
                 break;
             }
         }
     }
     drop(typer);
-    session.log("input worker finished; native input released");
+    diagnostics::info!("live.input_released", recording = session.id);
 }
 impl LiveState {
     fn session(&self) -> Option<Arc<Session>> {
@@ -292,29 +313,44 @@ pub fn session_update(settings: &AppSettings) -> Value {
         "format":{"type":"audio/pcm","rate":24000},"transcription":transcription,"turn_detection":null
     }}}})
 }
-async fn send(socket: &mut Socket, value: Value) -> Result<(), String> {
+async fn send(socket: &mut Socket, value: Value) -> Result<(), Failure> {
     timeout(
         SEND_TIMEOUT,
         socket.send(Message::Text(value.to_string().into())),
     )
     .await
-    .map_err(|_| "Live connection stopped accepting audio".to_string())?
-    .map_err(|_| "Live connection could not send audio".to_string())
+    .map_err(|_| Failure::new("send_timeout", "Live connection stopped accepting audio"))?
+    .map_err(|_| Failure::new("send_failed", "Live connection could not send audio"))
 }
-async fn connect(settings: &AppSettings) -> Result<Socket, String> {
+/// The kind of WebSocket failure, never its contents: a message the socket
+/// could not write would carry audio.
+fn socket_detail(error: &tokio_tungstenite::tungstenite::Error) -> String {
+    use tokio_tungstenite::tungstenite::Error;
+    match error {
+        Error::Io(error) => diagnostics::io_detail(error),
+        Error::Tls(_) => "tls".into(),
+        Error::Url(_) => "url".into(),
+        Error::Http(response) => format!("http {}", response.status().as_u16()),
+        Error::HttpFormat(_) => "http_format".into(),
+        Error::Protocol(_) => "protocol".into(),
+        Error::ConnectionClosed | Error::AlreadyClosed => "closed".into(),
+        _ => "other".into(),
+    }
+}
+async fn connect(settings: &AppSettings) -> Result<Socket, Failure> {
     let mut request = "wss://api.openai.com/v1/realtime?intent=transcription"
         .into_client_request()
-        .map_err(|_| "Could not prepare the live connection".to_string())?;
+        .map_err(|_| Failure::new("connect_prepare", "Could not prepare the live connection"))?;
     // Native OS keyring only. Never put authentication or raw responses in diagnostics.
     let mut authorization = format!("Bearer {}", secrets::openai_api_key()?)
         .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
-        .map_err(|_| "The saved OpenAI API key is invalid".to_string())?;
+        .map_err(|_| Failure::guidance("api_key_invalid", "The saved OpenAI API key is invalid"))?;
     authorization.set_sensitive(true);
     request.headers_mut().insert("Authorization", authorization);
     let (mut socket, _) = tokio_tungstenite::connect_async(request).await.map_err(|error| {
-        match error {
-            tokio_tungstenite::tungstenite::Error::Http(response) => format!("OpenAI Live connection refused (HTTP {}). Check API access and billing in Settings.", response.status().as_u16()),
-            _ => "Could not connect to OpenAI Live. Check your network connection.".into(),
+        match &error {
+            tokio_tungstenite::tungstenite::Error::Http(response) => Failure::new("http", format!("OpenAI Live connection refused (HTTP {}). Check API access and billing in Settings.", response.status().as_u16())).status(response.status().as_u16()),
+            _ => Failure::new("connect", "Could not connect to OpenAI Live. Check your network connection.").detail(socket_detail(&error)),
         }
     })?;
     send(&mut socket, session_update(settings)).await?;
@@ -322,14 +358,27 @@ async fn connect(settings: &AppSettings) -> Result<Socket, String> {
         let message = socket
             .next()
             .await
-            .ok_or("OpenAI closed the live session during setup")?
-            .map_err(|_| "Live connection failed during setup")?;
+            .ok_or_else(|| {
+                Failure::new(
+                    "setup_closed",
+                    "OpenAI closed the live session during setup",
+                )
+            })?
+            .map_err(|error| {
+                Failure::new("setup_transport", "Live connection failed during setup")
+                    .detail(socket_detail(&error))
+            })?;
         if let Message::Text(text) = message {
-            let event: Value =
-                serde_json::from_str(&text).map_err(|_| "Invalid live session response")?;
+            let event: Value = serde_json::from_str(&text)
+                .map_err(|_| Failure::new("setup_invalid", "Invalid live session response"))?;
             match event["type"].as_str() {
                 Some("session.updated") => return Ok(socket),
-                Some("error") => return Err("OpenAI rejected the Live session configuration. Check model access, language hints, vocabulary and recording context.".into()),
+                Some("error") => {
+                    return Err(Failure::new(
+                        "setup_rejected",
+                        "OpenAI rejected the Live session configuration. Check model access, language hints, vocabulary and recording context.",
+                    ));
+                }
                 _ => {}
             }
         }
@@ -445,7 +494,7 @@ impl Transcript {
 
 async fn prepare_input(
     session: Arc<Session>,
-) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), String> {
+) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), Failure> {
     let id = session.id;
     prepare_input_with(session, move || crate::typing::LiveTyper::capture(id)).await
 }
@@ -455,7 +504,7 @@ async fn prepare_input(
 async fn prepare_input_with<T, F>(
     session: Arc<Session>,
     capture: F,
-) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), String>
+) -> Result<(input_queue::SyncSender<String>, oneshot::Receiver<()>), Failure>
 where
     T: LiveInput,
     F: FnOnce() -> Result<T, String> + Send + 'static,
@@ -477,7 +526,8 @@ where
                 typer
             }
             Err(error) => {
-                session.log(format!("native input could not be captured: {error}"));
+                // Reported by the caller's setup event. A receiver that gave
+                // up waiting is not a second failure.
                 let _ = ready_tx.send(Err(error));
                 return;
             }
@@ -490,8 +540,17 @@ where
     });
     timeout(Duration::from_secs(5), ready_rx)
         .await
-        .map_err(|_| "Live typing initialization timed out")?
-        .map_err(|_| "Live typing worker stopped")??;
+        .map_err(|_| Failure::new("input_timeout", "Live typing initialization timed out"))?
+        .map_err(|_| Failure::new("input_worker", "Live typing worker stopped"))?
+        // The typer's reasons are its own sentences about windows and
+        // sockets; they name no title and no text.
+        .map_err(|error| {
+            if crate::typing::is_capture_guidance(&error) {
+                Failure::guidance("input_target", error.clone()).detail(error)
+            } else {
+                Failure::new("input_capture", error.clone()).detail(error)
+            }
+        })?;
     Ok((sender, done_rx))
 }
 
@@ -500,55 +559,96 @@ pub async fn start(
     settings: AppSettings,
     input_device: Option<String>,
 ) -> Result<(), String> {
-    if !support().supported {
-        return Err(support().explanation.into());
-    }
-    if audio::status(&app.state::<AudioCaptureState>())?.recording {
-        return Err("A recording is already active".into());
-    }
     let session = new_session(settings);
+    diagnostics::info!(
+        "recording.requested",
+        recording = session.id,
+        mode = "live",
+        engine = "open_ai",
+        model = "gpt-live-transcribe",
+        action = "plain"
+    );
+    let rejected = |failure: Failure| {
+        diagnostics::failure!(
+            "recording.start_failed",
+            &failure,
+            recording = session.id,
+            mode = "live"
+        )
+    };
+    let support = support();
+    if !support.supported {
+        return Err(rejected(Failure::guidance(
+            "live_unsupported",
+            support.explanation,
+        )));
+    }
+    if audio::status(&app.state::<AudioCaptureState>())
+        .map_err(rejected)?
+        .recording
+    {
+        return Err(rejected(Failure::guidance(
+            "recording_active",
+            "A recording is already active",
+        )));
+    }
     {
         let state = app.state::<LiveState>();
-        let mut slot = state.0.lock().map_err(|_| "Live state unavailable")?;
+        let mut slot = state
+            .0
+            .lock()
+            .map_err(|_| rejected(Failure::new("live_state", "Live state unavailable")))?;
         if let Some(previous) = slot.as_ref() {
             if previous.active.load(Ordering::Acquire) {
-                return Err("A live recording is already active".into());
+                return Err(rejected(Failure::guidance(
+                    "live_active",
+                    "A live recording is already active",
+                )));
             }
             // The previous worker must have released its native input; a
             // session whose shutdown timed out keeps `active` and lands above.
             if !previous.input_finished.load(Ordering::Acquire) {
-                session.log(format!(
-                    "refusing to start: session {} still owns native input",
-                    previous.id
+                return Err(rejected(
+                    Failure::new(
+                        "input_busy",
+                        "The previous live session has not released native input yet. Wait a moment and try again.",
+                    )
+                    .detail(format!("recording {} still owns native input", previous.id)),
                 ));
-                return Err(
-                    "The previous live session has not released native input yet. Wait a moment and try again."
-                        .into(),
-                );
             }
-            session.log(format!("starting after session {}", previous.id));
-        } else {
-            session.log("starting");
         }
         *slot = Some(session.clone());
     }
-    let setup: Result<(), String> = async {
+    let setup: Result<(), Failure> = async {
         let (input, input_done) = prepare_input(session.clone()).await?;
+        diagnostics::info!("live.input_ready", recording = session.id);
+        let connecting = Instant::now();
         let socket = timeout(CONNECT_TIMEOUT, connect(&session.settings))
             .await
-            .map_err(|_| "Connecting to OpenAI Live timed out")??;
+            .map_err(|_| {
+                Failure::new("connect_timeout", "Connecting to OpenAI Live timed out")
+            })??;
+        diagnostics::info!(
+            "live.connected",
+            recording = session.id,
+            connect_ms = connecting.elapsed().as_millis()
+        );
         if session.cancelled.load(Ordering::Acquire)
             || session.input_stopped.load(Ordering::Acquire)
         {
             // The worker names what it saw: a confirmed window change or a
             // technical fault, never a desktop event alone.
-            return Err(session.snapshot().warning.unwrap_or_else(|| {
-                "Live setup was interrupted. Start again from your text field.".into()
-            }));
+            return Err(Failure::new(
+                "interrupted",
+                session.snapshot().warning.unwrap_or_else(|| {
+                    "Live setup was interrupted. Start again from your text field.".into()
+                }),
+            ));
         }
         let (audio_tx, audio_rx) = mpsc::channel(750);
         let captured_app = app.clone();
         let sound = session.settings.sound_enabled;
+        let diagnostic_id = session.id;
         // As for a batch recording: whatever is left of the previous Done cue
         // ends before this recording's start cue is scheduled.
         app.state::<feedback::DoneCues>().cancel();
@@ -557,19 +657,20 @@ pub async fn start(
                 &captured_app.state::<AudioCaptureState>(),
                 input_device.as_deref(),
                 sound,
+                diagnostic_id,
                 audio_tx,
             )
         })
         .await
-        .map_err(|_| "Could not open the live microphone")??;
+        .map_err(|_| Failure::new("worker", "Could not open the live microphone"))??;
         let recording_id = started.session;
         tray::set_recording(&app, true);
         session.update(|s| s.phase = "streaming");
-        session.log("connected and streaming");
+        diagnostics::info!("live.streaming", recording = session.id);
         let cued = app.clone();
         std::thread::spawn(move || {
-            if let Err(reason) = started.arm(&cued.state::<AudioCaptureState>()) {
-                crate::commands::announce_recording(&cued, &reason);
+            if started.arm(&cued.state::<AudioCaptureState>()).is_err() {
+                crate::commands::announce_recording(&cued, diagnostic_id);
             }
         });
         let running_app = app.clone();
@@ -583,24 +684,48 @@ pub async fn start(
                 &running_session,
             )
             .await;
-            if let Err(error) = outcome
+            if let Err(failure) = outcome
                 && !running_session.cancelled.load(Ordering::Acquire)
             {
-                running_session.log(format!("stream failed: {error}"));
+                let error = diagnostics::failure!(
+                    "live.stream_failed",
+                    &failure,
+                    recording = running_session.id
+                );
                 running_session.block_input(&error);
                 running_session.update(|s| s.phase = "failed");
                 let stopped_app = running_app.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    let _ = audio::cancel_recording(&stopped_app.state::<AudioCaptureState>());
+                let stopped_id = running_session.id;
+                let stopped = tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(failure) =
+                        audio::cancel_recording(&stopped_app.state::<AudioCaptureState>())
+                    {
+                        diagnostics::warning!(
+                            "live.microphone_stop_failed",
+                            recording = stopped_id,
+                            class = failure.class()
+                        );
+                    }
                     tray::set_recording(&stopped_app, false);
                 })
                 .await;
-                let _ = running_app.emit("live-failed", error);
+                if stopped.is_err() {
+                    diagnostics::warning!(
+                        "live.microphone_stop_failed",
+                        recording = running_session.id,
+                        class = "worker"
+                    );
+                }
+                diagnostics::notify_interface(&running_app, "live-failed", error);
             }
             if !matches!(
                 timeout(Duration::from_secs(3), input_done).await,
                 Ok(Ok(()))
             ) {
+                diagnostics::warning!(
+                    "live.input_shutdown_timeout",
+                    recording = running_session.id
+                );
                 running_session
                     .block_input("Live input shutdown timed out; delivery is incomplete.");
             }
@@ -611,8 +736,9 @@ pub async fn start(
         *session
             .task
             .lock()
-            .map_err(|_| "Live task state unavailable")? = Some(task);
+            .map_err(|_| Failure::new("live_state", "Live task state unavailable"))? = Some(task);
         let watched = app.clone();
+        let watched_id = session.id;
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_millis(250));
@@ -620,26 +746,38 @@ pub async fn start(
                     Ok(audio::LimitCheck::Waiting) => {}
                     Ok(audio::LimitCheck::Stopped) => {
                         tray::set_recording(&watched, false);
-                        let _ = watched.emit("recording-limit-reached", ());
+                        diagnostics::notify_interface(&watched, "recording-limit-reached", ());
                         break;
                     }
-                    _ => break,
+                    Ok(audio::LimitCheck::Gone) => break,
+                    Err(failure) => {
+                        diagnostics::warning!(
+                            "recording.watchdog_failed",
+                            recording = watched_id,
+                            class = failure.class()
+                        );
+                        break;
+                    }
                 }
             }
         });
         Ok(())
     }
     .await;
-    if let Err(ref reason) = setup {
-        session.log(format!("setup failed: {reason}"));
-        session.cancelled.store(true, Ordering::Release);
-        session.active.store(false, Ordering::Release);
-        session.update(|s| {
-            s.phase = "failed";
-            s.warning = Some(reason.clone());
-        });
+    match setup {
+        Ok(()) => Ok(()),
+        Err(failure) => {
+            let reason =
+                diagnostics::failure!("live.setup_failed", &failure, recording = session.id);
+            session.cancelled.store(true, Ordering::Release);
+            session.active.store(false, Ordering::Release);
+            session.update(|s| {
+                s.phase = "failed";
+                s.warning = Some(reason.clone());
+            });
+            Err(reason)
+        }
     }
-    setup
 }
 
 async fn stream(
@@ -648,18 +786,33 @@ async fn stream(
     input: input_queue::SyncSender<String>,
     audio_error: impl Fn() -> Option<String>,
     session: &Session,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let mut transcript = Transcript::default();
     let mut line = SingleLine::default();
     let mut total_bytes = 0usize;
+    // Counted, never logged one by one.
+    let mut events = 0usize;
     let mut committed_at: Option<Instant> = None;
     let mut tick = tokio::time::interval(Duration::from_millis(25));
+    let finished = |outcome: &'static str, total_bytes: usize, events: usize| {
+        diagnostics::info!(
+            "live.stream_completed",
+            recording = session.id,
+            outcome = outcome,
+            audio_bytes = total_bytes,
+            events = events,
+            elapsed_ms = session.started.elapsed().as_millis()
+        );
+    };
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                if session.cancelled.load(Ordering::Acquire) { return Ok(()); }
-                if let Some(error) = audio_error() { return Err(error); }
-                if committed_at.is_some_and(|at| at.elapsed() > FINISH_TIMEOUT) { return Err("The final live transcript timed out. Received text has been retained.".into()); }
+                if session.cancelled.load(Ordering::Acquire) {
+                    finished("cancelled", total_bytes, events);
+                    return Ok(());
+                }
+                if let Some(error) = audio_error() { return Err(Failure::new("live_audio", error)); }
+                if committed_at.is_some_and(|at| at.elapsed() > FINISH_TIMEOUT) { return Err(Failure::new("final_timeout", "The final live transcript timed out. Received text has been retained.")); }
             }
             chunk = audio_rx.recv(), if committed_at.is_none() => {
                 match chunk {
@@ -668,7 +821,7 @@ async fn stream(
                         send(&mut socket, json!({"type":"input_audio_buffer.append","audio":STANDARD.encode(bytes)})).await?;
                     }
                     None => {
-                        if total_bytes < 4_800 { return Err("The live recording is too short. Speak for at least a moment before finishing.".into()); }
+                        if total_bytes < 4_800 { return Err(Failure::guidance("too_short", "The live recording is too short. Speak for at least a moment before finishing.")); }
                         send(&mut socket, json!({"type":"input_audio_buffer.commit"})).await?;
                         committed_at = Some(Instant::now());
                         session.update(|s| s.phase = "finishing");
@@ -678,9 +831,10 @@ async fn stream(
             message = socket.next() => {
                 match message {
                     Some(Ok(Message::Text(text))) => {
-                        let event: Value = serde_json::from_str(&text).map_err(|_| "OpenAI returned an invalid Live event")?;
-                        if event["type"] == "error" { return Err("OpenAI reported a Live session error. Check network, API access, usage limits and voice settings. Received text has been retained.".into()); }
-                        let change = transcript.event(&event)?;
+                        events += 1;
+                        let event: Value = serde_json::from_str(&text).map_err(|_| Failure::new("invalid_event", "OpenAI returned an invalid Live event"))?;
+                        if event["type"] == "error" { return Err(Failure::new("server_error", "OpenAI reported a Live session error. Check network, API access, usage limits and voice settings. Received text has been retained.")); }
+                        let change = transcript.event(&event).map_err(|error| Failure::new("transcript", error))?;
                         session.update(|s| s.text.clone_from(&transcript.text));
                         if change.revised { session.warn("The final transcript differs from the live text. Text already typed was not corrected or repeated; compare it before copying."); }
                         let safe = line.append(&change.append);
@@ -688,19 +842,21 @@ async fn stream(
                             // Limit each native injection to a short burst, including large final-only responses.
                             for chunk in text_batches(&safe) {
                                 if input.try_send(chunk).is_err() {
+                                    diagnostics::warning!("live.input_backlog", recording = session.id);
                                     session.block_input("Live typing could not keep up. Output stopped; the remaining transcript is available here.");
                                     break;
                                 }
                             }
                         }
                         if transcript.completed {
-                            if committed_at.is_none() { return Err("The Live audio turn ended unexpectedly. Received text has been retained.".into()); }
+                            if committed_at.is_none() { return Err(Failure::new("unexpected_end", "The Live audio turn ended unexpectedly. Received text has been retained.")); }
+                            finished("completed", total_bytes, events);
                             return Ok(());
                         }
                     }
-                    Some(Ok(Message::Ping(bytes))) => { timeout(SEND_TIMEOUT, socket.send(Message::Pong(bytes))).await.map_err(|_| "Live heartbeat timed out")?.map_err(|_| "Live heartbeat failed")?; }
-                    Some(Ok(Message::Close(_))) | None => return Err("The Live connection closed before completion. Received text has been retained.".into()),
-                    Some(Err(_)) => return Err("The Live connection was interrupted. Received text has been retained; nothing was replayed.".into()),
+                    Some(Ok(Message::Ping(bytes))) => { timeout(SEND_TIMEOUT, socket.send(Message::Pong(bytes))).await.map_err(|_| Failure::new("heartbeat_timeout", "Live heartbeat timed out"))?.map_err(|_| Failure::new("heartbeat_failed", "Live heartbeat failed"))?; }
+                    Some(Ok(Message::Close(_))) | None => return Err(Failure::new("closed", "The Live connection closed before completion. Received text has been retained.")),
+                    Some(Err(error)) => return Err(Failure::new("interrupted", "The Live connection was interrupted. Received text has been retained; nothing was replayed.").detail(socket_detail(&error))),
                     _ => {}
                 }
             }
@@ -722,17 +878,17 @@ fn text_batches(text: &str) -> Vec<String> {
     batches
 }
 
-async fn await_input_stop(session: &Session) -> Result<(), String> {
+async fn await_input_stop(session: &Session) -> Result<(), Failure> {
     let deadline = Instant::now();
     while !session.input_finished.load(Ordering::Acquire) {
         if deadline.elapsed() > Duration::from_secs(5) {
             session.block_input(
                 "The native input worker did not stop. Restart Utterform before another recording.",
             );
-            return Err(
-                "Live input shutdown is incomplete. Restart Utterform before another recording."
-                    .into(),
-            );
+            return Err(Failure::new(
+                "input_shutdown",
+                "Live input shutdown is incomplete. Restart Utterform before another recording.",
+            ));
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -742,6 +898,9 @@ pub async fn cancel(app: &AppHandle) -> Result<(), String> {
     if let Some(session) = app.state::<LiveState>().session()
         && session.active.load(Ordering::Acquire)
     {
+        let failed = |failure: Failure| {
+            diagnostics::failure!("live.cancel_failed", &failure, recording = session.id)
+        };
         session.request_stop("cancel");
         session.cancelled.store(true, Ordering::Release);
         session.input_stopped.store(true, Ordering::Release);
@@ -750,30 +909,42 @@ pub async fn cancel(app: &AppHandle) -> Result<(), String> {
             audio::cancel_recording(&stopped_app.state::<AudioCaptureState>())
         })
         .await
-        .map_err(|_| "Could not stop the live microphone")??;
+        .map_err(|_| failed(Failure::new("worker", "Could not stop the live microphone")))?
+        .map_err(failed)?;
         let task = session
             .task
             .lock()
-            .map_err(|_| "Live task state unavailable")?
+            .map_err(|_| failed(Failure::new("live_state", "Live task state unavailable")))?
             .take();
         if let Some(mut task) = task
             && timeout(Duration::from_secs(7), &mut task).await.is_err()
         {
+            diagnostics::warning!(
+                "live.task_aborted",
+                recording = session.id,
+                during = "cancel"
+            );
             task.abort();
         }
-        await_input_stop(&session).await?;
+        await_input_stop(&session).await.map_err(failed)?;
         session.active.store(false, Ordering::Release);
-        session.log("cancelled; native input released");
+        diagnostics::info!("live.cancelled", recording = session.id);
         session.update(|s| s.phase = "completed");
     }
     Ok(())
 }
 
 pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<ProcessResult, String> {
-    let session = app
-        .state::<LiveState>()
-        .session()
-        .ok_or("No live recording is active")?;
+    let session = app.state::<LiveState>().session().ok_or_else(|| {
+        diagnostics::failure!(
+            "recording.finish_failed",
+            &Failure::guidance("not_active", "No live recording is active"),
+            mode = "live"
+        )
+    })?;
+    let failed = |failure: Failure| {
+        diagnostics::failure!("live.finish_failed", &failure, recording = session.id)
+    };
     session.request_stop("finish");
     // Remain active throughout finalization, so no second recording can reuse audio state.
     let stopped_app = app.clone();
@@ -782,23 +953,35 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         audio::stop_recording(&stopped_app.state::<AudioCaptureState>())
     })
     .await
-    .map_err(|_| "Could not stop the live microphone")?;
+    .map_err(|_| failed(Failure::new("worker", "Could not stop the live microphone")))?;
     let duration_ms = match artifact {
         Ok(artifact) => artifact.duration_ms(),
-        Err(error) => {
-            session.warn(&error);
+        Err(failure) => {
+            // Shown as a warning beside the text that was already received.
+            session.warn(&diagnostics::fallback!(
+                "recording.failed",
+                &failure,
+                recording = session.id,
+                stage = "capture",
+                mode = "live"
+            ));
             session.started.elapsed().as_millis() as u64
         }
     };
     let task = session
         .task
         .lock()
-        .map_err(|_| "Live task state unavailable")?
+        .map_err(|_| failed(Failure::new("live_state", "Live task state unavailable")))?
         .take();
     if let Some(mut task) = task {
         match timeout(Duration::from_secs(30), &mut task).await {
             Ok(Ok(())) => {}
             _ => {
+                diagnostics::warning!(
+                    "live.task_aborted",
+                    recording = session.id,
+                    during = "finish"
+                );
                 session.cancelled.store(true, Ordering::Release);
                 session.block_input(
                     "Live finalization did not complete. Received text has been retained.",
@@ -807,18 +990,31 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
             }
         }
     }
-    await_input_stop(&session).await?;
+    await_input_stop(&session).await.map_err(failed)?;
     session.active.store(false, Ordering::Release);
-    session.log("finished; native input released");
     let status = session.snapshot();
+    diagnostics::info!(
+        "live.finished",
+        recording = session.id,
+        characters = status.text.chars().count(),
+        typed_characters = status.inserted_text.chars().count(),
+        delivery_paused = status.delivery_paused,
+        audio_ms = duration_ms
+    );
     let text = status.text;
     let mut warnings = status.warning.into_iter().collect::<Vec<_>>();
     let history_entry = if session.settings.history_enabled && !text.trim().is_empty() {
         let entry = HistoryEntry::new(&text, duration_ms, TranscriptionEngine::OpenAi);
         match history::append(&app, entry.clone()) {
-            Ok(()) => Some(entry),
-            Err(error) => {
-                warnings.push(format!("History was not saved: {error}"));
+            Ok(()) => {
+                diagnostics::info!("history.saved", recording = session.id);
+                Some(entry)
+            }
+            Err(failure) => {
+                warnings.push(format!(
+                    "History was not saved: {}",
+                    diagnostics::fallback!("history.failed", &failure, recording = session.id)
+                ));
                 None
             }
         }
@@ -830,24 +1026,38 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
     request.action = "plain".into();
     let (saved_path, copied_to_clipboard) =
         if !text.is_empty() && (request.copy_to_clipboard || request.save_to_file) {
-            match output::deliver(&app, &text, &request, &session.settings) {
+            match output::deliver(&app, &text, &request, &session.settings, session.id) {
                 Ok(delivery) => {
                     warnings.extend(delivery.warnings);
                     (delivery.saved_path, delivery.copied_to_clipboard)
                 }
-                Err(error) => {
-                    warnings.push(error);
+                Err(failure) => {
+                    warnings.push(diagnostics::fallback!(
+                        "delivery.rejected",
+                        &failure,
+                        recording = session.id
+                    ));
                     (None, false)
                 }
             }
         } else {
             (None, false)
         };
-    if session.settings.sound_enabled && warnings.is_empty() {
+    let done_cue = session.settings.sound_enabled && warnings.is_empty();
+    if done_cue {
         // The same productive Done as a batch recording's, so the next
-        // recording of either kind can silence it.
+        // recording of either kind can silence it. The cue thread records how
+        // it went.
         let _ = app.state::<feedback::DoneCues>().play();
     }
+    diagnostics::info!(
+        "recording.completed",
+        recording = session.id,
+        mode = "live",
+        total_ms = session.started.elapsed().as_millis(),
+        warnings = warnings.len(),
+        done_cue = done_cue
+    );
     Ok(ProcessResult {
         history_entry,
         text,
@@ -1116,9 +1326,50 @@ mod tests {
         })
         .await
         .unwrap_err();
-        assert_eq!(error, "no target");
+        assert_eq!(error.message(), "no target");
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(session.input_finished.load(Ordering::Acquire));
+    }
+
+    /// The worker's events name the recording, the target window and how many
+    /// chunks went out — never a chunk. Run on this thread, so the test sink
+    /// sees every event it writes.
+    #[test]
+    fn live_input_events_never_carry_dictated_text() {
+        let session = new_session(AppSettings::default());
+        let (mut typer, handles) = FakeTyper::new();
+        typer.fail_insert_at = Some(1);
+        let (sender, receiver) = input_queue::sync_channel::<String>(8);
+        for chunk in ["CANARY first words ", "CANARY second words "] {
+            sender.send(chunk.into()).unwrap();
+        }
+        drop(sender);
+        let ((), records) = diagnostics::capture::records(|| {
+            run_input_worker(&session, &receiver, typer);
+        });
+        assert_eq!(handles.inserted.lock().unwrap().len(), 1);
+        assert!(
+            records
+                .iter()
+                .any(|record| record.contains("live.input_started"))
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.contains("live.input_paused"))
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.contains("live.input_released"))
+        );
+        for record in &records {
+            assert!(!record.contains("CANARY"), "{record}");
+            assert!(
+                record.contains(&format!("recording={}", session.id)),
+                "{record}"
+            );
+        }
     }
 
     #[test]

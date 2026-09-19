@@ -10,14 +10,24 @@ use tauri::{
 
 /// Reveal the main window wherever it is: hidden in the tray, minimized, or
 /// merely unfocused. Each step is independently best-effort because a window
-/// that is already shown or already focused must not block the others.
-pub fn reveal_main_window<R: Runtime>(app: &AppHandle<R>) {
+/// that is already shown or already focused must not block the others; a
+/// step that fails is recorded. `source` names what asked.
+pub fn reveal_main_window<R: Runtime>(app: &AppHandle<R>, source: &'static str) {
     let Some(window) = app.get_webview_window("main") else {
+        crate::diagnostics::warning!("window.reveal_failed", source = source, step = "find");
         return;
     };
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
+    let steps = [
+        ("unminimize", window.unminimize()),
+        ("show", window.show()),
+        ("focus", window.set_focus()),
+    ];
+    for (step, outcome) in &steps {
+        if outcome.is_err() {
+            crate::diagnostics::warning!("window.reveal_failed", source = source, step = step);
+        }
+    }
+    crate::diagnostics::info!("window.revealed", source = source);
 }
 
 /// A plain left click and a double click both mean "open Utterform". Reacting

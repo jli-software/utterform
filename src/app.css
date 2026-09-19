@@ -92,8 +92,6 @@ main:not(.has-result) footer { margin-top:20px; }
 .settings-brand { display:flex; align-items:center; gap:13px; }
 .settings-brand .settings-mark { width:32px; height:36px; fill:currentColor; }
 .section-badge { border:1px solid color-mix(in srgb,var(--accent) 20%,transparent); border-radius:5px; padding:5px 8px; color:var(--accent); background:var(--accent-soft); font-size:9px; font-weight:650; white-space:nowrap; }
-.setting-details { margin-top:12px; color:var(--muted); font-size:11px; }
-.setting-details summary { cursor:pointer; }
 .section-description { color:var(--muted); font-size:11px; line-height:1.6; margin:0 0 14px; }
 /* The viewport, not the active category, owns the dialog geometry. */
 .settings-modal { width:min(860px,100%); height:min(820px,calc(100dvh - 48px)); display:flex; flex-direction:column; background:var(--surface-solid); border:1px solid var(--line); border-radius:5px; box-shadow:none; overflow:hidden; }
@@ -181,6 +179,10 @@ main:not(.has-result) footer { margin-top:20px; }
 .cue-test:disabled { opacity:.6; }
 .cue-report { margin:10px 2px 0; padding:8px 10px; border-radius:5px; background:var(--accent-soft); color:var(--muted); font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
 .privacy-note code { font-size:10px; word-break:break-all; }
+.support-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.support-action { min-height:36px; padding:8px 11px; border:1px solid var(--line); border-radius:5px; background:transparent; color:var(--text); font-size:11px; font-weight:650; }
+.support-action:disabled { opacity:.6; }
+.log-location code { overflow-wrap:anywhere; }
 .clear-history { margin:12px 8px 0 0; padding:8px 11px; border:1px solid var(--line); border-radius:5px; background:transparent; color:var(--danger); font-size:11px; }
 button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 @keyframes menu-in { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }

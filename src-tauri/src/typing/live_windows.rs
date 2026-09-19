@@ -163,10 +163,13 @@ impl LiveTyper {
             })
         });
         session.check_target()?;
-        crate::diagnostics::log(format!(
-            "live session {session_id}: Windows live typing bound to {} (thread {thread})",
-            session.target_description()
-        ));
+        crate::diagnostics::info!(
+            "live.input_bound",
+            recording = session_id,
+            target = session.target_description(),
+            thread = thread
+        );
+
         Ok(session)
     }
 

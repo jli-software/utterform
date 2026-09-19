@@ -3,7 +3,9 @@ use std::{io::Cursor, time::Duration};
 use reqwest::{Client, StatusCode, multipart};
 use serde::Deserialize;
 
-use crate::{actions, audio::RecordingArtifact, domain::AppSettings, secrets};
+use crate::{
+    actions, audio::RecordingArtifact, diagnostics::Failure, domain::AppSettings, secrets,
+};
 
 const TRANSCRIPTIONS_URL: &str = "https://api.openai.com/v1/audio/transcriptions";
 const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
@@ -53,16 +55,24 @@ struct ResponseContent {
 pub async fn transcribe(
     artifact: &RecordingArtifact,
     settings: &AppSettings,
-) -> Result<String, String> {
+) -> Result<String, Failure> {
     let audio = normalized_wav(artifact)?;
     if audio.len() as u64 > MAX_UPLOAD_BYTES {
-        return Err("The recording exceeds the 25 MB OpenAI upload limit".into());
+        return Err(Failure::guidance(
+            "upload_too_large",
+            "The recording exceeds the 25 MB OpenAI upload limit",
+        ));
     }
 
     let part = multipart::Part::bytes(audio)
         .file_name("recording.wav")
         .mime_str("audio/wav")
-        .map_err(|error| format!("Could not prepare the recording: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                "prepare",
+                format!("Could not prepare the recording: {error}"),
+            )
+        })?;
     let mut form = multipart::Form::new()
         .text("model", "gpt-transcribe")
         .part("file", part);
@@ -87,7 +97,12 @@ pub async fn transcribe(
         .multipart(form)
         .send()
         .await
-        .map_err(|error| format!("OpenAI transcription request failed: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                transport_class(&error),
+                format!("OpenAI transcription request failed: {error}"),
+            )
+        })?;
     let status = response.status();
     if !status.is_success() {
         return Err(api_error(status, response).await);
@@ -95,10 +110,18 @@ pub async fn transcribe(
     let payload = response
         .json::<TranscriptionResponse>()
         .await
-        .map_err(|error| format!("OpenAI returned an invalid transcription: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                "invalid_response",
+                format!("OpenAI returned an invalid transcription: {error}"),
+            )
+        })?;
     let text = payload.text.trim();
     if text.is_empty() {
-        return Err("OpenAI returned an empty transcription".into());
+        return Err(Failure::new(
+            "empty_result",
+            "OpenAI returned an empty transcription",
+        ));
     }
     Ok(text.to_string())
 }
@@ -108,7 +131,7 @@ pub async fn transform(
     action: &str,
     custom_prompt: Option<&str>,
     settings: &AppSettings,
-) -> Result<String, String> {
+) -> Result<String, Failure> {
     let instructions = action_instructions(action, custom_prompt, settings)?;
     let mut body = serde_json::json!({
         "model": settings.text_model,
@@ -127,7 +150,12 @@ pub async fn transform(
         .json(&body)
         .send()
         .await
-        .map_err(|error| format!("OpenAI text transformation failed: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                transport_class(&error),
+                format!("OpenAI text transformation failed: {error}"),
+            )
+        })?;
     let status = response.status();
     if !status.is_success() {
         return Err(api_error(status, response).await);
@@ -135,7 +163,12 @@ pub async fn transform(
     let payload = response
         .json::<ResponsesResponse>()
         .await
-        .map_err(|error| format!("OpenAI returned an invalid transformation: {error}"))?;
+        .map_err(|error| {
+            Failure::new(
+                "invalid_response",
+                format!("OpenAI returned an invalid transformation: {error}"),
+            )
+        })?;
     let text = payload
         .output_text
         .filter(|value| !value.trim().is_empty())
@@ -149,20 +182,42 @@ pub async fn transform(
                 .join("\n");
             (!combined.trim().is_empty()).then_some(combined)
         })
-        .ok_or_else(|| "OpenAI returned an empty transformation".to_string())?;
+        .ok_or_else(|| Failure::new("empty_result", "OpenAI returned an empty transformation"))?;
     Ok(text.trim().to_string())
 }
 
-fn client() -> Result<Client, String> {
+fn client() -> Result<Client, Failure> {
     Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
         .build()
-        .map_err(|error| format!("Could not initialize the OpenAI client: {error}"))
+        .map_err(|error| {
+            Failure::new(
+                "client_init",
+                format!("Could not initialize the OpenAI client: {error}"),
+            )
+        })
 }
 
-fn normalized_wav(artifact: &RecordingArtifact) -> Result<Vec<u8>, String> {
+/// What kind of transport failure a request met, without its URL or body.
+fn transport_class(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "transport"
+    }
+}
+
+fn normalized_wav(artifact: &RecordingArtifact) -> Result<Vec<u8>, Failure> {
     let samples = artifact.whisper_pcm()?;
     let mut cursor = Cursor::new(Vec::new());
     {
@@ -172,17 +227,23 @@ fn normalized_wav(artifact: &RecordingArtifact) -> Result<Vec<u8>, String> {
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let mut writer = hound::WavWriter::new(&mut cursor, spec)
-            .map_err(|error| format!("Could not prepare the recording upload: {error}"))?;
+        let upload = |error: hound::Error| {
+            Failure::new(
+                "prepare",
+                format!("Could not prepare the recording upload: {error}"),
+            )
+        };
+        let mut writer = hound::WavWriter::new(&mut cursor, spec).map_err(upload)?;
         for sample in samples {
             let pcm = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16;
-            writer
-                .write_sample(pcm)
-                .map_err(|error| format!("Could not prepare the recording upload: {error}"))?;
+            writer.write_sample(pcm).map_err(upload)?;
         }
-        writer
-            .finalize()
-            .map_err(|error| format!("Could not finalize the recording upload: {error}"))?;
+        writer.finalize().map_err(|error| {
+            Failure::new(
+                "prepare",
+                format!("Could not finalize the recording upload: {error}"),
+            )
+        })?;
     }
     Ok(cursor.into_inner())
 }
@@ -206,28 +267,35 @@ fn action_instructions(
     action: &str,
     custom_prompt: Option<&str>,
     settings: &AppSettings,
-) -> Result<String, String> {
+) -> Result<String, Failure> {
     if action == "custom" {
         return custom_prompt
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| "A custom action requires instructions".to_string());
+            .ok_or_else(|| {
+                Failure::guidance(
+                    "instructions_missing",
+                    "A custom action requires instructions",
+                )
+            });
     }
     actions::instructions(action, &settings.action_overrides)
-        .ok_or_else(|| format!("Unknown action: {action}"))
+        .ok_or_else(|| Failure::guidance("unknown_action", format!("Unknown action: {action}")))
 }
 
-async fn api_error(status: StatusCode, response: reqwest::Response) -> String {
+/// The user reads what OpenAI said; the log only ever gets the status.
+async fn api_error(status: StatusCode, response: reqwest::Response) -> Failure {
     let fallback = format!("OpenAI request failed with HTTP {status}");
-    response
+    let message = response
         .json::<ApiErrorEnvelope>()
         .await
         .ok()
         .and_then(|payload| payload.error)
         .and_then(|error| error.message)
         .filter(|message| !message.trim().is_empty())
-        .unwrap_or(fallback)
+        .unwrap_or(fallback);
+    Failure::new("http", message).status(status.as_u16())
 }
 
 #[cfg(test)]

@@ -18,7 +18,7 @@ use tauri::{AppHandle, Runtime};
 use crate::domain::TypingMethod;
 
 mod live;
-pub use live::LiveTyper;
+pub use live::{LiveTyper, is_capture_guidance};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -248,6 +248,23 @@ pub fn insert_at_cursor<R: Runtime>(
     }
 }
 
+/// Whether a refusal is something the user resolves — install the typing
+/// tool, grant Accessibility, match an elevated window — rather than a
+/// failure. Recognised by the sentences the platform modules return, all of
+/// them Utterform's own and none naming the text; kept here, beside the one
+/// caller, so the three platforms are checked on every one of them.
+pub fn is_guidance(message: &str) -> bool {
+    const GUIDANCE: &[&str] = &[
+        // Linux: `linux::missing_tool_message`.
+        "Typing at the cursor needs ",
+        // macOS: `macos::ACCESSIBILITY_HELP`.
+        "lets Utterform type into other windows only with Accessibility",
+        // Windows: a window of higher integrity.
+        "is running as administrator, and Windows lets no ordinary program type into it",
+    ];
+    GUIDANCE.iter().any(|sentence| message.contains(sentence))
+}
+
 /// What Settings shows next to the typing method: whether this desktop can
 /// type at all, and what stands in the way when it cannot yet. Only macOS has
 /// a grant to ask for; Linux names its missing tool when a delivery fails.
@@ -429,6 +446,29 @@ mod tests {
             })
             .collect();
         assert_eq!(String::from_utf16(&units).unwrap(), text);
+    }
+
+    #[test]
+    fn refusals_the_user_resolves_are_guidance_and_faults_are_not() {
+        #[cfg(target_os = "linux")]
+        for (wayland, x11) in [(true, false), (false, true), (false, false)] {
+            assert!(is_guidance(&linux::missing_tool_message(wayland, x11)));
+        }
+        // The macOS and Windows sentences, as those modules return them.
+        assert!(is_guidance(
+            "macOS lets Utterform type into other windows only with Accessibility. Turn Utterform on under System Settings → Privacy & Security → Accessibility, then try again. The text is on the clipboard meanwhile."
+        ));
+        assert!(is_guidance(
+            "WindowsTerminal is running as administrator, and Windows lets no ordinary program type into it. Paste from the clipboard, or start Utterform as administrator too."
+        ));
+        for fault in [
+            "wtype could not reach the focused window",
+            "Could not run wtype: Permission denied (os error 13)",
+            "Windows accepted only 3 of 8 key events",
+            "Could not put the text on the clipboard: unavailable",
+        ] {
+            assert!(!is_guidance(fault), "{fault}");
+        }
     }
 
     #[test]

@@ -84,6 +84,22 @@ fn validate_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a capture refusal is something the user resolves — start from
+/// another application's text field, use a supported desktop, match an
+/// elevated window — rather than a fault. The sentences are the platform
+/// modules' own and name no window title or text.
+pub fn is_capture_guidance(message: &str) -> bool {
+    const GUIDANCE: &[&str] = &[
+        "Focus an external text field before starting live dictation",
+        "Start live dictation using the shortcut in another application's text field",
+        "Live typing on Linux needs an Omarchy/Hyprland Wayland session",
+        "Live typing on Linux currently supports Omarchy/Hyprland only",
+        "Live typing is available on Windows and Omarchy/Hyprland",
+        "Live typing cannot reach a program running as administrator",
+    ];
+    GUIDANCE.iter().any(|sentence| message.contains(sentence))
+}
+
 /// Persistent native live-input session. Capture while the external text field
 /// has focus, normally via the global shortcut (never by focusing Utterform).
 pub struct LiveTyper {
@@ -177,6 +193,29 @@ mod tests {
         }
         assert!(validate_text("Grüße – 中文 😀 e\u{301} ").is_ok());
         assert!(validate_text("").is_ok());
+    }
+
+    #[test]
+    fn capture_refusals_the_user_resolves_are_guidance() {
+        assert!(is_capture_guidance(
+            "Focus an external text field before starting live dictation"
+        ));
+        assert!(is_capture_guidance(
+            "Start live dictation using the shortcut in another application's text field"
+        ));
+        assert!(is_capture_guidance(
+            "Live typing on Linux needs an Omarchy/Hyprland Wayland session"
+        ));
+        assert!(!is_capture_guidance(
+            "Hyprland: the focus query timed out (technical fault)"
+        ));
+        assert!(!is_capture_guidance(
+            "Another live typing session owns this worker"
+        ));
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        assert!(is_capture_guidance(
+            &LiveTyper::capture(1).err().unwrap_or_default()
+        ));
     }
 
     #[test]

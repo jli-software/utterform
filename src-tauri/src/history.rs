@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::domain::TranscriptionEngine;
+use crate::{diagnostics::Failure, domain::TranscriptionEngine};
 
 const HISTORY_LIMIT: usize = 100;
 
@@ -60,36 +60,58 @@ fn title_from_text(text: &str) -> String {
     }
 }
 
-fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn history_path(app: &AppHandle) -> Result<PathBuf, Failure> {
     app.path()
         .app_local_data_dir()
         .map(|path| path.join("history.json"))
-        .map_err(|error| format!("Could not resolve the history directory: {error}"))
+        .map_err(|error| {
+            Failure::new(
+                "history_path",
+                format!("Could not resolve the history directory: {error}"),
+            )
+        })
 }
 
-pub fn list(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
+fn unavailable() -> Failure {
+    Failure::new("history_state", "History is unavailable")
+}
+
+pub fn list(app: &AppHandle) -> Result<Vec<HistoryEntry>, Failure> {
     let state = app.state::<HistoryState>();
-    let _guard = state.0.lock().map_err(|_| "History is unavailable")?;
+    let _guard = state.0.lock().map_err(|_| unavailable())?;
     read_entries(&history_path(app)?)
 }
 
-pub fn append(app: &AppHandle, entry: HistoryEntry) -> Result<(), String> {
+pub fn append(app: &AppHandle, entry: HistoryEntry) -> Result<(), Failure> {
     let state = app.state::<HistoryState>();
-    let _guard = state.0.lock().map_err(|_| "History is unavailable")?;
+    let _guard = state.0.lock().map_err(|_| unavailable())?;
     append_at(&history_path(app)?, entry)
 }
 
-pub fn clear(app: &AppHandle) -> Result<(), String> {
+pub fn clear(app: &AppHandle) -> Result<(), Failure> {
     let state = app.state::<HistoryState>();
-    let _guard = state.0.lock().map_err(|_| "History is unavailable")?;
+    let _guard = state.0.lock().map_err(|_| unavailable())?;
     write_entries(&history_path(app)?, &[])
 }
 
-fn read_entries(path: &Path) -> Result<Vec<HistoryEntry>, String> {
+fn read_entries(path: &Path) -> Result<Vec<HistoryEntry>, Failure> {
     match fs::read(path) {
         Ok(bytes) => {
-            let mut entries: Vec<HistoryEntry> = serde_json::from_slice(&bytes)
-                .map_err(|error| format!("History is invalid (file left untouched): {error}"))?;
+            // The JSON error is never logged: its position is enough, and its
+            // text could quote a transcript.
+            let mut entries: Vec<HistoryEntry> =
+                serde_json::from_slice(&bytes).map_err(|error| {
+                    Failure::new(
+                        "history_invalid",
+                        format!("History is invalid (file left untouched): {error}"),
+                    )
+                    .detail(format!(
+                        "{:?} at line {} column {}",
+                        error.classify(),
+                        error.line(),
+                        error.column()
+                    ))
+                })?;
             entries.truncate(HISTORY_LIMIT);
             for entry in &mut entries {
                 if entry.created_at_ms.is_none() {
@@ -105,11 +127,15 @@ fn read_entries(path: &Path) -> Result<Vec<HistoryEntry>, String> {
             Ok(entries)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(error) => Err(format!("Could not read history: {error}")),
+        Err(error) => Err(Failure::io(
+            "history_read",
+            &error,
+            format!("Could not read history: {error}"),
+        )),
     }
 }
 
-fn append_at(path: &Path, entry: HistoryEntry) -> Result<(), String> {
+fn append_at(path: &Path, entry: HistoryEntry) -> Result<(), Failure> {
     // Refuse to overwrite unreadable/corrupt history. The result is still returned to the UI.
     let mut entries = read_entries(path)?;
     entries.insert(0, entry);
@@ -117,25 +143,36 @@ fn append_at(path: &Path, entry: HistoryEntry) -> Result<(), String> {
     write_entries(path, &entries)
 }
 
-fn write_entries(path: &Path, entries: &[HistoryEntry]) -> Result<(), String> {
-    let parent = path.parent().ok_or("History path has no parent")?;
-    fs::create_dir_all(parent).map_err(|error| format!("Could not create history: {error}"))?;
+fn write_entries(path: &Path, entries: &[HistoryEntry]) -> Result<(), Failure> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Failure::new("history_path", "History path has no parent"))?;
+    let io = |class: &'static str, what: &str| {
+        let what = what.to_string();
+        move |error: std::io::Error| Failure::io(class, &error, format!("{what}: {error}"))
+    };
+    fs::create_dir_all(parent).map_err(io("history_write", "Could not create history"))?;
     // Same-directory, owner-only temporary file, flushed before atomic replacement.
     // Unlike delete-then-rename this leaves the previous history intact on failure.
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("Could not prepare history: {error}"))?;
-    let bytes = serde_json::to_vec(entries).map_err(|error| error.to_string())?;
+        .map_err(io("history_write", "Could not prepare history"))?;
+    let bytes = serde_json::to_vec(entries)
+        .map_err(|error| Failure::new("history_serialize", error.to_string()))?;
     temporary
         .write_all(&bytes)
         .and_then(|()| temporary.as_file().sync_all())
-        .map_err(|error| format!("Could not write history: {error}"))?;
-    temporary
-        .persist(path)
-        .map_err(|error| format!("Could not save history: {error}"))?;
+        .map_err(io("history_write", "Could not write history"))?;
+    temporary.persist(path).map_err(|error| {
+        Failure::io(
+            "history_write",
+            &error.error,
+            format!("Could not save history: {error}"),
+        )
+    })?;
     #[cfg(unix)]
     fs::File::open(parent)
         .and_then(|directory| directory.sync_all())
-        .map_err(|error| format!("Could not flush history directory: {error}"))?;
+        .map_err(io("history_write", "Could not flush history directory"))?;
     Ok(())
 }
 
