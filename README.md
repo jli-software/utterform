@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.10 — Local diagnostics** adds bounded, privacy-safe logs with references for failures and simple copy/open actions in Settings, with consistent run-marker handling on every desktop. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.10.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.10).
+> Utterform is under active development. **0.7.11 — Windows autostart registration** repairs the sign-in startup command, verifies Windows' enabled state and cleans up registration on uninstall. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.11.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.11).
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.10 — Local diagnostics](https://github.com/jli-software/utterform/releases/tag/v0.7.10)**.
+**[0.7.11 — Windows autostart registration](https://github.com/jli-software/utterform/releases/tag/v0.7.11)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.10 release notes](docs/releases/v0.7.10.md) for the current changes.
+See the [0.7.11 release notes](docs/releases/v0.7.11.md) for the current changes.
 
 ### Omarchy / Arch Linux
 

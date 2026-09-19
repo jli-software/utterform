@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.11 — v0.7.11 · Windows autostart registration
+
+- Quote the installed Windows executable in the per-user startup command and retain the `--autostart` tray-only launch intent.
+- Report autostart as enabled only when the exact registration and Windows StartupApproved state are valid; allow a disabled startup choice to be enabled again.
+- Preserve an enabled registration during NSIS upgrades and remove both Windows startup values on real uninstall. Linux and macOS keep their existing plugin-backed behavior.
+
+See [0.7.11 release notes](docs/releases/v0.7.11.md).
+
 ## 0.7.10 — v0.7.10 · Cross-platform run markers
 
 - Treat an unavailable diagnostics marker parent consistently on Windows, Linux and macOS instead of allowing Windows' `NotFound` error to look like a clean previous run.
