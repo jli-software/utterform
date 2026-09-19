@@ -1,5 +1,28 @@
 # Validation
 
+## Unreleased Windows autostart repair
+
+The frontend now calls Utterform-owned native autostart commands. Linux and
+macOS delegate to `tauri-plugin-autostart` as before; Windows writes the
+per-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Utterform`
+registration itself. The executable is always quoted and carries the fixed
+`--autostart` argument. Read-back accepts only that exact command and an
+enabled or absent `StartupApproved\Run\Utterform` state, so a malformed entry
+can no longer be reported as working. Disable removes both values.
+
+Cross-platform Rust tests cover safe command construction, rejection of
+unrepresentable paths, exact command matching and enabled, disabled and
+malformed StartupApproved states. A Windows-only test writes a unique temporary
+HKCU registration, verifies it and removes both values. The NSIS hooks repair
+an existing enabled Run command during upgrade and remove Run plus
+StartupApproved during uninstall.
+
+Still required before closing the Windows issue: install the exact reviewed
+NSIS build, enable and inspect both registry values, sign out and in, verify one
+hidden tray process with no recording or focus, disable and repeat the sign-in,
+then verify upgrade and uninstall cleanup. Synthetic IPC or a same-process
+registry read-back does not replace those desktop checks.
+
 ## 0.7.9 local diagnostics
 
 **Implementation state:** reviewed and versioned as 0.7.9 on the diagnostics PR branch, tested on
@@ -187,7 +210,7 @@ Automated, on Linux: 128 native tests (122 before), 94 interface tests (68 befor
 
 New native coverage: `--autostart` read as an intent of its own rather than as the plain launch it would otherwise be; that intent raising no window, never reaching the interface, and never being kept as a startup intent, while every other intent still is and is still delivered exactly once; and the autostart-only Linux environment policy — the launcher's `GDK_BACKEND=x11` applied when the session set none, and a backend the session did choose left alone.
 
-New interface coverage: a combination taken from the keyboard and registered as exactly itself; the physical key winning over the layout (`KeyY` is the same shortcut on a German keyboard), and Meta stored as `Super` while a Mac is shown `Cmd`; space, a digit, a function key and an arrow; a modifier on its own not finishing the reading; a key without a modifier refused where it was pressed, announced through the live region, and leaving the stored shortcut alone; `Escape` ending the reading and not the dialog, with the second `Escape` still closing it; Cancel keeping the stored shortcut; the registered key released for the reading and taken back on every way out of it — new key, Escape, Cancel; a compositor intent arriving mid-reading not starting a recording; a backend conflict still keeping the dialog open with the message in the field; and Wayland still shown `utterform --toggle` and no recorder. For autostart: the switch coming from `isEnabled` with nothing about it in the saved settings; `enable`/`disable` called only after Save and only on an actual change; Cancel writing nothing; a query failure disabling the switch alone while the rest of Settings still saves and closes; a write failure staying visible in the open dialog; and a write that reports success but changes nothing being caught by reading the entry back. In the production bundle: recording `Ctrl+Alt+K` through real Chromium key events including the refused bare key, `Escape` keeping the old one, the startup switch reading and writing the synthetic `plugin:autostart|*` IPC and writing nothing on Cancel or on an unchanged save, and both controls focusable and uncut inside the settings scroll at 920 × 720 and at the compact 720 × 620.
+New interface coverage: a combination taken from the keyboard and registered as exactly itself; the physical key winning over the layout (`KeyY` is the same shortcut on a German keyboard), and Meta stored as `Super` while a Mac is shown `Cmd`; space, a digit, a function key and an arrow; a modifier on its own not finishing the reading; a key without a modifier refused where it was pressed, announced through the live region, and leaving the stored shortcut alone; `Escape` ending the reading and not the dialog, with the second `Escape` still closing it; Cancel keeping the stored shortcut; the registered key released for the reading and taken back on every way out of it — new key, Escape, Cancel; a compositor intent arriving mid-reading not starting a recording; a backend conflict still keeping the dialog open with the message in the field; and Wayland still shown `utterform --toggle` and no recorder. For autostart: the switch coming from the native read-back with nothing about it in the saved settings; `enable`/`disable` called only after Save and only on an actual change; Cancel writing nothing; a query failure disabling the switch alone while the rest of Settings still saves and closes; a write failure staying visible in the open dialog; and a write that reports success but changes nothing being caught by reading the entry back. In the production bundle: recording `Ctrl+Alt+K` through real Chromium key events including the refused bare key, `Escape` keeping the old one, the startup switch reading and writing the synthetic native autostart IPC and writing nothing on Cancel or on an unchanged save, and both controls focusable and uncut inside the settings scroll at 920 × 720 and at the compact 720 × 620.
 
 Desktop builds ran green on all three platforms for commit `f296eb3` (run 34629331357): the new dependency compiles and `clippy --all-targets -D warnings` passes on Linux, Windows and macOS, the Rust tests pass on each, and the Linux tarball, the Windows NSIS installer and the macOS disk image were built and verified by their packaging scripts. Push CI on the same commit is green.
 

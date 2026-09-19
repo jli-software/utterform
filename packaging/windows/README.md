@@ -3,10 +3,14 @@
 The executable, NSIS setup and uninstaller use the generated Signal `icon.ico`.
 Run `npm run icons` after changing `src-tauri/icons/app-icon.svg`.
 
-The two supported NSIS hooks notify the Windows shell with `SHChangeNotify`
+The two supported NSIS hooks repair an enabled per-user autostart command on
+upgrade, remove its Run and StartupApproved values on uninstall, and notify
+the Windows shell with `SHChangeNotify`
 (`SHCNE_ASSOCCHANGED`, `SHCNF_IDLIST`) after install/remove so Explorer can
-refresh its displayed icons. They do not delete cache files, restart Explorer,
-change privileges, or touch application data.
+refresh its displayed icons. The repaired command quotes the installed
+executable and retains Windows' enabled/disabled choice. The hooks do not
+delete cache files, restart Explorer, change privileges, or touch application
+data.
 
 Keep Tauri's stock installer template and existing product name, identifier,
 install mode and shortcut locations. It already checks for a running app,
@@ -23,6 +27,12 @@ while the app is running, and verify the stock close-app prompt, shortcut
 cleanup and retained data. Reinstall and confirm the retained settings load.
 Shell notification delivery and Explorer's rendering require a real Windows
 session; Linux-side asset/config checks cannot verify them.
+
+Autostart verification uses an installed build. Enable it in Settings and
+confirm the HKCU Run command quotes the executable and carries `--autostart`;
+confirm StartupApproved is not disabled. Sign out and in, then verify exactly
+one hidden tray process, no focus and no recording. Repeat after disabling,
+an in-place upgrade and uninstall; uninstall must leave neither value behind.
 
 References:
 

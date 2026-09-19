@@ -1,6 +1,7 @@
 mod actions;
 mod activation;
 mod audio;
+mod autostart;
 mod cli;
 mod commands;
 mod diagnostics;
@@ -51,9 +52,10 @@ impl StartupIntent {
 /// The operating system's own "start when I sign in" entry.
 ///
 /// Nothing about it is stored in `settings.json`: the entry itself is the only
-/// truth, and Settings reads it back through the plugin. The fixed argument is
-/// what makes a login start silent — see `cli::Intent::Autostart`. macOS keeps
-/// this builder's default, the per-user LaunchAgent.
+/// truth. Linux and macOS read it through this plugin; Windows uses the native
+/// boundary in `autostart` so it can validate the exact safely quoted command.
+/// The fixed argument makes a login start silent — see `cli::Intent::Autostart`.
+/// macOS keeps this builder's default, the per-user LaunchAgent.
 fn autostart<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri_plugin_autostart::Builder::new()
         .app_name("Utterform")
@@ -227,6 +229,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::take_startup_intent,
+            commands::autostart_enabled,
+            commands::enable_autostart,
+            commands::disable_autostart,
             commands::global_hotkey_support,
             commands::apply_global_hotkey,
             commands::list_built_in_actions,
