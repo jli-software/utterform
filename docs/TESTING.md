@@ -1,6 +1,6 @@
 # Validation
 
-## 0.7.11 Windows autostart repair (awaiting installed-app acceptance)
+## 0.7.11 Windows autostart repair (manual desktop test pending)
 
 The frontend now calls Utterform-owned native autostart commands. Linux and
 macOS delegate to `tauri-plugin-autostart` as before; Windows writes the
