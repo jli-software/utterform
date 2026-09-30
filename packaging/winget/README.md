@@ -1,90 +1,44 @@
-# winget package
+# WinGet package
 
-Manifests for the [Windows Package Manager](https://github.com/microsoft/winget-pkgs)
-community repository, so Windows users can install Utterform with:
-
-```
-winget install Utterform
-```
-
-winget needs no code signing certificate and costs nothing. It does not make the
-Windows SmartScreen prompt disappear — the installer is still unsigned — but it
-removes the browser download warning, because nothing is downloaded by hand.
+The three manifests in `0.7.11/` match the published Utterform v0.7.11 Windows
+NSIS installer. Their active first-package submission is
+[`microsoft/winget-pkgs#431040`](https://github.com/microsoft/winget-pkgs/pull/431040).
 
 ## Status
 
-**Submitted and awaiting review.** The first-package pull request is
-[`microsoft/winget-pkgs#431040`](https://github.com/microsoft/winget-pkgs/pull/431040).
-The package does not exist in the public source until that pull request is
-merged, so do not advertise the `winget install` command in the root README yet.
+The package is **not yet available in the public WinGet catalog**. The
+submission passed validation for v0.7.2 and was updated to v0.7.11 on
+2026-09-30. The new automated validation and required community-moderator
+approval must finish before Microsoft merges it. Catalog synchronization follows
+the merge. Do not advertise an installation command in the root README until
+`winget show --id JliSoftware.Utterform --exact` resolves the package after
+`winget source update`.
 
-## What is here
+## Manifest evidence
 
-`0.7.2/` holds the three manifests winget expects, matching the published
-release assets:
+- The immutable v0.7.11 installer URL points to the published NSIS release asset.
+  Its independently computed SHA-256 matches the public `SHA256SUMS.txt`.
+- The installer is a per-user Nullsoft package; WinGet supplies its silent switch.
+- The published application imports `MSVCP140.dll`, so the manifest declares
+  `Microsoft.VCRedist.2015+.x64`. This addresses the earlier upstream
+  `STATUS_DLL_NOT_FOUND` installation-validation failure.
+- The Windows per-user uninstall entry has `ProductCode: Utterform`; the manifest
+  carries the same value for package correlation and upgrades.
+- `winget validate --manifest` succeeded on Windows 11 for the v0.7.11 manifests.
 
-| File | Purpose |
-| --- | --- |
-| `JliSoftware.Utterform.yaml` | Version manifest — ties the other two together |
-| `JliSoftware.Utterform.installer.yaml` | The NSIS installer, its URL and SHA-256 |
-| `JliSoftware.Utterform.locale.en-US.yaml` | Name, publisher, licence, description |
+The Windows installer remains unsigned. WinGet does not remove a possible
+SmartScreen prompt in interactive use.
 
-Facts these were built from, verified against the published `v0.7.2` assets on
-2026-09-11 rather than assumed:
+## Local validation
 
-- `InstallerSha256` matches `SHA256SUMS.txt` **and** an independent `sha256sum`
-  of the downloaded `utterform-windows-x86_64-setup.exe`.
-- `Scope: user` and no elevation requirement: the installer's embedded manifest
-  requests `asInvoker`, which matches Tauri's per-user NSIS default.
-- `InstallerType: nullsoft` — the installer reports Nullsoft Install System
-  v3.11. winget supplies the `/S` silent switch for that type itself.
-- The packaged executable imports `MSVCP140.dll`, so the installer manifest
-  declares `Microsoft.VCRedist.2015+.x64`. This fixes the upstream validator's
-  `STATUS_DLL_NOT_FOUND` launch failure.
-
-## Submitting
-
-The pull request has to come from your own GitHub account. On a Windows machine:
-
-```
-winget install Microsoft.WingetCreate
-wingetcreate submit --token <your-github-token> path\to\0.7.2
+```powershell
+winget validate --manifest path\to\0.7.11
+winget install --manifest path\to\0.7.11
 ```
 
-`wingetcreate` forks `microsoft/winget-pkgs` for you, copies the manifests to
-`manifests/j/JliSoftware/Utterform/0.7.2/` and opens the pull request.
-
-To check the manifests before submitting:
-
-```
-winget validate --manifest path\to\0.7.2
-winget install --manifest path\to\0.7.2
-```
-
-The second one actually installs from the local manifest, which is the honest
-test that the package works.
-
-After submitting, an automated pipeline validates the manifest and virus-scans
-the installer. Unsigned installers usually pass, but a first submission can wait
-on a human moderator for a few days.
-
-## Later versions
-
-`wingetcreate update JliSoftware.Utterform --version <new> --urls <installer url> --submit`
-takes the new installer, computes its hash and opens the follow-up pull request.
-Automating that in the release workflow is the intended next step; it is not
-wired up yet.
-
-## Package correlation
-
-The per-user uninstall entry was verified on Windows and identifies the package
-with `ProductCode: Utterform`:
-
-```
-Get-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
-  Where-Object DisplayName -like "*Utterform*" | Select-Object PSChildName, DisplayName, DisplayVersion
-```
-
-The installer manifest includes that value both at package level and in
-`AppsAndFeaturesEntries`, allowing WinGet to correlate and upgrade an existing
-Utterform installation.
+The second command installs the package locally; use an appropriate Windows test
+environment. After upstream merge and catalog synchronization, install with
+`winget install --id JliSoftware.Utterform --exact`. Each later Utterform release
+requires a separate WinGet manifest submission and merge before
+`winget upgrade --id JliSoftware.Utterform --exact` can offer it. GitHub releases
+are not automatically ingested into WinGet.
