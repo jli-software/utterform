@@ -48,10 +48,10 @@ test.beforeEach(async ({ page }) => {
             case "get_live_status": return { text: "Live words at the cursor", insertedText: "Live words ", deliveryPaused: true, warning: "Focus changed. Insertion is paused.", phase: "streaming" };
             case "global_hotkey_support": return { supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null };
             case "apply_global_hotkey": Object.assign(window, { __appliedHotkey: args.shortcut }); return;
-            case "plugin:autostart|is_enabled": return autostart;
-            case "plugin:autostart|enable": case "plugin:autostart|disable":
-              autostart = command.endsWith("enable");
-              (Reflect.get(window, "__autostartWrites") as string[]).push(command.split("|")[1]);
+            case "autostart_enabled": return autostart;
+            case "enable_autostart": case "disable_autostart":
+              autostart = command === "enable_autostart";
+              (Reflect.get(window, "__autostartWrites") as string[]).push(command.split("_")[0]);
               return;
             case "list_built_in_actions": return [
               { id: "plain", name: "Plain", hint: "Transcription only", prompt: "" },

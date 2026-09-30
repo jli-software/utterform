@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import type {
   AppSettings,
   AudioDevice,
@@ -33,9 +32,9 @@ export const api = {
   // Whether Utterform starts when the user signs in. The operating system's
   // own entry is the only place this is kept — no setting of ours mirrors it,
   // so nothing can disagree with it — and it is read back after every change.
-  autostartEnabled: () => isEnabled(),
-  enableAutostart: () => enable(),
-  disableAutostart: () => disable(),
+  autostartEnabled: () => invoke<boolean>("autostart_enabled"),
+  enableAutostart: () => invoke<void>("enable_autostart"),
+  disableAutostart: () => invoke<void>("disable_autostart"),
   // Separate from saving settings: only a changed dictation key re-registers,
   // and a key another application holds is reported where it was entered.
   applyGlobalHotkey: (shortcut: string | null) =>

@@ -26,6 +26,32 @@ pub fn take_startup_intent(state: State<'_, crate::StartupIntent>) -> Option<cra
     state.take()
 }
 
+/// Read the operating system's startup registration. Windows validates the
+/// exact quoted command and Explorer's approval state rather than treating any
+/// registry value as a working entry.
+#[tauri::command]
+pub fn autostart_enabled(app: AppHandle) -> Result<bool, String> {
+    crate::autostart::enabled(&app)
+        .inspect(|&enabled| {
+            diagnostics::info!("autostart.read", enabled = enabled);
+        })
+        .map_err(|failure| diagnostics::failure!("autostart.read_failed", &failure))
+}
+
+#[tauri::command]
+pub fn enable_autostart(app: AppHandle) -> Result<(), String> {
+    crate::autostart::enable(&app)
+        .map(|()| diagnostics::info!("autostart.enabled"))
+        .map_err(|failure| diagnostics::failure!("autostart.enable_failed", &failure))
+}
+
+#[tauri::command]
+pub fn disable_autostart(app: AppHandle) -> Result<(), String> {
+    crate::autostart::disable(&app)
+        .map(|()| diagnostics::info!("autostart.disabled"))
+        .map_err(|failure| diagnostics::failure!("autostart.disable_failed", &failure))
+}
+
 /// Whether this session hands global shortcuts to applications at all, so
 /// Settings can explain a Wayland session instead of showing a dead field.
 #[tauri::command]
