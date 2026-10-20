@@ -25,6 +25,8 @@ const versions = {
 for (const [path, actual] of Object.entries(versions)) assert.equal(actual, version, `${path} must match ${tag}`);
 const installerTag = /UTTERFORM_VERSION:-([^}]+)\}/.exec(read("scripts/install-linux.sh"))?.[1];
 assert.equal(installerTag, tag, "Linux installer must download this release by default");
+const windowsInstallerTag = /\$Version = '([^']+)'/.exec(read("scripts/install-windows.ps1"))?.[1];
+assert.equal(windowsInstallerTag, tag, "Windows installer must download this release by default");
 const notes = read(`docs/releases/${tag}.md`);
 assert.ok(notes.startsWith(`# Utterform ${version}`), "Release notes need a matching title");
 assert.ok(read("CHANGELOG.md").includes(tag), "Changelog must document this tag");

@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.11 — Windows autostart registration** repairs the sign-in startup command, verifies Windows' enabled state and cleans up registration on uninstall. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.11.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.11).
+> Utterform is under active development. **0.7.12 — Visual delivery confirmation** adds a green tray dot for five seconds after successful processing and delivery, even with sounds disabled. Recording still shows red. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.12.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.12).
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.11 — Windows autostart registration](https://github.com/jli-software/utterform/releases/tag/v0.7.11)**.
+**[0.7.12 — Visual delivery confirmation](https://github.com/jli-software/utterform/releases/tag/v0.7.12)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,13 +59,29 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.11 release notes](docs/releases/v0.7.11.md) for the current changes.
+See the [0.7.12 release notes](docs/releases/v0.7.12.md) for the current changes.
+
+### Windows — one-line install or update
+
+Run in **PowerShell** (no administrator terminal required):
+
+```powershell
+irm https://github.com/jli-software/utterform/releases/latest/download/install-windows.ps1 | iex
+```
+
+This downloads the latest stable setup, verifies its SHA-256, then opens the normal
+interactive installer. Quit Utterform before installing and start it normally afterwards.
+Prefer downloading manually? [Download the setup EXE](https://github.com/jli-software/utterform/releases/latest/download/utterform-windows-x86_64-setup.exe).
+Windows builds remain unsigned and may show a SmartScreen prompt.
 
 ### Omarchy / Arch Linux
 
 ```bash
 curl -fsSL https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh | sh
 ```
+
+This installs or updates the latest stable version in your user profile and checks
+the package SHA-256. Quit Utterform first, then launch it from the app menu.
 
 Required runtime packages:
 

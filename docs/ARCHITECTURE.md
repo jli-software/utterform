@@ -8,7 +8,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `feedback.rs` — synthesized start/stop clicks and distinct post-delivery Done chime through CPAL output, played to completion on outputs that suspend when idle; the productive Done carries a generation the next recording makes stale
 - `platform.rs` — Omarchy-only native window-decoration policy
 - `activation.rs` — the single way to reveal the one main window, and which tray gestures ask for it; on macOS the app is an accessory (menu-bar) application for good, so revealing also activates it
-- `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives; both show a red dot while recording
+- `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives; both show a red dot while recording and a five-second green dot after successful delivery
 - `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
 - `transcription/local.rs` — blocking local Whisper inference
@@ -171,3 +171,16 @@ GPU backends and release signing require separate platform work and testing.
 `live.rs` owns one numbered session at a time: an OpenAI Realtime transcription socket, the microphone's live PCM tap and a dedicated native input thread. Deltas are appended in order, split into short chunks and handed to the input worker over a bounded queue; nothing is retried or replayed, and a final transcript that differs from the live text stays in Utterform. The worker owns the platform typer (`typing/live.rs`) for the whole session and drops it before the next session may start; between deltas it only reads queued focus events, and each chunk confirms the target once before typing. A stop request holds typing for 700 ms so a still-held shortcut modifier cannot combine with typed keys.
 
 On Omarchy/Hyprland the typer is a persistent Wayland virtual keyboard plus Hyprland's event socket. Only a confirmed change of the active window address or the target closing is a loss; workspace, monitor, layer, submap and config-reload events are logged but ignored, and IPC failures are reported as technical faults. Because Hyprland matches bindings against a virtual keyboard by keycode through its own layout, characters are placed on keycodes without default bindings, editing, browser or media meaning, and with DOM codes so Chromium on Wayland accepts them; the map is seeded with the most frequent characters and extended on demand. Windows uses Unicode `SendInput` with WinEvent foreground/focus/desktop observation on the worker thread and waits for physically held modifiers directly.
+
+### Tray delivery confirmation (0.7.12)
+
+`tray::TrayState` holds Idle/Recording/Success, a generation token and at most one
+abortable five-second async expiry. Status transitions, timeout token checks and
+platform icon writes all run on the event loop, so an already queued stale timeout
+cannot clear a new recording/success. Stop/cancel invalidate the previous timer;
+processing is unbadged. Batch success reuses the Done cue's transformation/output
+predicate but does not depend on sound. Live success requires nonempty text, an
+actual output and no processing/output failures (history is best-effort). Manual history-copy and cue previews do
+not claim a new recording completed. Tray failures stay decorative and emit bounded
+`tray.update_failed` events (`state`, `queue_status`, `expiry_state`, `queue_expiry`,
+`find_tray`, `icon`, `set_icon`, `set_tooltip`, `status_notifier_item`) without text.

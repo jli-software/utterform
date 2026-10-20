@@ -664,7 +664,7 @@ pub async fn start(
         .await
         .map_err(|_| Failure::new("worker", "Could not open the live microphone"))??;
         let recording_id = started.session;
-        tray::set_recording(&app, true);
+        tray::set_recording(&app, true, session.id);
         session.update(|s| s.phase = "streaming");
         diagnostics::info!("live.streaming", recording = session.id);
         let cued = app.clone();
@@ -706,7 +706,7 @@ pub async fn start(
                             class = failure.class()
                         );
                     }
-                    tray::set_recording(&stopped_app, false);
+                    tray::set_recording(&stopped_app, false, stopped_id);
                 })
                 .await;
                 if stopped.is_err() {
@@ -745,7 +745,7 @@ pub async fn start(
                 match audio::check_limit(&watched.state::<AudioCaptureState>(), recording_id) {
                     Ok(audio::LimitCheck::Waiting) => {}
                     Ok(audio::LimitCheck::Stopped) => {
-                        tray::set_recording(&watched, false);
+                        tray::set_recording(&watched, false, watched_id);
                         diagnostics::notify_interface(&watched, "recording-limit-reached", ());
                         break;
                     }
@@ -948,8 +948,9 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
     session.request_stop("finish");
     // Remain active throughout finalization, so no second recording can reuse audio state.
     let stopped_app = app.clone();
+    let stopped_id = session.id;
     let artifact = tauri::async_runtime::spawn_blocking(move || {
-        tray::set_recording(&stopped_app, false);
+        tray::set_recording(&stopped_app, false, stopped_id);
         audio::stop_recording(&stopped_app.state::<AudioCaptureState>())
     })
     .await
@@ -1002,6 +1003,8 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         audio_ms = duration_ms
     );
     let text = status.text;
+    let processing_succeeded = status.warning.is_none();
+    let mut outputs_succeeded = true;
     let mut warnings = status.warning.into_iter().collect::<Vec<_>>();
     let history_entry = if session.settings.history_enabled && !text.trim().is_empty() {
         let entry = HistoryEntry::new(&text, duration_ms, TranscriptionEngine::OpenAi);
@@ -1028,10 +1031,12 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         if !text.is_empty() && (request.copy_to_clipboard || request.save_to_file) {
             match output::deliver(&app, &text, &request, &session.settings, session.id) {
                 Ok(delivery) => {
+                    outputs_succeeded = delivery.all_requested_outputs_succeeded(&request);
                     warnings.extend(delivery.warnings);
                     (delivery.saved_path, delivery.copied_to_clipboard)
                 }
                 Err(failure) => {
+                    outputs_succeeded = false;
                     warnings.push(diagnostics::fallback!(
                         "delivery.rejected",
                         &failure,
@@ -1043,6 +1048,15 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         } else {
             (None, false)
         };
+    let delivered = !text.trim().is_empty()
+        && processing_succeeded
+        && outputs_succeeded
+        && (copied_to_clipboard
+            || saved_path.is_some()
+            || (!status.delivery_paused && !status.inserted_text.is_empty()));
+    if delivered {
+        tray::set_delivered(&app, session.id);
+    }
     let done_cue = session.settings.sound_enabled && warnings.is_empty();
     if done_cue {
         // The same productive Done as a batch recording's, so the next

@@ -1,21 +1,26 @@
 # winget package
 
-Manifests for the [Windows Package Manager](https://github.com/microsoft/winget-pkgs)
-community repository, so Windows users can install Utterform with:
+Packaging history for the [Windows Package Manager](https://github.com/microsoft/winget-pkgs).
+Do not advertise installation until the package resolves in the public catalog.
 
-```
-winget install Utterform
-```
+## Status — checked 2026-10-20
 
-winget needs no code signing certificate and costs nothing. It does not make the
-Windows SmartScreen prompt disappear — the installer is still unsigned — but it
-removes the browser download warning, because nothing is downloaded by hand.
+The first-package submission is [microsoft/winget-pkgs#431040](https://github.com/microsoft/winget-pkgs/pull/431040),
+updated to **0.7.11**. All ten validation checks and the CLA passed. It is still
+open, awaiting moderator approval; no merge has occurred. A fresh Windows 11
+`winget source update --name winget` followed by
+`winget show --id JliSoftware.Utterform --exact --source winget` finds no package.
+No install or test-machine changes were performed for this audit.
 
-## Status
+The corrected candidate manifests are tracked in product [PR #27](https://github.com/jli-software/utterform/pull/27),
+not in the older `0.4.2/` directory below. Do not resubmit those historical files.
+0.7.12 regular publication was authorized separately; this status-only WinGet
+audit does not submit a new manifest. A later stable
+release requires its own manifest/update; publishing on GitHub alone does not
+publish a WinGet update. Windows remains unsigned; WinGet does not remove
+SmartScreen's signing/reputation checks.
 
-**Not submitted yet.** The manifests below are prepared and validated, but the
-package does not exist in `microsoft/winget-pkgs`. Do not advertise the
-`winget install` command in the README until the pull request is merged.
+## Historical reference (0.4.2 preparation)
 
 ## What is here
 

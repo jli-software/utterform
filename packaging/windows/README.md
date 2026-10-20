@@ -40,3 +40,17 @@ References:
 - [Tauri NSIS configuration](https://v2.tauri.app/reference/config/#nsisconfig)
 - [Stock installer for CLI 2.11.4](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi)
 - [Microsoft SHChangeNotify](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shchangenotify)
+
+## Install or update from the latest stable release
+
+Quit Utterform, then run in PowerShell:
+
+```powershell
+irm https://github.com/jli-software/utterform/releases/latest/download/install-windows.ps1 | iex
+```
+
+The script verifies the downloaded NSIS setup against the release SHA256SUMS
+before opening the interactive installer. No administrator terminal is needed.
+Alternatively [download the setup EXE](https://github.com/jli-software/utterform/releases/latest/download/utterform-windows-x86_64-setup.exe)
+and open it normally. Windows builds remain unsigned. See the root
+[README](../../README.md#download) for Linux/macOS downloads and the Linux one-liner.

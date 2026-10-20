@@ -391,3 +391,40 @@ keyboard wraparound, multi-category Save/Cancel, model selection, prompt editing
 shortcut capture, typing delay and history retention. Per-panel dark/light screenshots
 are written to the ignored `test-results/` directory for visual inspection. Desktop IPC
 is mocked: native WebKit/WebView rendering and physical audio/input remain manual checks.
+
+## 0.7.12 — tray confirmation
+
+Native tests cover green/red geometry at 16/32 px, unchanged idle bytes, five-second
+expiry, stale timer rejection, delayed capture-stop after success, old recording
+stop/delivery after a new start, and cancellation rejecting stale success. The
+existing real-session-bus tray test now also reads red/green/idle IconPixmap and
+Title over D-Bus while preserving click-to-open. Output tests exhaustively cover
+requested outputs and their successes/failures. Green shares the batch Done
+predicate without the sound preference; history remains best-effort.
+
+Frontend/browser tests preserve the existing recording boundary but do not render
+the OS tray. Actual hidden-window recording, sound-off success, five-second
+visibility, cancellation and rapid restart on Linux/Windows remain user acceptance
+checks. Actions must compile/package both requested previews. PowerShell
+`install-windows.ps1 -Version <preview-tag> -VerifyOnly` checks public bytes on
+Windows without installing or changing the running application.
+
+Local evidence (2026-10-20): metadata guard, Svelte check (0 errors/warnings),
+127 Vitest, production build, 31 Playwright, Rustfmt, warning-free all-target
+Linux Clippy and 171 Rust tests passed. The final real-D-Bus tray regression
+also passed after adding property reads. An independent read-only review found
+a delayed-stop race and a best-effort-history inconsistency; both were fixed
+and re-reviewed without remaining functional blockers. Windows PowerShell 5
+parsed the installer and rejected a simulated checksum mismatch before setup.
+Native desktop package builds and public preview download checks follow on the
+pushed commit; none of this establishes real tray visibility/user acceptance.
+
+On 2026-10-20 Tony explicitly waived preview acceptance for 0.7.12 and authorized
+the regular release, testing the installed app afterwards. Linux/Windows preview
+Actions and both CI runs passed at `748c000`. Five public preview assets passed
+independent download checksums; Linux installed successfully in an isolated prefix
+and Windows ran the public installer with `-VerifyOnly` without changing the app.
+Final release documentation adds the short stable `curl … | sh` and `irm … | iex`
+commands to the root and Windows packaging READMEs. Final three-platform packaging,
+Apple trust checks and public stable command verification remain release gates;
+installed tray/microphone/clipboard behavior remains unverified until user testing.

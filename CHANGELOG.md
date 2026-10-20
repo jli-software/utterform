@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.12 — v0.7.12 · Visual delivery confirmation
+
+- Show a small green tray dot for five seconds after successful processing and requested output delivery, independently of sound settings. Capture remains red; processing is unbadged.
+- Reset immediately on a new recording or cancellation; stale completion timers cannot clear a newer status. Support native Windows/macOS trays and the Linux StatusNotifierItem/fallback.
+- Provide a checksum-verifying PowerShell installer for Windows previews and future stable releases.
+
+See [0.7.12 release notes](docs/releases/v0.7.12.md).
+
 ## 0.7.11 — v0.7.11 · Windows autostart registration
 
 - Quote the installed Windows executable in the per-user startup command and retain the `--autostart` tray-only launch intent.
