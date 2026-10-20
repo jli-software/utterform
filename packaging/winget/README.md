@@ -14,7 +14,8 @@ No install or test-machine changes were performed for this audit.
 
 The corrected candidate manifests are tracked in product [PR #27](https://github.com/jli-software/utterform/pull/27),
 not in the older `0.4.2/` directory below. Do not resubmit those historical files.
-0.7.12 remains a preview, so no new stable manifest is submitted. A later stable
+0.7.12 regular publication was authorized separately; this status-only WinGet
+audit does not submit a new manifest. A later stable
 release requires its own manifest/update; publishing on GitHub alone does not
 publish a WinGet update. Windows remains unsigned; WinGet does not remove
 SmartScreen's signing/reputation checks.

@@ -172,7 +172,7 @@ GPU backends and release signing require separate platform work and testing.
 
 On Omarchy/Hyprland the typer is a persistent Wayland virtual keyboard plus Hyprland's event socket. Only a confirmed change of the active window address or the target closing is a loss; workspace, monitor, layer, submap and config-reload events are logged but ignored, and IPC failures are reported as technical faults. Because Hyprland matches bindings against a virtual keyboard by keycode through its own layout, characters are placed on keycodes without default bindings, editing, browser or media meaning, and with DOM codes so Chromium on Wayland accepts them; the map is seeded with the most frequent characters and extended on demand. Windows uses Unicode `SendInput` with WinEvent foreground/focus/desktop observation on the worker thread and waits for physically held modifiers directly.
 
-### Tray delivery confirmation (0.7.12 preview)
+### Tray delivery confirmation (0.7.12)
 
 `tray::TrayState` holds Idle/Recording/Success, a generation token and at most one
 abortable five-second async expiry. Status transitions, timeout token checks and

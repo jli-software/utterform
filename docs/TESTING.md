@@ -392,7 +392,7 @@ shortcut capture, typing delay and history retention. Per-panel dark/light scree
 are written to the ignored `test-results/` directory for visual inspection. Desktop IPC
 is mocked: native WebKit/WebView rendering and physical audio/input remain manual checks.
 
-## 0.7.12 preview — tray confirmation
+## 0.7.12 — tray confirmation
 
 Native tests cover green/red geometry at 16/32 px, unchanged idle bytes, five-second
 expiry, stale timer rejection, delayed capture-stop after success, old recording
@@ -418,3 +418,13 @@ and re-reviewed without remaining functional blockers. Windows PowerShell 5
 parsed the installer and rejected a simulated checksum mismatch before setup.
 Native desktop package builds and public preview download checks follow on the
 pushed commit; none of this establishes real tray visibility/user acceptance.
+
+On 2026-10-20 Tony explicitly waived preview acceptance for 0.7.12 and authorized
+the regular release, testing the installed app afterwards. Linux/Windows preview
+Actions and both CI runs passed at `748c000`. Five public preview assets passed
+independent download checksums; Linux installed successfully in an isolated prefix
+and Windows ran the public installer with `-VerifyOnly` without changing the app.
+Final release documentation adds the short stable `curl … | sh` and `irm … | iex`
+commands to the root and Windows packaging READMEs. Final three-platform packaging,
+Apple trust checks and public stable command verification remain release gates;
+installed tray/microphone/clipboard behavior remains unverified until user testing.

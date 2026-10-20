@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.12 — v0.7.12 · Visual delivery confirmation (preview)
+## 0.7.12 — v0.7.12 · Visual delivery confirmation
 
 - Show a small green tray dot for five seconds after successful processing and requested output delivery, independently of sound settings. Capture remains red; processing is unbadged.
 - Reset immediately on a new recording or cancellation; stale completion timers cannot clear a newer status. Support native Windows/macOS trays and the Linux StatusNotifierItem/fallback.

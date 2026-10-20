@@ -9,7 +9,7 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
-## Current handoff — 0.7.12 preview
+## Current handoff — 0.7.12
 
 `work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested
 Linux and Windows previews add five-second green success feedback in `tray.rs`.
@@ -19,10 +19,14 @@ The event loop serializes state, icon writes and token-checked expiry. One retai
 async timer is cancelled/replaced on every status change; no polling or new thread.
 `TrayState` is managed in `lib.rs`. Icon geometry and recording red are unchanged.
 
-Before stable publication: real desktop acceptance of red → processing → green →
-normal, sound-off confirmation, cancellation/failure, immediate re-recording and
-stale-timeout protection on Linux/Windows; then the full three-platform package
-matrix. Keep main, v0.7.12 and Latest unchanged until acceptance/merge authorization.
+On 2026-10-20 Tony explicitly requested the regular release without a preview:
+merge and complete Linux/Windows/macOS publication are authorized after automated
+CI and full native package checks. This is a scoped waiver for 0.7.12, not a change
+to future releases. Actual tray visibility, sound-off confirmation, rapid restart,
+cancellation/failure and five-second reset will be tested after publication; do
+not claim these installed-desktop checks passed. Linux/Windows preview package
+runs 39395502112/39395505476 and both CI runs passed at `748c000`; the final
+documentation change adds stable Latest one-liners to both READMEs.
 Windows `install-windows.ps1` checks public checksums and opens the NSIS installer;
 `-VerifyOnly` verifies downloads without changing the installed app.
 
