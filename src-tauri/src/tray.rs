@@ -692,8 +692,10 @@ mod badge_tests {
             assert_eq!(pixel(&green, side as u32, 0, 0), [0; 4]);
             assert!(
                 green
-                    .chunks_exact(4)
-                    .filter(|p| *p == [46, 204, 113, 255])
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| **p == [46, 204, 113, 255])
                     .count()
                     >= 8
             );
