@@ -16,7 +16,7 @@ describe("release metadata guard", () => {
   it("accepts Windows CRLF checkouts without changing the source files", () => {
     const fixture = mkdtempSync(join(tmpdir(), "utterform-release-crlf-"));
     try {
-      for (const path of ["scripts/check-release.mjs", "package.json", "package-lock.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "scripts/install-linux.sh", "CHANGELOG.md", "README.md", `docs/releases/${tag}.md`]) {
+      for (const path of ["scripts/check-release.mjs", "package.json", "package-lock.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "scripts/install-linux.sh", "scripts/install-windows.ps1", "CHANGELOG.md", "README.md", `docs/releases/${tag}.md`]) {
         const destination = join(fixture, path);
         mkdirSync(dirname(destination), { recursive: true });
         writeFileSync(destination, readFileSync(new URL(`../${path}`, import.meta.url), "utf8").replace(/\r?\n/g, "\r\n"));

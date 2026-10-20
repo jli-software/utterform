@@ -9,6 +9,23 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Current handoff — 0.7.12 preview
+
+`work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested
+Linux and Windows previews add five-second green success feedback in `tray.rs`.
+`commands.rs` calls it after successful transformation and every requested output;
+`live.rs` after nonempty successful processing/delivery (history is best-effort). Sound is independent.
+The event loop serializes state, icon writes and token-checked expiry. One retained
+async timer is cancelled/replaced on every status change; no polling or new thread.
+`TrayState` is managed in `lib.rs`. Icon geometry and recording red are unchanged.
+
+Before stable publication: real desktop acceptance of red → processing → green →
+normal, sound-off confirmation, cancellation/failure, immediate re-recording and
+stale-timeout protection on Linux/Windows; then the full three-platform package
+matrix. Keep main, v0.7.12 and Latest unchanged until acceptance/merge authorization.
+Windows `install-windows.ps1` checks public checksums and opens the NSIS installer;
+`-VerifyOnly` verifies downloads without changing the installed app.
+
 ## Current handoff — 0.7.9
 
 0.7.9 turns the existing `utterform.log` troubleshooting aid into bounded, privacy-safe

@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.11 — Windows autostart registration** repairs the sign-in startup command, verifies Windows' enabled state and cleans up registration on uninstall. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.11.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.11).
+> Utterform is under active development. **0.7.12 preview — Visual delivery confirmation** adds a green tray dot for five seconds after successful processing and delivery, even with sounds disabled. Recording still shows red. The stable release remains [0.7.11](https://github.com/jli-software/utterform/releases/tag/v0.7.11) until desktop acceptance. See the [0.7.12 notes](docs/releases/v0.7.12.md); the future [stable download](https://github.com/jli-software/utterform/releases/tag/v0.7.12) is not published yet.
 
 ## How it works
 

@@ -7,6 +7,8 @@
 //! Chromium-based apps do on Linux — makes a left click on the tray icon open
 //! Utterform.
 
+use std::{sync::Mutex, time::Duration};
+
 use tauri::{
     AppHandle, Manager, Runtime,
     image::Image,
@@ -21,12 +23,151 @@ use crate::{audio, diagnostics};
 /// recording state changes.
 const NATIVE_TRAY: &str = "utterform";
 
-/// Show in the tray whether a recording is running. The sounds confirm it
-/// where the window is hidden, but a speaker that is asleep or muted can miss
-/// one, and an icon on the panel cannot.
-pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
+/// Visual feedback is independent of sound. All state and native icon writes
+/// are serialized on the event loop, including timeout callbacks.
+const SUCCESS_DURATION: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Status {
+    #[default]
+    Idle,
+    Recording,
+    Success,
+}
+
+impl Status {
+    fn tooltip(self) -> &'static str {
+        match self {
+            Self::Idle => "Utterform",
+            Self::Recording => "Utterform — recording",
+            Self::Success => "Utterform — text delivered",
+        }
+    }
+}
+
+#[derive(Default)]
+struct Indicator {
+    status: Status,
+    generation: u64,
+    recording: Option<u64>,
+    expiry: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+
+impl Indicator {
+    fn update(&mut self, status: Status, recording: Option<u64>) -> Option<u64> {
+        match (status, recording) {
+            (Status::Recording, Some(id)) => {
+                if self.recording.is_some_and(|current| id <= current) {
+                    return None;
+                }
+                self.recording = Some(id);
+            }
+            (Status::Idle, Some(id)) => {
+                if self.recording != Some(id) || self.status != Status::Recording {
+                    return None;
+                }
+            }
+            (Status::Success, Some(id)) => {
+                if self.recording != Some(id) || self.status == Status::Success {
+                    return None;
+                }
+            }
+            (Status::Idle, None) => self.recording = None,
+            _ => return None,
+        }
+        Some(self.set(status))
+    }
+
+    fn set(&mut self, status: Status) -> u64 {
+        if let Some(expiry) = self.expiry.take() {
+            expiry.abort();
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.status = status;
+        self.generation
+    }
+
+    fn expire(&mut self, generation: u64) -> bool {
+        if self.generation != generation || self.status != Status::Success {
+            return false;
+        }
+        self.set(Status::Idle);
+        true
+    }
+}
+
+#[derive(Default)]
+pub struct TrayState(Mutex<Indicator>);
+
+pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool, id: u64) {
+    set_status(
+        app,
+        if recording {
+            Status::Recording
+        } else {
+            Status::Idle
+        },
+        Some(id),
+    );
+}
+
+/// Called only after successful processing and requested delivery, never on
+/// microphone stop, cancel, partial delivery or a failed transformation.
+pub fn set_delivered<R: Runtime>(app: &AppHandle<R>, id: u64) {
+    set_status(app, Status::Success, Some(id));
+}
+
+pub fn clear<R: Runtime>(app: &AppHandle<R>) {
+    set_status(app, Status::Idle, None);
+}
+
+fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status, recording: Option<u64>) {
+    let queued = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let state = queued.state::<TrayState>();
+            let Ok(mut indicator) = state.0.lock() else {
+                diagnostics::warning!("tray.update_failed", step = "state");
+                return;
+            };
+            let Some(generation) = indicator.update(status, recording) else {
+                return;
+            };
+            show_status(&queued, status);
+            if status == Status::Success {
+                let timer_app = queued.clone();
+                indicator.expiry = Some(tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(SUCCESS_DURATION).await;
+                    let expired = timer_app.clone();
+                    if timer_app
+                        .run_on_main_thread(move || {
+                            let state = expired.state::<TrayState>();
+                            let Ok(mut indicator) = state.0.lock() else {
+                                diagnostics::warning!("tray.update_failed", step = "expiry_state");
+                                return;
+                            };
+                            // Checking AND writing on the event loop means an old
+                            // timer can never erase a newer recording/success icon.
+                            if indicator.expire(generation) {
+                                show_status(&expired, Status::Idle);
+                            }
+                        })
+                        .is_err()
+                    {
+                        diagnostics::warning!("tray.update_failed", step = "queue_expiry");
+                    }
+                }));
+            }
+        })
+        .is_err()
+    {
+        diagnostics::warning!("tray.update_failed", step = "queue_status");
+    }
+}
+
+fn show_status<R: Runtime>(app: &AppHandle<R>, status: Status) {
     #[cfg(target_os = "linux")]
-    if status_notifier_item::set_recording(app, recording) {
+    if status_notifier_item::set_status(app, status) {
         return;
     }
     let Some(tray) = app.tray_by_id(NATIVE_TRAY) else {
@@ -37,39 +178,24 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
         diagnostics::warning!("tray.update_failed", step = "icon");
         return;
     };
-    let shown = if recording {
+    let shown = if status == Status::Idle {
+        icon.clone()
+    } else {
         Image::new_owned(
-            recording_badge(icon.rgba(), icon.width(), icon.height()),
+            status_badge(icon.rgba(), icon.width(), icon.height(), status),
             icon.width(),
             icon.height(),
         )
-    } else {
-        icon.clone()
     };
     if tray.set_icon(Some(shown)).is_err() {
-        diagnostics::warning!(
-            "tray.update_failed",
-            step = "set_icon",
-            recording = recording
-        );
+        diagnostics::warning!("tray.update_failed", step = "set_icon");
     }
-    if tray
-        .set_tooltip(Some(if recording {
-            "Utterform — recording"
-        } else {
-            "Utterform"
-        }))
-        .is_err()
-    {
-        diagnostics::warning!(
-            "tray.update_failed",
-            step = "set_tooltip",
-            recording = recording
-        );
+    if tray.set_tooltip(Some(status.tooltip())).is_err() {
+        diagnostics::warning!("tray.update_failed", step = "set_tooltip");
     }
 }
 
-/// The app icon with a small red dot in its lower right corner. Drawn rather
+/// The app icon with a small red/green dot in its lower right corner. Drawn rather
 /// than shipped so it cannot fall out of step with the icon it marks.
 ///
 /// Deliberately modest: a dot a little over a third of the icon wide, with a
@@ -78,8 +204,13 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) {
 /// gives it the dot is still six pixels across — a recording light, not a
 /// badge. 0.4.4 drew it twice this size with a white ring, and it looked
 /// like an alert.
-fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+fn status_badge(rgba: &[u8], width: u32, height: u32, status: Status) -> Vec<u8> {
     let mut pixels = rgba.to_vec();
+    let color = match status {
+        Status::Idle => return pixels,
+        Status::Recording => [229.0, 72.0, 77.0],
+        Status::Success => [46.0, 204.0, 113.0],
+    };
     let side = width.min(height) as f32;
     let radius = side * 0.19;
     let margin = side * 0.06;
@@ -102,9 +233,9 @@ fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
             };
             let blend =
                 |under: u8, over: f32| (under as f32 * (1.0 - coverage) + over * coverage) as u8;
-            pixel[0] = blend(pixel[0], 229.0);
-            pixel[1] = blend(pixel[1], 72.0);
-            pixel[2] = blend(pixel[2], 77.0);
+            pixel[0] = blend(pixel[0], color[0]);
+            pixel[1] = blend(pixel[1], color[1]);
+            pixel[2] = blend(pixel[2], color[2]);
             pixel[3] = blend(pixel[3], 255.0);
         }
     }
@@ -179,6 +310,7 @@ mod status_notifier_item {
     use ksni::{Icon, MenuItem, blocking::TrayMethods, menu::StandardItem};
     use tauri::{AppHandle, Manager, Runtime};
 
+    use super::Status;
     use crate::activation::reveal_main_window;
 
     /// What the tray can ask Utterform to do. Keeping this behind a trait lets
@@ -204,7 +336,8 @@ mod status_notifier_item {
         actions: A,
         icon: Vec<Icon>,
         recording_icon: Vec<Icon>,
-        recording: bool,
+        success_icon: Vec<Icon>,
+        status: Status,
     }
 
     impl<A: TrayActions> ksni::Tray for UtterformTray<A> {
@@ -213,14 +346,14 @@ mod status_notifier_item {
         }
 
         fn title(&self) -> String {
-            "Utterform".into()
+            self.status.tooltip().into()
         }
 
         fn icon_pixmap(&self) -> Vec<Icon> {
-            if self.recording {
-                self.recording_icon.clone()
-            } else {
-                self.icon.clone()
+            match self.status {
+                Status::Idle => self.icon.clone(),
+                Status::Recording => self.recording_icon.clone(),
+                Status::Success => self.success_icon.clone(),
             }
         }
 
@@ -269,12 +402,14 @@ mod status_notifier_item {
         actions: A,
         icon: Vec<Icon>,
         recording_icon: Vec<Icon>,
+        success_icon: Vec<Icon>,
     ) -> Result<ksni::blocking::Handle<UtterformTray<A>>, ksni::Error> {
         UtterformTray {
             actions,
             icon,
             recording_icon,
-            recording: false,
+            success_icon,
+            status: Status::Idle,
         }
         .spawn()
     }
@@ -288,7 +423,7 @@ mod status_notifier_item {
     }
 
     pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), ksni::Error> {
-        let (icon, recording_icon) = app
+        let (icon, recording_icon, success_icon) = app
             .default_window_icon()
             .map(|image| {
                 let (width, height) = (image.width(), image.height());
@@ -297,12 +432,17 @@ mod status_notifier_item {
                     pixmap(
                         width,
                         height,
-                        &super::recording_badge(image.rgba(), width, height),
+                        &super::status_badge(image.rgba(), width, height, Status::Recording),
+                    ),
+                    pixmap(
+                        width,
+                        height,
+                        &super::status_badge(image.rgba(), width, height, Status::Success),
                     ),
                 )
             })
             .unwrap_or_default();
-        let handle = spawn(AppActions(app.clone()), icon, recording_icon)?;
+        let handle = spawn(AppActions(app.clone()), icon, recording_icon, success_icon)?;
         // The tray service re-registers itself when the panel restarts, but it
         // stops as soon as this handle is dropped.
         app.manage(handle);
@@ -311,18 +451,14 @@ mod status_notifier_item {
 
     /// Swap the icon; `update` has ksni tell the host it changed. False when
     /// this session fell back to the native tray instead.
-    pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool) -> bool {
+    pub(super) fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status) -> bool {
         let Some(handle) = app.try_state::<ksni::blocking::Handle<UtterformTray<AppActions<R>>>>()
         else {
             return false;
         };
-        if handle.update(|tray| tray.recording = recording).is_none() {
+        if handle.update(|tray| tray.status = status).is_none() {
             // The tray service has stopped; the native tray does not exist here.
-            crate::diagnostics::warning!(
-                "tray.update_failed",
-                step = "status_notifier_item",
-                recording = recording
-            );
+            crate::diagnostics::warning!("tray.update_failed", step = "status_notifier_item",);
         }
         true
     }
@@ -435,8 +571,9 @@ mod status_notifier_item {
                 CountingActions {
                     shown: Arc::clone(&shown),
                 },
-                Vec::new(),
-                Vec::new(),
+                pixmap(1, 1, &[0, 0, 0, 255]),
+                pixmap(1, 1, &[229, 72, 77, 255]),
+                pixmap(1, 1, &[46, 204, 113, 255]),
             )
             .expect("the tray should register with the watcher");
 
@@ -465,13 +602,104 @@ mod status_notifier_item {
                 1,
                 "a left click should have opened Utterform exactly once"
             );
+            // Exercise the real D-Bus properties a desktop panel consumes,
+            // not only the in-memory image selector.
+            for (status, argb) in [
+                (Status::Recording, vec![255, 229, 72, 77]),
+                (Status::Success, vec![255, 46, 204, 113]),
+                (Status::Idle, vec![255, 0, 0, 0]),
+            ] {
+                _tray.update(|tray| tray.status = status).unwrap();
+                let (icons, title) = runtime.block_on(async {
+                    let connection = zbus::Connection::session().await.unwrap();
+                    let proxy = zbus::Proxy::new(
+                        &connection,
+                        item.as_str(),
+                        "/StatusNotifierItem",
+                        "org.kde.StatusNotifierItem",
+                    )
+                    .await
+                    .unwrap();
+                    let icons: Vec<(i32, i32, Vec<u8>)> =
+                        proxy.get_property("IconPixmap").await.unwrap();
+                    let title: String = proxy.get_property("Title").await.unwrap();
+                    (icons, title)
+                });
+                assert_eq!(icons, vec![(1, 1, argb)]);
+                assert_eq!(title, status.tooltip());
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod badge_tests {
-    use super::recording_badge;
+    use super::{Indicator, SUCCESS_DURATION, Status, status_badge};
+
+    fn recording_badge(rgba: &[u8], width: u32, height: u32) -> Vec<u8> {
+        status_badge(rgba, width, height, Status::Recording)
+    }
+
+    #[test]
+    fn success_expires_after_five_seconds_and_restores_idle() {
+        assert_eq!(SUCCESS_DURATION.as_secs(), 5);
+        let mut indicator = Indicator::default();
+        let generation = indicator.set(Status::Success);
+        assert!(indicator.expire(generation));
+        assert_eq!(indicator.status, Status::Idle);
+        assert!(!indicator.expire(generation));
+    }
+
+    #[test]
+    fn stale_timeout_cannot_clear_recording_cancel_or_new_success() {
+        for next in [Status::Recording, Status::Idle, Status::Success] {
+            let mut indicator = Indicator::default();
+            let stale = indicator.set(Status::Success);
+            let current = indicator.set(next);
+            assert!(!indicator.expire(stale));
+            assert_eq!(indicator.status, next);
+            assert_eq!(indicator.expire(current), next == Status::Success);
+        }
+    }
+
+    #[test]
+    fn late_capture_stop_cannot_erase_success_or_a_new_recording() {
+        let mut indicator = Indicator::default();
+        indicator.update(Status::Recording, Some(1)).unwrap();
+        indicator.update(Status::Idle, Some(1)).unwrap();
+        let green = indicator.update(Status::Success, Some(1)).unwrap();
+        assert!(indicator.update(Status::Idle, Some(1)).is_none());
+        assert_eq!(indicator.status, Status::Success);
+        indicator.update(Status::Recording, Some(2)).unwrap();
+        assert!(!indicator.expire(green));
+        assert!(indicator.update(Status::Idle, Some(1)).is_none());
+        assert!(indicator.update(Status::Success, Some(1)).is_none());
+        assert_eq!(indicator.status, Status::Recording);
+        indicator.update(Status::Idle, None).unwrap();
+        assert!(indicator.update(Status::Success, Some(2)).is_none());
+        assert_eq!(indicator.status, Status::Idle);
+    }
+
+    #[test]
+    fn success_is_green_at_native_tray_sizes_and_idle_is_unchanged() {
+        for side in [16, 32] {
+            let plain = vec![0; side * side * 4];
+            let green = status_badge(&plain, side as u32, side as u32, Status::Success);
+            assert_eq!(
+                status_badge(&plain, side as u32, side as u32, Status::Idle),
+                plain
+            );
+            assert_eq!(pixel(&green, side as u32, 0, 0), [0; 4]);
+            assert!(
+                green
+                    .chunks_exact(4)
+                    .filter(|p| *p == [46, 204, 113, 255])
+                    .count()
+                    >= 8
+            );
+            assert_ne!(green, recording_badge(&plain, side as u32, side as u32));
+        }
+    }
 
     fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
         let index = ((y * width + x) * 4) as usize;

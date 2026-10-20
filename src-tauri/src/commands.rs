@@ -258,7 +258,7 @@ fn begin_recording(
     )
     .map_err(rejected)?;
     let session = started.session;
-    tray::set_recording(app, true);
+    tray::set_recording(app, true, recording);
     // Off this thread too: the wait is a speaker resuming from idle, which a
     // Bluetooth headset can take a few hundred milliseconds over, and the
     // interface should hear "recording" before that.
@@ -275,7 +275,7 @@ fn begin_recording(
             match audio::check_limit(&watched.state::<AudioCaptureState>(), session) {
                 Ok(audio::LimitCheck::Waiting) => {}
                 Ok(audio::LimitCheck::Stopped) => {
-                    tray::set_recording(&watched, false);
+                    tray::set_recording(&watched, false, recording);
                     diagnostics::notify_interface(&watched, "recording-limit-reached", ());
                     break;
                 }
@@ -419,7 +419,7 @@ pub async fn cancel_recording(
     state: State<'_, AudioCaptureState>,
 ) -> Result<(), String> {
     live::cancel(&app).await?;
-    tray::set_recording(&app, false);
+    tray::clear(&app);
     audio::cancel_recording(&state)
         .map_err(|failure| diagnostics::failure!("recording.cancel_failed", &failure))
 }
@@ -445,7 +445,10 @@ pub async fn finish_recording(
     })?;
     // Capture is over either way; the icon must not keep claiming otherwise.
     let artifact = audio::stop_recording(&state);
-    tray::set_recording(&app, false);
+    match &artifact {
+        Ok(artifact) => tray::set_recording(&app, false, artifact.recording),
+        Err(_) => tray::clear(&app),
+    }
     let artifact = artifact.map_err(|failure| {
         diagnostics::failure!("recording.failed", &failure, stage = "capture")
     })?;
@@ -573,9 +576,11 @@ pub async fn finish_recording(
     )?;
     // Stop only confirms capture ended. Done confirms the requested transformation and
     // every output completed, even when the window is hidden. History is best-effort.
-    let done_cue = current_settings.sound_enabled
-        && transformation_succeeded
-        && delivery.all_requested_outputs_succeeded(&request);
+    let delivered = transformation_succeeded && delivery.all_requested_outputs_succeeded(&request);
+    if delivered {
+        tray::set_delivered(&app, recording);
+    }
+    let done_cue = current_settings.sound_enabled && delivered;
     if done_cue {
         // Not awaited: the interface is ready for the next recording the
         // moment this command returns, and the cue must never hold that up.

@@ -196,6 +196,7 @@ pub fn run() {
         )
         .manage(audio::AudioCaptureState::default())
         .manage(feedback::DoneCues::default())
+        .manage(tray::TrayState::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
         .manage(history::HistoryState::default())
