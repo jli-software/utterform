@@ -645,7 +645,7 @@
     phase = "done";
     message = completionMessage(value);
     // A partly delivered result is as invisible from a hidden window as a failure.
-    if (value.deliveryWarnings.length) notifyUnattended(message);
+    if (value.deliveryWarnings.length) notifyUnattended(message, false);
   }
 
   /// A query: failing it only leaves the offer unshown, never the audio gone.
@@ -728,14 +728,15 @@
     // A command rejects with its message, a string that already carries the
     // reference of its native event. An `Error` was thrown in the interface.
     if (error instanceof Error) void withReference("state", error, () => message, (text) => (message = text));
-    notifyUnattended(message);
+    notifyUnattended(message, true);
   }
 
   /// A recording started by hotkey has nowhere else to report: the window that
   /// shows `message` may be hidden, and silence reads as success. The backend
-  /// decides, because only it can tell whether anyone is looking.
-  function notifyUnattended(text: string) {
-    if (isTauri()) void api.notifyIfUnattended(text).catch(() => {});
+  /// decides, because only it can tell whether anyone is looking. `failed`
+  /// turns the tray icon amber; text that arrived with a warning stays green.
+  function notifyUnattended(text: string, failed: boolean) {
+    if (isTauri()) void api.notifyIfUnattended(text, failed).catch(() => {});
   }
 
   function completionMessage(value: ProcessResult) {

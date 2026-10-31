@@ -559,6 +559,7 @@ async fn process_recording(
             }
             app.state::<RetainedRecordings>()
                 .keep(Retained { artifact, request });
+            tray::set_kept(app, true);
             return Err(format!(
                 "{message} The recording is kept, so you can try again."
             ));
@@ -650,18 +651,19 @@ async fn process_recording(
     } else {
         None
     };
+    // Green means the text reached Utterform and can be fetched from it. What
+    // then happens at the clipboard or the cursor reports for itself: the Done
+    // cue stays reserved for everything having worked.
+    tray::set_arrived(app, recording);
     let delivery =
         output::deliver(app, &text, &request, &current_settings, recording).map_err(|failure| {
             diagnostics::failure!("delivery.rejected", &failure, recording = recording)
         })?;
     // Stop only confirms capture ended. Done confirms the requested transformation and
-    // every output completed, even when the window is hidden. History is best-effort.
+    // every output completed. History is best-effort.
     let delivered = transformation_succeeded
         && !artifact.interrupted
         && delivery.all_requested_outputs_succeeded(&request);
-    if delivered {
-        tray::set_delivered(app, recording);
-    }
     let done_cue = current_settings.sound_enabled && delivered;
     if done_cue {
         // Not awaited: the interface is ready for the next recording the
@@ -725,23 +727,27 @@ pub async fn retry_recording(app: AppHandle) -> Result<ProcessResult, String> {
         }
     };
     diagnostics::info!("recording.retry", recording = artifact.recording);
+    tray::adopt(&app, artifact.recording);
     let request = ProcessRequest {
         type_at_cursor: false,
         copy_to_clipboard: true,
         ..request
     };
-    process_recording(&app, artifact, request, current_settings, began).await
+    let outcome = process_recording(&app, artifact, request, current_settings, began).await;
+    tray::set_kept(&app, app.state::<RetainedRecordings>().waiting().is_some());
+    outcome
 }
 
 /// Give up the kept recording next in line, deleting its audio.
 #[tauri::command]
-pub fn discard_recording(state: State<'_, RetainedRecordings>) {
+pub fn discard_recording(app: AppHandle, state: State<'_, RetainedRecordings>) {
     if let Some(recording) = state.take() {
         diagnostics::info!(
             "recording.retained_discarded",
             recording = recording.artifact.recording
         );
     }
+    tray::set_kept(&app, state.waiting().is_some());
 }
 
 /// Say what happened when the user is not looking at Utterform. A dictation
@@ -749,9 +755,15 @@ pub fn discard_recording(state: State<'_, RetainedRecordings>) {
 /// window, and silence reads as success. A notification that cannot be shown
 /// opens the window instead, since being interrupted beats not knowing.
 ///
+/// `failed` is false for text that arrived with a warning: the icon stays
+/// green, and the words of the warning say what is left to do.
+///
 /// The text is shown, never logged: it can quote a third party.
 #[tauri::command]
-pub fn notify_if_unattended(app: AppHandle, message: String) {
+pub fn notify_if_unattended(app: AppHandle, message: String, failed: bool) {
+    if failed {
+        tray::set_failed(&app);
+    }
     let attended = app.get_webview_window("main").is_some_and(|window| {
         window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
     });

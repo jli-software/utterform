@@ -972,7 +972,7 @@ describe("a recording whose transcription failed", () => {
   it("offers to try again and tells a user who is not looking", async () => {
     const view = await failOneRecording();
     expect(view.getByRole("group", { name: "Kept recording" }).textContent).toContain("00:42");
-    expect(api.notifyIfUnattended).toHaveBeenCalledWith(failedText);
+    expect(api.notifyIfUnattended).toHaveBeenCalledWith(failedText, true);
   });
 
   it("delivers the text once the retry succeeds and stops offering it", async () => {
@@ -1008,7 +1008,7 @@ describe("a recording whose transcription failed", () => {
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
-    await waitFor(() => expect(api.notifyIfUnattended).toHaveBeenCalledWith("The microphone stopped early."));
+    await waitFor(() => expect(api.notifyIfUnattended).toHaveBeenCalledWith("The microphone stopped early.", false));
   });
 
   it("leaves the decision about a missing key to the backend, which can actually read it", async () => {

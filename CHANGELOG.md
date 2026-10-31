@@ -6,6 +6,7 @@
 - Keep what was captured when the microphone goes away mid-recording, stop at once instead of appearing to record, and say the text is partial.
 - Report failures and partial delivery with a desktop notification when Utterform's window is not in front, so a hotkey dictation cannot fail in silence. If no notification can be shown, the window opens.
 - Reconnect to the Linux Secret Service after its daemon restarts. Previously every later key read failed until Utterform was restarted. A keyring that cannot answer no longer prevents a recording from starting.
+- Make the tray dot say where a dictation stands, on Windows, macOS and Linux: red while recording, green as soon as the text has reached Utterform, even if the clipboard or typing then failed, and a new amber when something failed. Amber lasts five seconds, or until a kept recording is retried or discarded. The Done sound still means everything worked.
 - Treat a recording with no recognizable speech as a calm note rather than an error.
 - Refresh the microphone list and key status whenever Settings opens.
 

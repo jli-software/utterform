@@ -60,7 +60,7 @@ export const api = {
   retainedRecording: () => invoke<RetainedRecording | null>("retained_recording"),
   retryRecording: () => invoke<ProcessResult>("retry_recording"),
   discardRecording: () => invoke<void>("discard_recording"),
-  notifyIfUnattended: (message: string) => invoke<void>("notify_if_unattended", { message }),
+  notifyIfUnattended: (message: string, failed: boolean) => invoke<void>("notify_if_unattended", { message, failed }),
   getRecordingStatus: () => invoke<RecordingStatus>("get_recording_status"),
   // The three cues, after a pause long enough to put the window in the
   // background — the way a hotkey recording plays them. The outcome arrives

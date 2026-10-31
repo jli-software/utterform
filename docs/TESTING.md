@@ -23,8 +23,13 @@ are kept; a lost microphone stopping batch but not live capture; and in the inte
 Try again, a failing retry, Discard, notification of failures and partial delivery, and
 the kept-recording bar at 920×720 and 360×400.
 
+The tray's status rules are unit tested: amber expiring, never hiding a recording,
+outlasting green while a recording is kept, and a retry of an older recording turning
+green. The Linux item test reads the amber pixmap back over real D-Bus properties.
+
 Not exercised on a real desktop: a real network failure and retry, a Bluetooth headset
-dropping mid-recording, and the notification on each platform.
+dropping mid-recording, the notification on each platform, and the amber and green dots
+in a real tray on Windows, macOS and Linux.
 
 ## 0.7.11 Windows autostart repair (manual desktop test pending)
 
