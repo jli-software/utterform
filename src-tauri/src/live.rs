@@ -1004,7 +1004,6 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
     );
     let text = status.text;
     let processing_succeeded = status.warning.is_none();
-    let mut outputs_succeeded = true;
     let mut warnings = status.warning.into_iter().collect::<Vec<_>>();
     let history_entry = if session.settings.history_enabled && !text.trim().is_empty() {
         let entry = HistoryEntry::new(&text, duration_ms, TranscriptionEngine::OpenAi);
@@ -1031,12 +1030,10 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         if !text.is_empty() && (request.copy_to_clipboard || request.save_to_file) {
             match output::deliver(&app, &text, &request, &session.settings, session.id) {
                 Ok(delivery) => {
-                    outputs_succeeded = delivery.all_requested_outputs_succeeded(&request);
                     warnings.extend(delivery.warnings);
                     (delivery.saved_path, delivery.copied_to_clipboard)
                 }
                 Err(failure) => {
-                    outputs_succeeded = false;
                     warnings.push(diagnostics::fallback!(
                         "delivery.rejected",
                         &failure,
@@ -1048,14 +1045,12 @@ pub async fn finish(app: AppHandle, mut request: ProcessRequest) -> Result<Proce
         } else {
             (None, false)
         };
-    let delivered = !text.trim().is_empty()
-        && processing_succeeded
-        && outputs_succeeded
-        && (copied_to_clipboard
-            || saved_path.is_some()
-            || (!status.delivery_paused && !status.inserted_text.is_empty()));
-    if delivered {
-        tray::set_delivered(&app, session.id);
+    // As for a batch recording: green means the text is here to be fetched,
+    // and warnings say what became of it after that.
+    if !text.trim().is_empty() {
+        tray::set_arrived(&app, session.id);
+    } else if !processing_succeeded {
+        tray::set_failed(&app);
     }
     let done_cue = session.settings.sound_enabled && warnings.is_empty();
     if done_cue {

@@ -135,6 +135,9 @@ pub struct RecordingArtifact {
     pub sample_rate: u32,
     pub channels: u16,
     pub sample_count: u64,
+    /// The microphone stopped delivering before the user stopped: the audio
+    /// is what arrived until then, and is kept rather than thrown away.
+    pub interrupted: bool,
 }
 
 struct TemporaryRecording {
@@ -534,6 +537,7 @@ fn start_recording_inner(
                 )
             })?;
             Ok(RecordingArtifact {
+                interrupted: false,
                 recording,
                 path: temporary.into_path()?,
                 sample_rate: writer_config.sample_rate,
@@ -666,23 +670,39 @@ pub fn set_paused(state: &AudioCaptureState, paused: bool) -> Result<RecordingSt
 // Runs on a native watchdog, not a WebView timer (which can be throttled when hidden).
 pub fn check_limit(state: &AudioCaptureState, session: Instant) -> Result<LimitCheck, Failure> {
     let mut guard = state.inner.lock().map_err(|_| state_unavailable())?;
-    match guard.active.as_ref() {
+    let lost = match guard.active.as_ref() {
         Some(active) if active.started_at == session => {
-            if active.clock.elapsed(Instant::now()) < MAX_RECORDING_DURATION {
+            let lost = microphone_lost(&active.signals);
+            if !lost && active.clock.elapsed(Instant::now()) < MAX_RECORDING_DURATION {
                 return Ok(LimitCheck::Waiting);
             }
+            lost
         }
         _ => return Ok(LimitCheck::Gone),
-    }
+    };
     if let Some(active) = guard.active.take() {
-        diagnostics::info!(
-            "recording.limit_reached",
-            recording = active.recording,
-            limit_s = MAX_RECORDING_DURATION.as_secs(),
-        );
-        guard.completed = Some(finalize(active, "limit"));
+        if !lost {
+            diagnostics::info!(
+                "recording.limit_reached",
+                recording = active.recording,
+                limit_s = MAX_RECORDING_DURATION.as_secs(),
+            );
+        }
+        let reason = if lost { "microphone_lost" } else { "limit" };
+        guard.completed = Some(finalize(active, reason));
     }
     Ok(LimitCheck::Stopped)
+}
+
+/// The stream is gone and will deliver nothing more, so a batch recording
+/// should stop now rather than sit there looking alive until the user notices.
+/// Live capture has its own failure path.
+fn microphone_lost(signals: &CaptureSignals) -> bool {
+    !signals.live_enabled
+        && signals
+            .stream_error
+            .lock()
+            .is_ok_and(|error| error.is_some())
 }
 
 /// Ends capture and hands over the audio. A failure is returned for the
@@ -710,7 +730,7 @@ fn finalize(active: ActiveRecording, reason: &'static str) -> Result<RecordingAr
         // speaker waking from idle must not hold up transcription.
         feedback::play_detached(Cue::Stop);
     }
-    let artifact = active
+    let mut artifact = active
         .writer
         .join()
         .map_err(|_| Failure::new("audio_writer", "The audio writer stopped unexpectedly"))??;
@@ -718,20 +738,30 @@ fn finalize(active: ActiveRecording, reason: &'static str) -> Result<RecordingAr
     if let Some(error) = capture_live_error(&active.signals) {
         return Err(Failure::new("live_audio", error));
     }
-    if let Some(error) = active
+    let stream_error = active
         .signals
         .stream_error
         .lock()
         .map_err(|_| state_unavailable())?
-        .take()
-    {
-        return Err(Failure::new("microphone_stream", error.clone()).detail(error));
-    }
-    if active.signals.overrun.load(Ordering::Relaxed) {
-        return Err(Failure::new(
-            "overrun",
-            "The microphone produced audio faster than it could be stored",
-        ));
+        .take();
+    let overrun = active.signals.overrun.load(Ordering::Relaxed);
+    if artifact.sample_count == 0 {
+        if let Some(error) = stream_error {
+            return Err(Failure::new("microphone_stream", error.clone()).detail(error));
+        }
+    } else if stream_error.is_some() || overrun {
+        // What was said before the microphone went is still worth having: a
+        // headset walking out of range must not cost the whole dictation.
+        artifact.interrupted = true;
+        diagnostics::warning!(
+            "recording.interrupted",
+            recording = active.recording,
+            class = if overrun {
+                "overrun"
+            } else {
+                "microphone_stream"
+            }
+        );
     }
     let glitches = active.signals.glitches.load(Ordering::Relaxed);
     if artifact.sample_count == 0 {
@@ -1346,6 +1376,29 @@ mod tests {
     }
 
     #[test]
+    fn a_lost_microphone_stops_a_batch_recording_but_is_left_to_live_capture() {
+        let batch = CaptureSignals::default();
+        assert!(!microphone_lost(&batch));
+        note_stream_error(cpal::Error::from(cpal::ErrorKind::Xrun), &batch);
+        assert!(!microphone_lost(&batch), "a gap is not a lost device");
+        note_stream_error(
+            cpal::Error::from(cpal::ErrorKind::DeviceNotAvailable),
+            &batch,
+        );
+        assert!(microphone_lost(&batch));
+
+        let live = CaptureSignals {
+            live_enabled: true,
+            ..CaptureSignals::default()
+        };
+        note_stream_error(
+            cpal::Error::from(cpal::ErrorKind::DeviceNotAvailable),
+            &live,
+        );
+        assert!(!microphone_lost(&live));
+    }
+
+    #[test]
     fn paused_audio_is_discarded_without_silence_or_conversion() {
         let signals = CaptureSignals::default();
         signals.armed.store(true, Ordering::Release);
@@ -1409,6 +1462,7 @@ mod tests {
         let path = directory.path().join("recording.wav");
         std::fs::write(&path, []).unwrap();
         state.inner.lock().unwrap().completed = Some(Ok(RecordingArtifact {
+            interrupted: false,
             recording: 1,
             path: path.clone(),
             sample_rate: 16000,

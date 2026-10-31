@@ -39,7 +39,35 @@ The frontend never receives an API key or temporary audio path. Network calls or
 6. Optionally transform the transcript with a separate text-model request.
 7. Persist the completed text to local history (if enabled), before external delivery.
 8. Deliver to each selected output independently.
-9. Delete the temporary recording when the artifact leaves scope.
+9. Delete the temporary recording when the artifact leaves scope, unless transcription failed and it was kept.
+
+### When a recording fails (0.7.13)
+
+The audio is the one thing that cannot be recreated, so failures keep it.
+
+- `process_recording` in `commands.rs` is the single path from artifact to delivery;
+  `finish_recording` and `retry_recording` both enter it. A transient failure
+  (`connect`, `transport`, `body`, HTTP 429/5xx) is retried once after two seconds.
+- Any remaining transcription failure moves the artifact and its request into
+  `retained::RetainedRecordings`, a bounded queue of five. `empty_result` and
+  `empty_recording` are not kept: there is nothing to retry with.
+- `retry_recording` uses current settings, forces clipboard output and never types
+  at the cursor, since the request came from Utterform's own window. Failure re-queues.
+- Dropping an artifact deletes its file, so whoever takes one must deliver or restore
+  it. Files left at exit are removed by `cleanup_stale_recordings` on the next start.
+- A stream that is gone sets `stream_error`; the native watchdog in `check_limit` ends
+  the batch recording at once. `finalize` then returns the partial audio with
+  `interrupted` set instead of an error, unless nothing was captured. Partial audio
+  never earns the Done cue. Live capture keeps its own failure path.
+- `start_recording` rejects a key that is missing but not a keyring that cannot answer.
+  The frontend no longer gates on its cached `hasApiKey`: the backend can actually read.
+- `notify_if_unattended` shows a desktop notification when the main window is not both
+  visible and focused, falling back to revealing it. The frontend calls it from
+  `setError` and for delivery warnings. The text is shown, never logged.
+
+`secrets::reconnect` replaces the Linux keyring store after a platform failure, because
+`keyring` holds one Secret Service session for the process lifetime and that session
+ends with the daemon. macOS and Windows have no such session.
 
 ## Background capture & feedback
 
@@ -171,6 +199,19 @@ GPU backends and release signing require separate platform work and testing.
 `live.rs` owns one numbered session at a time: an OpenAI Realtime transcription socket, the microphone's live PCM tap and a dedicated native input thread. Deltas are appended in order, split into short chunks and handed to the input worker over a bounded queue; nothing is retried or replayed, and a final transcript that differs from the live text stays in Utterform. The worker owns the platform typer (`typing/live.rs`) for the whole session and drops it before the next session may start; between deltas it only reads queued focus events, and each chunk confirms the target once before typing. A stop request holds typing for 700 ms so a still-held shortcut modifier cannot combine with typed keys.
 
 On Omarchy/Hyprland the typer is a persistent Wayland virtual keyboard plus Hyprland's event socket. Only a confirmed change of the active window address or the target closing is a loss; workspace, monitor, layer, submap and config-reload events are logged but ignored, and IPC failures are reported as technical faults. Because Hyprland matches bindings against a virtual keyboard by keycode through its own layout, characters are placed on keycodes without default bindings, editing, browser or media meaning, and with DOM codes so Chromium on Wayland accepts them; the map is seeded with the most frequent characters and extended on demand. Windows uses Unicode `SendInput` with WinEvent foreground/focus/desktop observation on the worker thread and waits for physically held modifiers directly.
+
+### Tray status (0.7.13, replacing the rule below)
+
+Red is recording. Green now means the text reached Utterform, set just before output
+delivery rather than after it, because the text can be fetched from the window or
+history whatever the clipboard and cursor do. Amber is `Status::Failed`, reported from
+the interface's `setError` through `notify_if_unattended(failed: true)`, the one path
+every failure of every kind passes through; a warning on delivered text passes
+`failed: false` and stays green. Amber expires after five seconds unless
+`Indicator::kept` is set, in which case it is what the icon rests on: green and red
+still take over and it returns afterwards. `adopt` lets a retry of an older recording
+turn green. All platforms share `status_badge`; Linux pre-renders one pixmap per status.
+The Done cue keeps the stricter meaning of every requested output having worked.
 
 ### Tray delivery confirmation (0.7.12)
 

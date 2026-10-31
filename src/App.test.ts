@@ -34,6 +34,8 @@ vi.mock("./lib/api", () => ({ api: {
   applyGlobalHotkey: vi.fn(),
   autostartEnabled: vi.fn(), enableAutostart: vi.fn(), disableAutostart: vi.fn(),
   startRecording: vi.fn(), finishRecording: vi.fn(), cancelRecording: vi.fn(),
+  retainedRecording: vi.fn(async () => null), retryRecording: vi.fn(), discardRecording: vi.fn(),
+  notifyIfUnattended: vi.fn(async () => {}),
   getRecordingStatus: vi.fn(), setRecordingPaused: vi.fn(),
   copyText: vi.fn(), clearHistory: vi.fn(),
   playTestCues: vi.fn(),
@@ -941,6 +943,81 @@ describe("live dictation", () => {
     await waitFor(() => expect(view.queryByText("Connection lost")).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: /Copy/ }));
     expect(api.copyText).toHaveBeenLastCalledWith(snapshot.text);
+  });
+});
+
+describe("a recording whose transcription failed", () => {
+  const kept = { count: 1, durationMs: 42_000 };
+  const failedText = "OpenAI transcription request failed (ref 0a1b2c3d-2) The recording is kept, so you can try again.";
+
+  async function failOneRecording() {
+    vi.mocked(api.finishRecording).mockRejectedValueOnce(failedText);
+    vi.mocked(api.retainedRecording).mockResolvedValue(kept);
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(view.queryByRole("group", { name: "Kept recording" })).not.toBeNull());
+    return view;
+  }
+
+  beforeEach(() => {
+    vi.mocked(api.retainedRecording).mockReset().mockResolvedValue(null);
+    vi.mocked(api.retryRecording).mockReset();
+    vi.mocked(api.discardRecording).mockReset().mockResolvedValue(undefined);
+    vi.mocked(api.notifyIfUnattended).mockClear();
+  });
+
+  it("offers to try again and tells a user who is not looking", async () => {
+    const view = await failOneRecording();
+    expect(view.getByRole("group", { name: "Kept recording" }).textContent).toContain("00:42");
+    expect(api.notifyIfUnattended).toHaveBeenCalledWith(failedText, true);
+  });
+
+  it("delivers the text once the retry succeeds and stops offering it", async () => {
+    const view = await failOneRecording();
+    vi.mocked(api.retainedRecording).mockResolvedValue(null);
+    vi.mocked(api.retryRecording).mockResolvedValueOnce({ historyEntry: latest, text: latest.text, savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [], durationMs: 42_000, engine: "open_ai" });
+    await fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(view.queryByRole("group", { name: "Kept recording" })).toBeNull());
+    expect(view.queryByText("Copied to clipboard")).not.toBeNull();
+  });
+
+  it("keeps offering it when the retry fails too", async () => {
+    const view = await failOneRecording();
+    vi.mocked(api.retryRecording).mockRejectedValueOnce("Still offline (ref 0a1b2c3d-3)");
+    await fireEvent.click(view.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(view.queryByText("Still offline (ref 0a1b2c3d-3)")).not.toBeNull());
+    expect(view.queryByRole("group", { name: "Kept recording" })).not.toBeNull();
+  });
+
+  it("clears the failure when the user gives the recording up", async () => {
+    const view = await failOneRecording();
+    vi.mocked(api.retainedRecording).mockResolvedValue(null);
+    await fireEvent.click(view.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(view.queryByRole("group", { name: "Kept recording" })).toBeNull());
+    expect(api.discardRecording).toHaveBeenCalledOnce();
+    expect(view.queryByText(failedText)).toBeNull();
+  });
+
+  it("tells a user who is not looking when delivery only partly worked", async () => {
+    vi.mocked(api.finishRecording).mockResolvedValueOnce({ historyEntry: latest, text: latest.text, savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: ["The microphone stopped early."], durationMs: 2400, engine: "open_ai" });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(api.notifyIfUnattended).toHaveBeenCalledWith("The microphone stopped early.", false));
+  });
+
+  it("leaves the decision about a missing key to the backend, which can actually read it", async () => {
+    vi.mocked(api.hasOpenAiApiKey).mockResolvedValueOnce(false);
+    const started = vi.mocked(api.startRecording).mock.calls.length;
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(vi.mocked(api.startRecording).mock.calls.length).toBe(started + 1));
   });
 });
 

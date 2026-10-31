@@ -12,6 +12,19 @@ case "$expect_notarization" in
   *) echo "UTTERFORM_EXPECT_NOTARIZATION must be 0 or 1" >&2; exit 1 ;;
 esac
 
+# On one and the same notarized app, `stapler validate` has failed at random, on
+# different copies and with different codes (65, 68), so a single failure proves
+# nothing. An app with no ticket still fails every attempt.
+validate_ticket() {
+  local bundle="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    xcrun stapler validate "$bundle" && return 0
+    echo "Ticket validation attempt $attempt failed" >&2
+    if [ "$attempt" -lt 5 ]; then sleep 15; fi
+  done
+  return 1
+}
+
 verify_app() {
   local bundle="$1" executable
   executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$bundle/Contents/Info.plist")
@@ -54,7 +67,7 @@ verify_app() {
       echo "Developer ID signature has no TeamIdentifier" >&2
       return 1
     }
-    xcrun stapler validate -q "$bundle"
+    validate_ticket "$bundle"
   fi
 }
 

@@ -118,10 +118,7 @@ pub async fn transcribe(
         })?;
     let text = payload.text.trim();
     if text.is_empty() {
-        return Err(Failure::new(
-            "empty_result",
-            "OpenAI returned an empty transcription",
-        ));
+        return Err(Failure::guidance("empty_result", super::NOTHING_HEARD));
     }
     Ok(text.to_string())
 }

@@ -282,3 +282,9 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
   .controls { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:8px; }
   .engine-control .select-options { left:auto; right:0; }
 }
+
+.retained-recording { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; font-size:12px; color:var(--muted); }
+.retained-recording span { margin-right:auto; }
+.retained-recording button { min-height:30px; padding:0 11px; border:1px solid var(--line); border-radius:5px; background:transparent; font-size:12px; color:var(--text); }
+.retained-recording button:hover { background:var(--accent-soft); border-color:var(--muted); }
+.retained-recording button.quiet { border-color:transparent; color:var(--muted); }

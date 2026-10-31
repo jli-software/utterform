@@ -24,7 +24,9 @@ use crate::{audio, diagnostics};
 const NATIVE_TRAY: &str = "utterform";
 
 /// Visual feedback is independent of sound. All state and native icon writes
-/// are serialized on the event loop, including timeout callbacks.
+/// are serialized on the event loop, including timeout callbacks. Success and a
+/// passing failure both last this long; a kept recording stays amber until it
+/// is dealt with, because something is still waiting for the user.
 const SUCCESS_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,6 +35,7 @@ enum Status {
     Idle,
     Recording,
     Success,
+    Failed,
 }
 
 impl Status {
@@ -40,7 +43,8 @@ impl Status {
         match self {
             Self::Idle => "Utterform",
             Self::Recording => "Utterform — recording",
-            Self::Success => "Utterform — text delivered",
+            Self::Success => "Utterform — text ready",
+            Self::Failed => "Utterform — something failed, open to see why",
         }
     }
 }
@@ -50,6 +54,8 @@ struct Indicator {
     status: Status,
     generation: u64,
     recording: Option<u64>,
+    /// A failed recording waits to be retried or discarded.
+    kept: bool,
     expiry: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
@@ -72,27 +78,60 @@ impl Indicator {
                     return None;
                 }
             }
+            (Status::Failed, None) => {
+                // A failure reported late must not hide a recording in progress.
+                if self.status == Status::Recording {
+                    return None;
+                }
+            }
             (Status::Idle, None) => self.recording = None,
             _ => return None,
         }
         Some(self.set(status))
     }
 
+    /// Resting while a recording is kept means amber, not plain: whichever
+    /// status gives way to Idle, the kept recording shows through again.
     fn set(&mut self, status: Status) -> u64 {
         if let Some(expiry) = self.expiry.take() {
             expiry.abort();
         }
         self.generation = self.generation.wrapping_add(1);
-        self.status = status;
+        self.status = if status == Status::Idle && self.kept {
+            Status::Failed
+        } else {
+            status
+        };
         self.generation
     }
 
     fn expire(&mut self, generation: u64) -> bool {
-        if self.generation != generation || self.status != Status::Success {
+        let passing = match self.status {
+            Status::Success => true,
+            Status::Failed => !self.kept,
+            Status::Idle | Status::Recording => false,
+        };
+        if self.generation != generation || !passing {
             return false;
         }
         self.set(Status::Idle);
         true
+    }
+
+    fn set_kept(&mut self, kept: bool) -> Option<u64> {
+        self.kept = kept;
+        match (kept, self.status) {
+            (true, Status::Idle) | (false, Status::Failed) => Some(self.set(Status::Idle)),
+            _ => None,
+        }
+    }
+
+    /// A retry finishes a recording older than the latest one, and only the
+    /// current recording may turn the icon green.
+    fn adopt(&mut self, id: u64) {
+        if self.status != Status::Recording {
+            self.recording = Some(id);
+        }
     }
 }
 
@@ -111,10 +150,29 @@ pub fn set_recording<R: Runtime>(app: &AppHandle<R>, recording: bool, id: u64) {
     );
 }
 
-/// Called only after successful processing and requested delivery, never on
-/// microphone stop, cancel, partial delivery or a failed transformation.
-pub fn set_delivered<R: Runtime>(app: &AppHandle<R>, id: u64) {
+/// The text has reached Utterform and can be fetched from it, whatever then
+/// becomes of the clipboard or the cursor: those report for themselves. Never
+/// called on microphone stop or cancel, when there is no text yet.
+pub fn set_arrived<R: Runtime>(app: &AppHandle<R>, id: u64) {
     set_status(app, Status::Success, Some(id));
+}
+
+/// Something the user asked for did not happen. Reported by the interface,
+/// the one place every failure of every kind passes through.
+pub fn set_failed<R: Runtime>(app: &AppHandle<R>) {
+    set_status(app, Status::Failed, None);
+}
+
+/// Whether recordings are waiting to be retried or discarded.
+pub fn set_kept<R: Runtime>(app: &AppHandle<R>, kept: bool) {
+    change(app, move |indicator| indicator.set_kept(kept));
+}
+
+pub fn adopt<R: Runtime>(app: &AppHandle<R>, id: u64) {
+    change(app, move |indicator| {
+        indicator.adopt(id);
+        None
+    });
 }
 
 pub fn clear<R: Runtime>(app: &AppHandle<R>) {
@@ -122,6 +180,14 @@ pub fn clear<R: Runtime>(app: &AppHandle<R>) {
 }
 
 fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status, recording: Option<u64>) {
+    change(app, move |indicator| indicator.update(status, recording));
+}
+
+/// `apply` answers with a generation when the icon has to change.
+fn change<R: Runtime>(
+    app: &AppHandle<R>,
+    apply: impl FnOnce(&mut Indicator) -> Option<u64> + Send + 'static,
+) {
     let queued = app.clone();
     if app
         .run_on_main_thread(move || {
@@ -130,11 +196,12 @@ fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status, recording: Option<
                 diagnostics::warning!("tray.update_failed", step = "state");
                 return;
             };
-            let Some(generation) = indicator.update(status, recording) else {
+            let Some(generation) = apply(&mut indicator) else {
                 return;
             };
+            let status = indicator.status;
             show_status(&queued, status);
-            if status == Status::Success {
+            if matches!(status, Status::Success | Status::Failed) {
                 let timer_app = queued.clone();
                 indicator.expiry = Some(tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(SUCCESS_DURATION).await;
@@ -149,7 +216,7 @@ fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status, recording: Option<
                             // Checking AND writing on the event loop means an old
                             // timer can never erase a newer recording/success icon.
                             if indicator.expire(generation) {
-                                show_status(&expired, Status::Idle);
+                                show_status(&expired, indicator.status);
                             }
                         })
                         .is_err()
@@ -195,7 +262,7 @@ fn show_status<R: Runtime>(app: &AppHandle<R>, status: Status) {
     }
 }
 
-/// The app icon with a small red/green dot in its lower right corner. Drawn rather
+/// The app icon with a small coloured dot in its lower right corner. Drawn rather
 /// than shipped so it cannot fall out of step with the icon it marks.
 ///
 /// Deliberately modest: a dot a little over a third of the icon wide, with a
@@ -210,6 +277,8 @@ fn status_badge(rgba: &[u8], width: u32, height: u32, status: Status) -> Vec<u8>
         Status::Idle => return pixels,
         Status::Recording => [229.0, 72.0, 77.0],
         Status::Success => [46.0, 204.0, 113.0],
+        // Amber, not a second red: red already means the microphone is live.
+        Status::Failed => [245.0, 158.0, 11.0],
     };
     let side = width.min(height) as f32;
     let radius = side * 0.19;
@@ -337,6 +406,7 @@ mod status_notifier_item {
         icon: Vec<Icon>,
         recording_icon: Vec<Icon>,
         success_icon: Vec<Icon>,
+        failed_icon: Vec<Icon>,
         status: Status,
     }
 
@@ -354,6 +424,7 @@ mod status_notifier_item {
                 Status::Idle => self.icon.clone(),
                 Status::Recording => self.recording_icon.clone(),
                 Status::Success => self.success_icon.clone(),
+                Status::Failed => self.failed_icon.clone(),
             }
         }
 
@@ -403,12 +474,14 @@ mod status_notifier_item {
         icon: Vec<Icon>,
         recording_icon: Vec<Icon>,
         success_icon: Vec<Icon>,
+        failed_icon: Vec<Icon>,
     ) -> Result<ksni::blocking::Handle<UtterformTray<A>>, ksni::Error> {
         UtterformTray {
             actions,
             icon,
             recording_icon,
             success_icon,
+            failed_icon,
             status: Status::Idle,
         }
         .spawn()
@@ -423,7 +496,7 @@ mod status_notifier_item {
     }
 
     pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), ksni::Error> {
-        let (icon, recording_icon, success_icon) = app
+        let (icon, recording_icon, success_icon, failed_icon) = app
             .default_window_icon()
             .map(|image| {
                 let (width, height) = (image.width(), image.height());
@@ -439,10 +512,21 @@ mod status_notifier_item {
                         height,
                         &super::status_badge(image.rgba(), width, height, Status::Success),
                     ),
+                    pixmap(
+                        width,
+                        height,
+                        &super::status_badge(image.rgba(), width, height, Status::Failed),
+                    ),
                 )
             })
             .unwrap_or_default();
-        let handle = spawn(AppActions(app.clone()), icon, recording_icon, success_icon)?;
+        let handle = spawn(
+            AppActions(app.clone()),
+            icon,
+            recording_icon,
+            success_icon,
+            failed_icon,
+        )?;
         // The tray service re-registers itself when the panel restarts, but it
         // stops as soon as this handle is dropped.
         app.manage(handle);
@@ -574,6 +658,7 @@ mod status_notifier_item {
                 pixmap(1, 1, &[0, 0, 0, 255]),
                 pixmap(1, 1, &[229, 72, 77, 255]),
                 pixmap(1, 1, &[46, 204, 113, 255]),
+                pixmap(1, 1, &[245, 158, 11, 255]),
             )
             .expect("the tray should register with the watcher");
 
@@ -607,6 +692,7 @@ mod status_notifier_item {
             for (status, argb) in [
                 (Status::Recording, vec![255, 229, 72, 77]),
                 (Status::Success, vec![255, 46, 204, 113]),
+                (Status::Failed, vec![255, 245, 158, 11]),
                 (Status::Idle, vec![255, 0, 0, 0]),
             ] {
                 _tray.update(|tray| tray.status = status).unwrap();
@@ -648,6 +734,74 @@ mod badge_tests {
         assert!(indicator.expire(generation));
         assert_eq!(indicator.status, Status::Idle);
         assert!(!indicator.expire(generation));
+    }
+
+    #[test]
+    fn a_passing_failure_expires_like_success_but_never_hides_a_recording() {
+        let mut indicator = Indicator::default();
+        let generation = indicator.update(Status::Failed, None).unwrap();
+        assert_eq!(indicator.status, Status::Failed);
+        assert!(indicator.expire(generation));
+        assert_eq!(indicator.status, Status::Idle);
+
+        indicator.update(Status::Recording, Some(1)).unwrap();
+        assert!(indicator.update(Status::Failed, None).is_none());
+        assert_eq!(indicator.status, Status::Recording);
+    }
+
+    #[test]
+    fn a_failure_replaces_green_when_delivery_is_refused_after_the_text_arrived() {
+        let mut indicator = Indicator::default();
+        indicator.update(Status::Recording, Some(1)).unwrap();
+        indicator.update(Status::Idle, Some(1)).unwrap();
+        indicator.update(Status::Success, Some(1)).unwrap();
+        indicator.update(Status::Failed, None).unwrap();
+        assert_eq!(indicator.status, Status::Failed);
+    }
+
+    #[test]
+    fn a_kept_recording_stays_amber_and_shows_through_everything_that_passes() {
+        let mut indicator = Indicator::default();
+        let amber = indicator.set_kept(true).unwrap();
+        assert_eq!(indicator.status, Status::Failed);
+        assert!(!indicator.expire(amber), "amber waits for the user");
+
+        // A newer dictation still shows red, then green, then amber again.
+        indicator.update(Status::Recording, Some(2)).unwrap();
+        assert_eq!(indicator.status, Status::Recording);
+        indicator.update(Status::Idle, Some(2)).unwrap();
+        assert_eq!(indicator.status, Status::Failed);
+        indicator.status = Status::Recording;
+        indicator.update(Status::Idle, Some(2)).unwrap();
+        let green = indicator.update(Status::Success, Some(2)).unwrap();
+        assert_eq!(indicator.status, Status::Success);
+        assert!(indicator.expire(green));
+        assert_eq!(indicator.status, Status::Failed);
+
+        indicator.set_kept(false).unwrap();
+        assert_eq!(indicator.status, Status::Idle);
+    }
+
+    #[test]
+    fn a_retry_of_an_older_recording_can_still_turn_green() {
+        let mut indicator = Indicator::default();
+        indicator.update(Status::Recording, Some(1)).unwrap();
+        indicator.update(Status::Idle, Some(1)).unwrap();
+        indicator.update(Status::Recording, Some(2)).unwrap();
+        indicator.update(Status::Idle, Some(2)).unwrap();
+        assert!(indicator.update(Status::Success, Some(1)).is_none());
+
+        indicator.adopt(1);
+        indicator.update(Status::Success, Some(1)).unwrap();
+        assert_eq!(indicator.status, Status::Success);
+
+        indicator.update(Status::Recording, Some(3)).unwrap();
+        indicator.adopt(1);
+        assert_eq!(
+            indicator.recording,
+            Some(3),
+            "a live recording keeps the icon"
+        );
     }
 
     #[test]

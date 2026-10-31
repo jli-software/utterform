@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.13 — v0.7.13 · Nothing said is lost
+
+- Keep a recording whose transcription failed, with **Try again** and **Discard** in the main window. A dropped connection or a busy service is first retried once on its own. Up to five recordings wait, in order; they are removed on success, on Discard or when Utterform quits.
+- Keep what was captured when the microphone goes away mid-recording, stop at once instead of appearing to record, and say the text is partial.
+- Report failures and partial delivery with a desktop notification when Utterform's window is not in front, so a hotkey dictation cannot fail in silence. If no notification can be shown, the window opens.
+- Reconnect to the Linux Secret Service after its daemon restarts. Previously every later key read failed until Utterform was restarted. A keyring that cannot answer no longer prevents a recording from starting.
+- Make the tray dot say where a dictation stands, on Windows, macOS and Linux: red while recording, green as soon as the text has reached Utterform, even if the clipboard or typing then failed, and a new amber when something failed. Amber lasts five seconds, or until a kept recording is retried or discarded. The Done sound still means everything worked.
+- Treat a recording with no recognizable speech as a calm note rather than an error.
+- Refresh the microphone list and key status whenever Settings opens.
+
+See [0.7.13 release notes](docs/releases/v0.7.13.md).
+
 ## 0.7.12 — v0.7.12 · Visual delivery confirmation
 
 - Show a small green tray dot for five seconds after successful processing and requested output delivery, independently of sound settings. Capture remains red; processing is unbadged.

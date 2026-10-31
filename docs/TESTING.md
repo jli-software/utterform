@@ -1,5 +1,36 @@
 # Validation
 
+## Running the suites on a desktop
+
+- Run Rust tests on a private bus: `dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml`.
+  On a live desktop the tray test otherwise fails with `NameTaken`, because the real
+  StatusNotifierWatcher already owns the name. That failure is the environment, not the code.
+  Expect about two minutes: the keyring test waits out a locked throwaway keyring.
+- Without Playwright's own browser, point it at the system one:
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
+- `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
+
+## 0.7.13 keeping recordings through failures
+
+`scripts/test-keyring-restart.sh` runs a real `gnome-keyring-daemon` on a private bus
+with a throwaway keyring, kills it mid-test and reads the key after it returns. With
+`secrets::reconnect` disabled the read fails with `platform_failure`, the exact class
+in the field log that found this; with it enabled the test passes, in six runs of six.
+The real daemon and key are never touched.
+
+Automated: the retained queue's order, restore and bound; which failures retry and which
+are kept; a lost microphone stopping batch but not live capture; and in the interface
+Try again, a failing retry, Discard, notification of failures and partial delivery, and
+the kept-recording bar at 920×720 and 360×400.
+
+The tray's status rules are unit tested: amber expiring, never hiding a recording,
+outlasting green while a recording is kept, and a retry of an older recording turning
+green. The Linux item test reads the amber pixmap back over real D-Bus properties.
+
+Not exercised on a real desktop: a real network failure and retry, a Bluetooth headset
+dropping mid-recording, the notification on each platform, and the amber and green dots
+in a real tray on Windows, macOS and Linux.
+
 ## 0.7.11 Windows autostart repair (manual desktop test pending)
 
 The frontend now calls Utterform-owned native autostart commands. Linux and

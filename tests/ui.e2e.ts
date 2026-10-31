@@ -82,6 +82,8 @@ test.beforeEach(async ({ page }) => {
             case "cancel_recording": started = 0; pausedAt = 0; return;
             case "get_recording_status": return recordingStatus();
             case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
+            case "retained_recording": return Reflect.get(window, "__retained") ?? null;
+            case "notify_if_unattended": return;
             case "play_test_cues": return;
             case "diagnostics_info": return { logPath: "/home/tester/.local/share/software.jli.utterform/logs/utterform.log" };
             case "copy_diagnostics": case "open_log_file": case "open_log_folder":
@@ -969,3 +971,19 @@ test("an error the interface did not catch reaches the local log once, without s
   expect(JSON.stringify(reports)).not.toContain("CANARY");
   expect(JSON.stringify(reports)).not.toContain("127.0.0.1");
 });
+
+for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
+  test(`a kept recording stays reachable at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.addInitScript(() => Object.assign(window, { __retained: { count: 1, durationMs: 183_000 } }));
+    await page.goto("/");
+    const kept = page.getByRole("group", { name: "Kept recording" });
+    await expect(kept).toContainText("03:03");
+    await kept.getByRole("button", { name: "Try again" }).scrollIntoViewIfNeeded();
+    await expect(kept.getByRole("button", { name: "Try again" })).toBeInViewport();
+    await expect(kept.getByRole("button", { name: "Discard" })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("kept-recording.png") });
+    await testInfo.attach("kept-recording", { path: testInfo.outputPath("kept-recording.png"), contentType: "image/png" });
+  });
+}

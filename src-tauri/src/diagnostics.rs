@@ -341,6 +341,11 @@ impl Failure {
         self.class
     }
 
+    /// The HTTP status the failure carried, if it came from a response.
+    pub fn http_status(&self) -> Option<u16> {
+        self.status
+    }
+
     /// The message alone, for a failure whose owning event was already written
     /// or that is not shown as a failure at all.
     pub fn into_message(self) -> String {

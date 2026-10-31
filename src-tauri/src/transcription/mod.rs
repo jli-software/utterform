@@ -10,6 +10,10 @@ use crate::{
     domain::{AppSettings, TranscriptionEngine},
 };
 
+/// Most often a key pressed by accident or a recording stopped too soon: it is
+/// not a fault, and there is nothing in the audio to try again with.
+const NOTHING_HEARD: &str = "No speech was heard, so nothing was copied or typed.";
+
 /// A failure's class and status are for the caller's one owning event; its
 /// message is for the user alone.
 pub async fn transcribe(
