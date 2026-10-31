@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.12 — Visual delivery confirmation** adds a green tray dot for five seconds after successful processing and delivery, even with sounds disabled. Recording still shows red. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.12.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.12).
+> Utterform is under active development. **0.7.13 — Nothing said is lost** keeps a recording when transcription fails, with Try again and Discard, and reports failures even when the window is hidden. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.13.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.13).
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.12 — Visual delivery confirmation](https://github.com/jli-software/utterform/releases/tag/v0.7.12)**.
+**[0.7.13 — Nothing said is lost](https://github.com/jli-software/utterform/releases/tag/v0.7.13)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.12 release notes](docs/releases/v0.7.12.md) for the current changes.
+See the [0.7.13 release notes](docs/releases/v0.7.13.md) for the current changes.
 
 ### Windows — one-line install or update
 

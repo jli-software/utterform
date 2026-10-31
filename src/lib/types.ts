@@ -105,6 +105,13 @@ export interface ProcessResult {
   engine: Engine;
 }
 
+/// Recordings whose transcription failed and can still be tried again.
+export interface RetainedRecording {
+  count: number;
+  /** The one next in line. */
+  durationMs: number;
+}
+
 export interface RecordingStatus {
   recording: boolean;
   paused: boolean;

@@ -12,6 +12,7 @@
     isActionEdited,
   } from "./lib/types";
   import type {
+    RetainedRecording,
     AppSettings,
     AudioDevice,
     BuiltInAction,
@@ -120,6 +121,7 @@
   let historyTimer: ReturnType<typeof setInterval> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let result: ProcessResult | null = null;
+  let retained: RetainedRecording | null = null;
   let history: HistoryEntry[] = [];
   let selectedHistoryId = "";
   let resultExpanded = false;
@@ -282,6 +284,7 @@
       return;
     }
     await refreshDiagnosticsInfo();
+    await refreshRetained();
     // A hotkey that had to start Utterform still means "record now".
     try {
       await applyIntent(await api.takeStartupIntent());
@@ -525,11 +528,6 @@
       setError("Choose a folder in Settings → Output before saving files.");
       return;
     }
-    const requiresApiKey = settings.engine === "open_ai" || effectiveAction !== "plain";
-    if (requiresApiKey && !hasApiKey) {
-      setError("Add an OpenAI API key in Settings → AI & Models before recording.");
-      return;
-    }
     if (
       settings.engine === "local_whisper" &&
       !models.some((model) => model.id === settings.local_model_id && model.downloaded)
@@ -611,7 +609,7 @@
     phase = "processing";
     message = liveMode ? "Finishing live transcript…" : settings.engine === "open_ai" ? "Transcribing with GPT Transcribe…" : "Transcribing locally…";
     try {
-      result = await api.finishRecording({
+      const finished = await api.finishRecording({
         action: effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
         customPrompt: effectiveAction.startsWith("custom:")
           ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
@@ -624,22 +622,65 @@
       if (liveMode) {
         try { liveStatus = await api.getLiveStatus() ?? liveStatus; } catch { /* Keep the previous snapshot. */ }
       }
-      now = Date.now();
-      resultTimestamp = now;
-      if (result.historyEntry) {
-        history = [result.historyEntry, ...history.filter((entry) => entry.id !== result?.historyEntry?.id)].slice(0, 100);
-        selectedHistoryId = result.historyEntry.id;
-      } else {
-        selectedHistoryId = "";
-      }
-      resetCopyFeedback();
-      if (result.copiedToClipboard) showCopyFeedback();
-      phase = "done";
-      message = completionMessage(result);
+      showResult(finished);
     } catch (error) {
       if (liveMode) await recoverLiveText();
       setError(error);
+      await refreshRetained();
     }
+  }
+
+  function showResult(value: ProcessResult) {
+    result = value;
+    now = Date.now();
+    resultTimestamp = now;
+    if (value.historyEntry) {
+      history = [value.historyEntry, ...history.filter((entry) => entry.id !== value.historyEntry?.id)].slice(0, 100);
+      selectedHistoryId = value.historyEntry.id;
+    } else {
+      selectedHistoryId = "";
+    }
+    resetCopyFeedback();
+    if (value.copiedToClipboard) showCopyFeedback();
+    phase = "done";
+    message = completionMessage(value);
+    // A partly delivered result is as invisible from a hidden window as a failure.
+    if (value.deliveryWarnings.length) notifyUnattended(message);
+  }
+
+  /// A query: failing it only leaves the offer unshown, never the audio gone.
+  async function refreshRetained() {
+    try {
+      retained = await api.retainedRecording();
+    } catch {
+      retained = null;
+    }
+  }
+
+  async function retryRetained() {
+    if (controlsLocked) return;
+    phase = "processing";
+    message = "Trying again…";
+    try {
+      showResult(await api.retryRecording());
+    } catch (error) {
+      setError(error);
+    }
+    await refreshRetained();
+  }
+
+  async function discardRetained() {
+    if (controlsLocked) return;
+    try {
+      await api.discardRecording();
+      if (phase === "error") {
+        phase = "idle";
+        message = "";
+      }
+    } catch (error) {
+      setError(error);
+    }
+    await refreshRetained();
   }
 
   async function cancelRecording() {
@@ -687,6 +728,14 @@
     // A command rejects with its message, a string that already carries the
     // reference of its native event. An `Error` was thrown in the interface.
     if (error instanceof Error) void withReference("state", error, () => message, (text) => (message = text));
+    notifyUnattended(message);
+  }
+
+  /// A recording started by hotkey has nowhere else to report: the window that
+  /// shows `message` may be hidden, and silence reads as success. The backend
+  /// decides, because only it can tell whether anyone is looking.
+  function notifyUnattended(text: string) {
+    if (isTauri()) void api.notifyIfUnattended(text).catch(() => {});
   }
 
   function completionMessage(value: ProcessResult) {
@@ -938,6 +987,18 @@
     if (isTauri()) {
       void refreshAutostart();
       void refreshDiagnosticsInfo();
+      void refreshInputState();
+    }
+  }
+
+  /// Microphones come and go while Utterform stays open, and a key that could
+  /// not be read at startup may be readable now. Neither answer is worth
+  /// interrupting anything for; the previous one simply stands.
+  async function refreshInputState() {
+    try {
+      [devices, hasApiKey] = await Promise.all([api.listInputDevices(), api.hasOpenAiApiKey()]);
+    } catch {
+      /* Keep what is showing. */
     }
   }
 
@@ -1103,6 +1164,13 @@
     </div>
     {#if liveMode && !controlsLocked}<p class="live-help">{liveStartHint}</p>{/if}
     <p class="recorder-message" role="status" class:error={phase === "error"}>{message}</p>
+    {#if retained && !controlsLocked}
+      <div class="retained-recording" role="group" aria-label="Kept recording">
+        <span>{retained.count > 1 ? `${retained.count} recordings kept` : `Recording kept · ${formatTime(Math.round(retained.durationMs / 1000))}`}</span>
+        <button type="button" onclick={retryRetained}>Try again</button>
+        <button type="button" class="quiet" onclick={discardRetained}>Discard</button>
+      </div>
+    {/if}
   </section>
 
   {#if liveMode && controlsLocked}

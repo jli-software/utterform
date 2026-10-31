@@ -1,6 +1,6 @@
 use std::{
     sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use tauri::{AppHandle, Manager, State};
@@ -9,7 +9,8 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::{
     actions::{self, BuiltInAction},
-    audio::{self, AudioCaptureState},
+    activation::reveal_main_window,
+    audio::{self, AudioCaptureState, RecordingArtifact},
     diagnostics::{self, Failure},
     domain::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
@@ -17,8 +18,15 @@ use crate::{
     },
     feedback::{self, Cue},
     history::{self, HistoryEntry},
-    live, models, output, secrets, settings, transcription, tray,
+    live, models, output,
+    retained::{self, Retained, RetainedRecordings},
+    secrets, settings, transcription, tray,
 };
+
+/// How long a dropped connection gets to come back before the one retry.
+const TRANSIENT_RETRY_DELAY: Duration = Duration::from_secs(2);
+/// Desktop notifications truncate or refuse long bodies on their own terms.
+const NOTIFICATION_LIMIT: usize = 240;
 
 /// The interface asks once it can act; an intent is delivered to one caller only.
 #[tauri::command]
@@ -216,7 +224,20 @@ fn begin_recording(
         )
     };
     if engine == TranscriptionEngine::OpenAi || action != actions::PLAIN {
-        secrets::openai_api_key().map_err(rejected)?;
+        // A missing key stops here, while nothing has been said yet. A keyring
+        // that cannot answer does not: the recording is kept if it still
+        // cannot answer afterwards, and the words survive the outage.
+        match secrets::openai_api_key() {
+            Err(failure) if failure.class() == "keyring" => {
+                diagnostics::warning!(
+                    "recording.key_unavailable",
+                    recording = recording,
+                    class = failure.class()
+                );
+            }
+            Err(failure) => return Err(rejected(failure)),
+            Ok(_) => {}
+        }
     }
     if engine == TranscriptionEngine::LocalWhisper {
         let model_id = local_model_id.as_deref().ok_or_else(|| {
@@ -452,6 +473,50 @@ pub async fn finish_recording(
     let artifact = artifact.map_err(|failure| {
         diagnostics::failure!("recording.failed", &failure, stage = "capture")
     })?;
+    process_recording(&app, artifact, request, current_settings, began).await
+}
+
+/// Worth one quiet second attempt: the connection dropped or the service said
+/// to come back. A timeout is not, having already waited minutes.
+fn is_transient(failure: &Failure) -> bool {
+    matches!(failure.class(), "connect" | "transport" | "body")
+        || failure
+            .http_status()
+            .is_some_and(|status| status == 429 || status >= 500)
+}
+
+/// Nothing in the audio to retry with. Everything else — no network, a key to
+/// fix, an account out of credit — leaves words worth keeping.
+fn worth_keeping(failure: &Failure) -> bool {
+    !matches!(failure.class(), "empty_result" | "empty_recording")
+}
+
+async fn transcribe_with_retry(
+    app: &AppHandle,
+    artifact: &RecordingArtifact,
+    settings: &AppSettings,
+) -> Result<String, Failure> {
+    match transcription::transcribe(app, artifact, settings).await {
+        Err(failure) if is_transient(&failure) => {
+            diagnostics::warning!(
+                "transcription.retrying",
+                recording = artifact.recording,
+                class = failure.class()
+            );
+            tokio::time::sleep(TRANSIENT_RETRY_DELAY).await;
+            transcription::transcribe(app, artifact, settings).await
+        }
+        outcome => outcome,
+    }
+}
+
+async fn process_recording(
+    app: &AppHandle,
+    artifact: RecordingArtifact,
+    request: ProcessRequest,
+    current_settings: AppSettings,
+    began: Instant,
+) -> Result<ProcessResult, String> {
     let recording = artifact.recording;
     let duration_ms = artifact.duration_ms();
     let engine = current_settings.engine.as_str();
@@ -467,7 +532,7 @@ pub async fn finish_recording(
         audio_ms = duration_ms
     );
     let transcribing = Instant::now();
-    let transcript = match transcription::transcribe(&app, &artifact, &current_settings).await {
+    let transcript = match transcribe_with_retry(app, &artifact, &current_settings).await {
         Ok(transcript) => {
             diagnostics::info!(
                 "transcription.completed",
@@ -480,7 +545,7 @@ pub async fn finish_recording(
             transcript
         }
         Err(failure) => {
-            return Err(diagnostics::failure!(
+            let message = diagnostics::failure!(
                 "transcription.failed",
                 &failure,
                 recording = recording,
@@ -488,10 +553,24 @@ pub async fn finish_recording(
                 model = model,
                 audio_ms = duration_ms,
                 elapsed_ms = transcribing.elapsed().as_millis()
+            );
+            if !worth_keeping(&failure) {
+                return Err(message);
+            }
+            app.state::<RetainedRecordings>()
+                .keep(Retained { artifact, request });
+            return Err(format!(
+                "{message} The recording is kept, so you can try again."
             ));
         }
     };
     let mut warnings = Vec::new();
+    if artifact.interrupted {
+        warnings.push(
+            "The microphone stopped early, so this covers only what was recorded until then."
+                .to_string(),
+        );
+    }
     let mut transformation_succeeded = true;
     let action = actions::diagnostic_id(&request.action);
     let transforms = request.action != actions::PLAIN;
@@ -555,7 +634,7 @@ pub async fn finish_recording(
     // Persist before external delivery, so clipboard/file failures cannot lose the text.
     let history_entry = if current_settings.history_enabled {
         let entry = HistoryEntry::new(&text, duration_ms, current_settings.engine.clone());
-        match history::append(&app, entry.clone()) {
+        match history::append(app, entry.clone()) {
             Ok(()) => {
                 diagnostics::info!("history.saved", recording = recording);
                 Some(entry)
@@ -571,14 +650,17 @@ pub async fn finish_recording(
     } else {
         None
     };
-    let delivery = output::deliver(&app, &text, &request, &current_settings, recording).map_err(
-        |failure| diagnostics::failure!("delivery.rejected", &failure, recording = recording),
-    )?;
+    let delivery =
+        output::deliver(app, &text, &request, &current_settings, recording).map_err(|failure| {
+            diagnostics::failure!("delivery.rejected", &failure, recording = recording)
+        })?;
     // Stop only confirms capture ended. Done confirms the requested transformation and
     // every output completed, even when the window is hidden. History is best-effort.
-    let delivered = transformation_succeeded && delivery.all_requested_outputs_succeeded(&request);
+    let delivered = transformation_succeeded
+        && !artifact.interrupted
+        && delivery.all_requested_outputs_succeeded(&request);
     if delivered {
-        tray::set_delivered(&app, recording);
+        tray::set_delivered(app, recording);
     }
     let done_cue = current_settings.sound_enabled && delivered;
     if done_cue {
@@ -608,6 +690,87 @@ pub async fn finish_recording(
         duration_ms,
         engine: current_settings.engine,
     })
+}
+
+/// The kept recording next in line, if any. A query: nothing is logged.
+#[tauri::command]
+pub fn retained_recording(state: State<'_, RetainedRecordings>) -> Option<retained::Waiting> {
+    state.waiting()
+}
+
+/// Run a kept recording through the same path, with the settings as they are
+/// now, since fixing them may be why the user is trying again.
+///
+/// The text goes to the clipboard and never the cursor: this was asked for
+/// from Utterform's own window, so the cursor is no longer where it was.
+#[tauri::command]
+pub async fn retry_recording(app: AppHandle) -> Result<ProcessResult, String> {
+    let retained = app.state::<RetainedRecordings>();
+    let Some(Retained { artifact, request }) = retained.take() else {
+        return Err(diagnostics::failure!(
+            "recording.retry_failed",
+            &Failure::guidance("nothing_retained", "No recording is waiting")
+        ));
+    };
+    let began = Instant::now();
+    let current_settings = match settings::load(&app) {
+        Ok(settings) => settings,
+        Err(failure) => {
+            retained.restore(Retained { artifact, request });
+            return Err(diagnostics::failure!(
+                "settings.load_failed",
+                &failure,
+                during = "recording.retry"
+            ));
+        }
+    };
+    diagnostics::info!("recording.retry", recording = artifact.recording);
+    let request = ProcessRequest {
+        type_at_cursor: false,
+        copy_to_clipboard: true,
+        ..request
+    };
+    process_recording(&app, artifact, request, current_settings, began).await
+}
+
+/// Give up the kept recording next in line, deleting its audio.
+#[tauri::command]
+pub fn discard_recording(state: State<'_, RetainedRecordings>) {
+    if let Some(recording) = state.take() {
+        diagnostics::info!(
+            "recording.retained_discarded",
+            recording = recording.artifact.recording
+        );
+    }
+}
+
+/// Say what happened when the user is not looking at Utterform. A dictation
+/// started by a hotkey has no other way to report: the message is in a hidden
+/// window, and silence reads as success. A notification that cannot be shown
+/// opens the window instead, since being interrupted beats not knowing.
+///
+/// The text is shown, never logged: it can quote a third party.
+#[tauri::command]
+pub fn notify_if_unattended(app: AppHandle, message: String) {
+    let attended = app.get_webview_window("main").is_some_and(|window| {
+        window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
+    });
+    if attended {
+        return;
+    }
+    let shown = app
+        .notification()
+        .builder()
+        .title("Utterform")
+        .body(message.chars().take(NOTIFICATION_LIMIT).collect::<String>())
+        .show();
+    match shown {
+        Ok(()) => diagnostics::info!("attention.notified"),
+        Err(_) => {
+            diagnostics::warning!("attention.notification_failed");
+            reveal_main_window(&app, "attention");
+        }
+    }
 }
 
 #[tauri::command]
@@ -714,5 +877,25 @@ mod tests {
         for typed in ["", "my secret project notes", "gpt/5", &"x".repeat(65)] {
             assert_eq!(text_model_name(typed), "custom", "{typed}");
         }
+    }
+
+    #[test]
+    fn only_a_dropped_connection_or_a_busy_service_earns_the_quiet_retry() {
+        assert!(is_transient(&Failure::new("connect", "")));
+        assert!(is_transient(&Failure::new("transport", "")));
+        assert!(is_transient(&Failure::new("http", "").status(503)));
+        assert!(is_transient(&Failure::new("http", "").status(429)));
+        assert!(!is_transient(&Failure::new("http", "").status(401)));
+        assert!(!is_transient(&Failure::new("timeout", "")));
+        assert!(!is_transient(&Failure::new("keyring", "")));
+    }
+
+    #[test]
+    fn a_recording_is_kept_unless_there_was_nothing_in_it() {
+        assert!(worth_keeping(&Failure::new("connect", "")));
+        assert!(worth_keeping(&Failure::new("keyring", "")));
+        assert!(worth_keeping(&Failure::new("http", "").status(401)));
+        assert!(!worth_keeping(&Failure::guidance("empty_result", "")));
+        assert!(!worth_keeping(&Failure::new("empty_recording", "")));
     }
 }

@@ -9,6 +9,26 @@
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
+## Road to 1.0
+
+Decided with Jonas on 2026-10-31. Three stages:
+
+1. **Reliability (0.7.13, this branch).** Keep recordings through failures, report
+   failures from a hidden window, survive a keyring restart. Details in
+   [ARCHITECTURE.md](ARCHITECTURE.md), section "When a recording fails".
+2. **First-run assistant (0.8.0).** Part of 1.0 by Jonas's decision: skippable, short
+   welcome, API key or local model, language by typing `de`, optional vocabulary that
+   can wait until later. The contract is `docs/plans/v0.8.0-onboarding-assistant.md` on
+   Draft PR #39; rebase it first, its base predates 0.7.11.
+3. **1.0 finish.** Installed acceptance on Linux, Windows and macOS (including issue #40
+   and the outstanding 0.7.12 tray checks), then release and a new WinGet submission,
+   which does not follow GitHub releases by itself.
+
+Field evidence came from the local log on `asus16`: 551 recordings since 2026-09-23, 536
+delivered. Of the 15 failures, 12 were `empty_result` (ten under two seconds), two were the
+keyring and one an empty capture. Eight of eleven starts report `previous_run_unclean`,
+probably because a shutdown never reaches `app.exiting`; that is unverified and still open.
+
 ## Current handoff — 0.7.12
 
 `work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested

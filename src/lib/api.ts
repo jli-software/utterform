@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  RetainedRecording,
   AppSettings,
   AudioDevice,
   BuiltInAction,
@@ -56,6 +57,10 @@ export const api = {
   ) => invoke<void>("start_recording", { inputDevice, engine, localModelId, action }),
   setRecordingPaused: (paused: boolean) => invoke<RecordingStatus>("set_recording_paused", { paused }),
   cancelRecording: () => invoke<void>("cancel_recording"),
+  retainedRecording: () => invoke<RetainedRecording | null>("retained_recording"),
+  retryRecording: () => invoke<ProcessResult>("retry_recording"),
+  discardRecording: () => invoke<void>("discard_recording"),
+  notifyIfUnattended: (message: string) => invoke<void>("notify_if_unattended", { message }),
   getRecordingStatus: () => invoke<RecordingStatus>("get_recording_status"),
   // The three cues, after a pause long enough to put the window in the
   // background — the way a hotkey recording plays them. The outcome arrives

@@ -15,6 +15,7 @@ mod macos;
 mod models;
 mod output;
 mod platform;
+mod retained;
 mod secrets;
 mod settings;
 mod transcription;
@@ -195,6 +196,7 @@ pub fn run() {
                 .build(),
         )
         .manage(audio::AudioCaptureState::default())
+        .manage(retained::RetainedRecordings::default())
         .manage(feedback::DoneCues::default())
         .manage(tray::TrayState::default())
         .manage(live::LiveState::default())
@@ -253,6 +255,10 @@ pub fn run() {
             commands::set_recording_paused,
             commands::cancel_recording,
             commands::finish_recording,
+            commands::retained_recording,
+            commands::retry_recording,
+            commands::discard_recording,
+            commands::notify_if_unattended,
             commands::list_history,
             commands::clear_history,
             commands::copy_text,

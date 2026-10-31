@@ -39,7 +39,35 @@ The frontend never receives an API key or temporary audio path. Network calls or
 6. Optionally transform the transcript with a separate text-model request.
 7. Persist the completed text to local history (if enabled), before external delivery.
 8. Deliver to each selected output independently.
-9. Delete the temporary recording when the artifact leaves scope.
+9. Delete the temporary recording when the artifact leaves scope, unless transcription failed and it was kept.
+
+### When a recording fails (0.7.13)
+
+The audio is the one thing that cannot be recreated, so failures keep it.
+
+- `process_recording` in `commands.rs` is the single path from artifact to delivery;
+  `finish_recording` and `retry_recording` both enter it. A transient failure
+  (`connect`, `transport`, `body`, HTTP 429/5xx) is retried once after two seconds.
+- Any remaining transcription failure moves the artifact and its request into
+  `retained::RetainedRecordings`, a bounded queue of five. `empty_result` and
+  `empty_recording` are not kept: there is nothing to retry with.
+- `retry_recording` uses current settings, forces clipboard output and never types
+  at the cursor, since the request came from Utterform's own window. Failure re-queues.
+- Dropping an artifact deletes its file, so whoever takes one must deliver or restore
+  it. Files left at exit are removed by `cleanup_stale_recordings` on the next start.
+- A stream that is gone sets `stream_error`; the native watchdog in `check_limit` ends
+  the batch recording at once. `finalize` then returns the partial audio with
+  `interrupted` set instead of an error, unless nothing was captured. Partial audio
+  never earns the green dot or Done cue. Live capture keeps its own failure path.
+- `start_recording` rejects a key that is missing but not a keyring that cannot answer.
+  The frontend no longer gates on its cached `hasApiKey`: the backend can actually read.
+- `notify_if_unattended` shows a desktop notification when the main window is not both
+  visible and focused, falling back to revealing it. The frontend calls it from
+  `setError` and for delivery warnings. The text is shown, never logged.
+
+`secrets::reconnect` replaces the Linux keyring store after a platform failure, because
+`keyring` holds one Secret Service session for the process lifetime and that session
+ends with the daemon. macOS and Windows have no such session.
 
 ## Background capture & feedback
 
