@@ -102,7 +102,7 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, "platform");
 });
 
-/// Settings opens on General; everything else lives one tab away.
+/// Settings opens on Recording; everything else lives one tab away.
 async function showSettingsTab(view: Screen, tab: string) {
   await waitFor(() => expect(view.queryByRole("dialog")).not.toBeNull());
   await fireEvent.click(view.getByRole("tab", { name: new RegExp(tab) }));
@@ -369,7 +369,7 @@ describe("the dictation key recorder", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "Recording");
     return view;
   }
 
@@ -474,7 +474,7 @@ describe("the dictation key recorder", () => {
     expect(vi.mocked(api.applyGlobalHotkey).mock.calls.at(-1)).toEqual(["Ctrl+Alt+D"]);
 
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "Recording");
     expect(view.getByRole("button", { name: /Shortcut/ }).textContent).toContain("Ctrl+Alt+D");
   });
 
@@ -497,7 +497,7 @@ describe("the dictation key recorder", () => {
 
     await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
     expect(view.getByRole("alert").textContent).toContain("not available");
-    expect(view.getByRole("tab", { name: "General" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "Recording" }).getAttribute("aria-selected")).toBe("true");
     // The rest of the settings are stored; only the key needs another attempt.
     expect(api.saveSettings).toHaveBeenCalled();
     expect(view.queryByRole("dialog")).not.toBeNull();
@@ -505,7 +505,8 @@ describe("the dictation key recorder", () => {
 
   it("leaves a working key alone when other settings change", async () => {
     const view = await openSettings();
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "Recording");
+    await showSettingsTab(view, "App");
     await fireEvent.click(view.getByRole("button", { name: "Dark" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
 
@@ -529,7 +530,7 @@ describe("the dictation key recorder", () => {
     });
     const view = await openSettings();
     expect(view.getByRole("alert").textContent).toContain("not available");
-    expect(view.getByRole("tab", { name: "General" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "Recording" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("offers a Wayland session the command line instead of a dead recorder", async () => {
@@ -550,7 +551,7 @@ describe("starting when the user signs in", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "App");
     return view;
   }
 
@@ -589,7 +590,7 @@ describe("starting when the user signs in", () => {
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
 
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "App");
     await waitFor(() => expect(toggleOf(view).checked).toBe(true));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
@@ -606,7 +607,7 @@ describe("starting when the user signs in", () => {
     expect(api.disableAutostart).not.toHaveBeenCalled();
 
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "App");
     await waitFor(() => expect(toggleOf(view).checked).toBe(false));
   });
 
@@ -628,13 +629,13 @@ describe("starting when the user signs in", () => {
     const view = await openStartup();
     await waitFor(() => expect(toggleOf(view).disabled).toBe(false));
     await fireEvent.click(toggleOf(view));
-    await showSettingsTab(view, "Actions");
+    await showSettingsTab(view, "Text actions");
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => expect(view.queryByRole("alert")).not.toBeNull());
     expect(view.getByRole("alert").textContent).toContain("read-only");
     expect(view.queryByRole("dialog")).not.toBeNull();
-    expect(view.getByRole("tab", { name: "General" }).getAttribute("aria-selected")).toBe("true");
+    expect(view.getByRole("tab", { name: "App" }).getAttribute("aria-selected")).toBe("true");
     // The rest of the settings were still stored.
     expect(api.saveSettings).toHaveBeenCalled();
   });
@@ -663,9 +664,9 @@ describe("typing at the cursor", () => {
     await showSettingsTab(view, "Output");
 
     // Paste is the default because it cannot drop or reorder characters.
-    expect(view.queryByRole("spinbutton", { name: /Delay between keystrokes/ })).toBeNull();
+    expect(view.queryByRole("spinbutton", { name: /Delay/ })).toBeNull();
     await fireEvent.click(view.getByRole("button", { name: "Keystrokes" }));
-    const delay = view.getByRole("spinbutton", { name: /Delay between keystrokes/ }) as HTMLInputElement;
+    const delay = view.getByRole("spinbutton", { name: /Delay/ }) as HTMLInputElement;
     expect(delay.value).toBe("15");
 
     await fireEvent.input(delay, { target: { value: "40" } });
@@ -681,7 +682,7 @@ describe("editing the prompts Utterform ships with", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "Actions");
+    await showSettingsTab(view, "Text actions");
     return view;
   }
 
@@ -693,7 +694,7 @@ describe("editing the prompts Utterform ships with", () => {
 
     await fireEvent.click(view.getByRole("button", { name: /Plain/ }));
     expect(view.queryByRole("textbox", { name: "Prompt instructions" })).toBeNull();
-    expect(view.queryByText(/no rewriting or text model/)).not.toBeNull();
+    expect(view.queryByText("Transcription only")).not.toBeNull();
   });
 
   it("saves a rewritten prompt, and offers the original alongside it", async () => {
@@ -775,7 +776,7 @@ describe("editing the prompts Utterform ships with", () => {
 
   it("sends a chosen reasoning level, and nothing at all on Auto", async () => {
     const view = await openPrompts();
-    await showSettingsTab(view, "AI & Models");
+    await showSettingsTab(view, "Text actions");
     await fireEvent.click(view.getByRole("button", { name: "Low" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
@@ -783,7 +784,7 @@ describe("editing the prompts Utterform ships with", () => {
     ));
 
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
+    await showSettingsTab(view, "Text actions");
     await fireEvent.click(view.getByRole("button", { name: "Auto" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
@@ -797,26 +798,51 @@ describe("vocabulary", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "Recording");
+    await showSettingsTab(view, "Transcription");
     return view;
   }
 
-  it("keeps one term per line, and drops the blank ones", async () => {
+  async function addTerm(view: Screen, term: string) {
+    const field = view.getByRole("textbox", { name: "Vocabulary" });
+    await fireEvent.input(field, { target: { value: term } });
+    await fireEvent.keyDown(field, { key: "Enter" });
+  }
+
+  it("adds a word on Enter, once, and lets it be removed again", async () => {
     const view = await openVoice();
-    await fireEvent.input(view.getByRole("textbox", { name: "Vocabulary" }), {
-      target: { value: "Careum\n\n  Utterform  \n" },
-    });
+    await addTerm(view, "  Careum  ");
+    await addTerm(view, "Careum");
+    await addTerm(view, "Utterform");
+    await addTerm(view, "Omarchy");
+    await fireEvent.click(view.getByRole("button", { name: "Remove Omarchy" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ vocabulary: ["Careum", "Utterform"] }),
     ));
   });
 
+  it("keeps the lines of a pasted list and drops the blank ones", async () => {
+    const view = await openVoice();
+    await fireEvent.paste(view.getByRole("textbox", { name: "Vocabulary" }), {
+      clipboardData: { getData: () => "Careum\n\n  Utterform  \n" },
+    });
+    expect(view.getByText("Careum")).toBeTruthy();
+    expect(view.getByText("Utterform")).toBeTruthy();
+  });
+
+  it("does not lose a word that was typed but never added", async () => {
+    const view = await openVoice();
+    await fireEvent.input(view.getByRole("textbox", { name: "Vocabulary" }), { target: { value: "Careum" } });
+    await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ vocabulary: ["Careum"] }),
+    ));
+  });
+
   it("names the term the transcription API would refuse, rather than losing the recording to it", async () => {
     const view = await openVoice();
-    await fireEvent.input(view.getByRole("textbox", { name: "Vocabulary" }), {
-      target: { value: "Careum\n<tagged>" },
-    });
+    await addTerm(view, "Careum");
+    await addTerm(view, "<tagged>");
     expect(view.getByRole("alert").textContent).toContain("<tagged>");
   });
 });
@@ -835,10 +861,9 @@ describe("live dictation", () => {
     vi.mocked(api.getSettings).mockResolvedValue(oldSettings as typeof DEFAULT_SETTINGS);
     const view = await renderExpanded();
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
-    expect(view.getByRole("combobox", { name: "Transcription mode" }).textContent).toContain("GPT Transcribe");
-    await fireEvent.click(view.getByRole("combobox", { name: "Transcription mode" }));
-    await fireEvent.click(view.getByRole("option", { name: /GPT Live Transcribe/ }));
+    await showSettingsTab(view, "Transcription");
+    expect(view.getByRole("button", { name: "Cloud" }).getAttribute("aria-pressed")).toBe("true");
+    await fireEvent.click(view.getByRole("button", { name: "Live" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ cloud_model: "gpt_live_transcribe" })));
     expect(view.queryByRole("combobox", { name: "Action" })).toBeNull();
@@ -871,9 +896,8 @@ describe("live dictation", () => {
     await waitFor(() => expect(view.queryAllByText(/not supported on macOS/).length).toBeGreaterThan(0));
     expect(api.startRecording).not.toHaveBeenCalled();
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
-    await fireEvent.click(view.getByRole("combobox", { name: "Transcription mode" }));
-    await fireEvent.click(view.getByRole("option", { name: /^GPT Transcribe / }));
+    await showSettingsTab(view, "Transcription");
+    await fireEvent.click(view.getByRole("button", { name: "Cloud" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     expect(view.queryByRole("combobox", { name: "Action" })).not.toBeNull();
   });
@@ -1060,8 +1084,8 @@ describe("the transcription selector in the main window", () => {
     expect(selector(view).textContent).not.toContain("Local Whisper");
     // Settings shows what the backend confirmed, not what was asked for.
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
-    expect(view.getByRole("combobox", { name: "Transcription mode" }).textContent).toContain("GPT Transcribe");
+    await showSettingsTab(view, "Transcription");
+    expect(view.getByRole("button", { name: "Cloud" }).getAttribute("aria-pressed")).toBe("true");
     await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     await choose(view, /^Local Whisper /);
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledTimes(2));
@@ -1089,18 +1113,15 @@ describe("the transcription selector in the main window", () => {
     await choose(view, /^Local Whisper /);
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledOnce());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
-    expect(view.getByRole("combobox", { name: "Transcription mode" }).textContent).toContain("Local Whisper");
-    await fireEvent.click(view.getByRole("combobox", { name: "Transcription mode" }));
-    await fireEvent.click(view.getByRole("option", { name: /^GPT Transcribe / }));
+    await showSettingsTab(view, "Transcription");
+    expect(view.getByRole("button", { name: "Local" }).getAttribute("aria-pressed")).toBe("true");
+    await fireEvent.click(view.getByRole("button", { name: "Cloud" }));
     await fireEvent.click(view.getByRole("button", { name: "Cancel" }));
     expect(selector(view).textContent).toContain("Local Whisper");
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "AI & Models");
-    await fireEvent.click(view.getByRole("combobox", { name: "Transcription mode" }));
-    await fireEvent.click(view.getByRole("option", { name: /^GPT Transcribe / }));
-    await fireEvent.click(view.getByRole("combobox", { name: "Transcription mode" }));
-    await fireEvent.click(view.getByRole("option", { name: /GPT Live Transcribe/ }));
+    await showSettingsTab(view, "Transcription");
+    await fireEvent.click(view.getByRole("button", { name: "Cloud" }));
+    await fireEvent.click(view.getByRole("button", { name: "Live" }));
     await fireEvent.click(view.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
     expect(selector(view).textContent).toContain("GPT Live Transcribe");
@@ -1327,27 +1348,24 @@ describe("the ready boundary after processing", () => {
 // Support actions are immediate resource operations, like a model download:
 // they neither take part in the settings draft nor close the dialog.
 describe("support and diagnostics", () => {
-  async function openGeneral() {
+  async function openLogs() {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
-    await waitFor(() => expect(view.queryByText(LOG_PATH)).not.toBeNull());
+    await showSettingsTab(view, "App");
+    await waitFor(() => expect(view.getByRole("button", { name: "Open log file" }).title).toBe(LOG_PATH));
     return view;
   }
 
-  it("ends General with the support group and the path the backend reported", async () => {
-    const view = await openGeneral();
-    const headings = view.getByRole("tabpanel").querySelectorAll("h3");
-    expect(headings[headings.length - 1].textContent).toBe("Support & diagnostics");
-    expect(view.getByText(/contain no transcripts or audio/)).toBeTruthy();
+  it("offers the log actions in App, with the path the backend reported", async () => {
+    const view = await openLogs();
     for (const name of ["Copy diagnostics", "Open log file", "Open log folder"]) {
       expect((view.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
     }
   });
 
   it("runs each action at once, never saves, and leaves Cancel with nothing to undo", async () => {
-    const view = await openGeneral();
+    const view = await openLogs();
     await fireEvent.click(view.getByRole("button", { name: "Copy diagnostics" }));
     await waitFor(() => expect(view.queryByText("Diagnostics copied · 12.4 KB · 318 lines")?.getAttribute("role")).toBe("status"));
     await fireEvent.click(view.getByRole("button", { name: "Open log file" }));
@@ -1372,7 +1390,7 @@ describe("support and diagnostics", () => {
     let finishCopy!: (value: { bytes: number; lines: number; truncated: boolean }) => void;
     vi.mocked(api.copyDiagnostics).mockImplementationOnce(() => new Promise((done) => finishCopy = done));
     vi.mocked(api.openLogFolder).mockRejectedValueOnce("The log folder could not be opened (ref 0a1b2c3d-4)");
-    const view = await openGeneral();
+    const view = await openLogs();
     const copy = view.getByRole("button", { name: "Copy diagnostics" }) as HTMLButtonElement;
     await fireEvent.click(copy);
     expect(copy.disabled).toBe(true);
@@ -1383,7 +1401,7 @@ describe("support and diagnostics", () => {
     await fireEvent.click(view.getByRole("button", { name: "Open log folder" }));
     await waitFor(() => expect(view.getByRole("alert").textContent).toBe("The log folder could not be opened (ref 0a1b2c3d-4)"));
     // The path stays readable for opening it by hand.
-    expect(view.queryByText(LOG_PATH)).not.toBeNull();
+    expect(view.getByRole("button", { name: "Open log file" }).title).toBe(LOG_PATH);
     finishCopy({ bytes: 900, lines: 1, truncated: true });
     await waitFor(() => expect(copy.disabled).toBe(false));
     expect(view.queryByText("Diagnostics copied · 900 bytes · 1 line · newest lines only")).not.toBeNull();
@@ -1396,14 +1414,13 @@ describe("support and diagnostics", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
-    await waitFor(() => expect(view.queryByText("not available in this session")).not.toBeNull());
+    await showSettingsTab(view, "App");
+    await waitFor(() => expect(view.getByRole("button", { name: "Open log file" }).title).toBe("Log file not available in this session"));
   });
 
   it("leaves the sound test and its report in Recording, without the log path", async () => {
-    const view = await openGeneral();
+    const view = await openLogs();
     await showSettingsTab(view, "Recording");
-    expect(view.queryByText(LOG_PATH)).toBeNull();
     expect(view.queryByRole("button", { name: "Copy diagnostics" })).toBeNull();
     await fireEvent.click(view.getByRole("button", { name: "Test sounds (5s delay)" }));
     expect(api.playTestCues).toHaveBeenCalledWith(5);
@@ -1496,7 +1513,7 @@ describe("failures only the interface sees", () => {
     const view = render(App);
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
-    await showSettingsTab(view, "General");
+    await showSettingsTab(view, "App");
     await waitFor(() => expect(view.getByRole("alert").textContent).toBe(
       "Utterform could not read your startup settings: no startup items on this system (ref 0a1b2c3d-9)",
     ));
