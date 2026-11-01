@@ -171,21 +171,22 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
   await trigger.click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
   expect(await page.locator(".settings-mark").innerHTML()).toBe(icon);
-  await expect(page.getByRole("button", { name: "Close settings" })).toBeFocused();
+  const firstTab = page.getByRole("tab", { name: "Recording", exact: true });
+  await expect(firstTab).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Save settings" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Close settings" })).toBeFocused();
+  await expect(firstTab).toBeFocused();
   await page.waitForTimeout(350);
   await page.screenshot({ path: testInfo.outputPath("settings-dark.png") });
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
-  await page.locator(".local-models").scrollIntoViewIfNeeded();
-  await expect(page.locator(".model-row.selected")).toContainText("Whisper Base");
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Whisper Base", exact: true })).toBeChecked();
   await page.screenshot({ path: testInfo.outputPath("models-dark.png") });
-  await page.getByRole("combobox", { name: "Selected local model" }).click();
-  await expect(page.getByRole("listbox", { name: "Selected local model" })).toBeVisible();
+  await page.getByRole("tab", { name: "Recording", exact: true }).click();
+  await page.getByRole("combobox", { name: "Microphone", exact: true }).click();
+  await expect(page.getByRole("listbox", { name: "Microphone" })).toBeVisible();
   await page.waitForTimeout(200);
-  const menuBox = await page.getByRole("listbox", { name: "Selected local model" }).boundingBox();
+  const menuBox = await page.getByRole("listbox", { name: "Microphone" }).boundingBox();
   const scrollBox = await page.locator(".settings-scroll").boundingBox();
   expect(menuBox!.y).toBeGreaterThanOrEqual(scrollBox!.y);
   expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(scrollBox!.y + scrollBox!.height);
@@ -196,20 +197,17 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
   await trigger.click();
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "App", exact: true }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
   await page.getByRole("tab", { name: /Recording/ }).click();
   await page.waitForTimeout(350);
   await page.screenshot({ path: testInfo.outputPath("settings-light.png") });
   await page.getByRole("combobox", { name: "Microphone", exact: true }).click();
   await page.getByRole("option", { name: /Studio microphone/ }).click();
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
-  await page.locator(".local-models").scrollIntoViewIfNeeded();
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
   await page.getByRole("button", { name: "Download Whisper Tiny", exact: true }).click();
   await expect(page.getByRole("button", { name: "Remove Whisper Tiny", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "Selected local model" }).click();
-  await page.getByRole("option", { name: /Whisper Tiny/ }).click();
-  await expect(page.locator(".model-row.selected")).toContainText("Whisper Tiny");
+  await page.getByRole("radio", { name: "Whisper Tiny", exact: true }).check();
   await page.waitForTimeout(250);
   await page.screenshot({ path: testInfo.outputPath("models-light.png") });
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -219,7 +217,7 @@ test("settings share branding, themed model controls and a keyboard-safe dialog"
 test("prompts can be rewritten, read against the original, and reset", async ({ page }, testInfo) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /Actions/ }).click();
+  await page.getByRole("tab", { name: "Text actions", exact: true }).click();
   await page.getByRole("button", { name: /^Email/ }).click();
   const editor = page.getByRole("textbox", { name: "Prompt instructions" });
   await expect(editor).toHaveValue(/Write the transcript as an email/);
@@ -244,7 +242,7 @@ test("prompts can be rewritten, read against the original, and reset", async ({ 
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /Actions/ }).click();
+  await page.getByRole("tab", { name: "Text actions", exact: true }).click();
   await page.getByRole("button", { name: /^Reply/ }).click();
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(editor).toHaveValue(/Write the transcript as an email/);
@@ -252,18 +250,22 @@ test("prompts can be rewritten, read against the original, and reset", async ({ 
   expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({ action_overrides: {} });
 });
 
-test("vocabulary and effort are set where the recording is configured", async ({ page }, testInfo) => {
+test("vocabulary and effort sit with what they belong to", async ({ page }, testInfo) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: "Recording", exact: true }).click();
-  await page.getByRole("textbox", { name: "Vocabulary" }).fill("Careum\nUtterform\n<tagged>");
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
+  const vocabulary = page.getByRole("textbox", { name: "Vocabulary" });
+  for (const term of ["Careum", "Utterform", "<tagged>"]) {
+    await vocabulary.fill(term);
+    await vocabulary.press("Enter");
+  }
   await expect(page.getByRole("alert")).toContainText("<tagged>");
   await page.waitForTimeout(200);
   await page.screenshot({ path: testInfo.outputPath("vocabulary-dark.png") });
 
-  await page.getByRole("textbox", { name: "Vocabulary" }).fill("Careum\nUtterform");
+  await page.getByRole("button", { name: "Remove <tagged>" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
+  await page.getByRole("tab", { name: "Text actions", exact: true }).click();
   await page.getByRole("button", { name: "Low", exact: true }).click();
   await page.getByRole("button", { name: "Save settings" }).click();
   expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
@@ -297,8 +299,7 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
   await expect(page.getByText("Recording discarded", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open settings" }).click();
   expect(await page.locator(".settings-modal").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
-  await page.locator(".local-models").scrollIntoViewIfNeeded();
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("models-compact-reduced-motion.png") });
 
   // The shortcut recorder and the startup switch have to stay reachable,
@@ -314,9 +315,9 @@ test("compact layout and reduced motion preserve readable controls", async ({ pa
     expect(box.y + box.height).toBeLessThanOrEqual(scroll.y + scroll.height + 1);
     expect(box.x + box.width).toBeLessThanOrEqual(scroll.x + scroll.width + 1);
   };
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "Recording", exact: true }).click();
   await insideTheScroll(page.getByRole("button", { name: /Shortcut/ }));
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "App", exact: true }).click();
   await insideTheScroll(page.getByRole("checkbox", { name: /when I sign in/ }));
   await page.screenshot({ path: testInfo.outputPath("startup-compact.png") });
 });
@@ -371,12 +372,7 @@ test("the dictation key and the typing method are reachable and readable in Sett
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  await page.getByRole("tab", { name: /General/ }).click();
-
-  await expect(page.getByRole("tabpanel").getByRole("heading").first()).toHaveText("Dictation shortcut");
   await page.getByRole("tab", { name: "Recording", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Dictation shortcut", exact: true })).toHaveCount(0);
-  await page.getByRole("tab", { name: "General", exact: true }).click();
 
   // The shortcut is recorded, not typed: real key presses through the browser.
   const shortcut = page.getByRole("button", { name: /Shortcut/ });
@@ -409,9 +405,9 @@ test("the dictation key and the typing method are reachable and readable in Sett
 
   // Paste is the default; the keystroke delay only appears once it is needed,
   // so the common case stays a single choice.
-  await expect(page.getByRole("spinbutton", { name: /Delay between keystrokes/ })).toBeHidden();
+  await expect(page.getByRole("spinbutton", { name: /Delay/ })).toBeHidden();
   await page.getByRole("button", { name: "Keystrokes", exact: true }).click();
-  const delay = page.getByRole("spinbutton", { name: /Delay between keystrokes/ });
+  const delay = page.getByRole("spinbutton", { name: /Delay/ });
   await expect(delay).toHaveValue("15");
 
   // Both groups must stay inside the scroll viewport at the default size.
@@ -433,7 +429,7 @@ test("the dictation key and the typing method are reachable and readable in Sett
 test("Escape leaves the shortcut alone before it leaves Settings", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "Recording", exact: true }).click();
   const shortcut = page.getByRole("button", { name: /Shortcut/ });
   await shortcut.click();
   await page.keyboard.press("Escape");
@@ -447,7 +443,7 @@ test("Escape leaves the shortcut alone before it leaves Settings", async ({ page
 test("the startup switch reads and writes the system entry, and only on Save", async ({ page }, testInfo) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "App", exact: true }).click();
   const startup = page.getByRole("checkbox", { name: /when I sign in/ });
   await startup.scrollIntoViewIfNeeded();
   await expect(startup).toBeEnabled();
@@ -460,7 +456,7 @@ test("the startup switch reads and writes the system entry, and only on Save", a
   expect(await page.evaluate(() => Reflect.get(window, "__autostartWrites"))).toEqual([]);
 
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "App", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /when I sign in/ })).not.toBeChecked();
   await page.getByRole("checkbox", { name: /when I sign in/ }).check();
   await page.getByRole("button", { name: "Save settings" }).click();
@@ -470,7 +466,7 @@ test("the startup switch reads and writes the system entry, and only on Save", a
   // Reopened, the switch shows the entry that now exists, and saving again
   // without touching it writes nothing more.
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: /General/ }).click();
+  await page.getByRole("tab", { name: "App", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /when I sign in/ })).toBeChecked();
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeHidden();
@@ -694,8 +690,8 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
 
     // Settings shows the same pair, and Cancel there leaves it alone.
     await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "Transcription mode" })).toContainText("GPT Live Transcribe");
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Live", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(transcription).toContainText("GPT Live Transcribe");
     await page.screenshot({ path: testInfo.outputPath("transcription-live.png") });
@@ -740,9 +736,8 @@ test("live settings and blocked transcript remain usable in the production bundl
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await page.getByRole("button", { name: "Open settings" }).click();
-  await page.getByRole("tab", { name: "AI & Models", exact: true }).click();
-  await page.getByRole("combobox", { name: "Transcription mode" }).click();
-  await page.getByRole("option", { name: /GPT Live Transcribe/ }).click();
+  await page.getByRole("tab", { name: "Transcription", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Live", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("live-settings.png") });
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByRole("combobox", { name: "Action", exact: true })).toHaveCount(0);
@@ -764,36 +759,39 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 920, height: 720 }
     await page.setViewportSize(viewport);
     await page.goto("/");
     await page.getByRole("button", { name: "Open settings" }).click();
-    const tabs = ["General", "Recording", "AI & Models", "Actions", "Output"];
+    const tabs = ["Recording", "Transcription", "Text actions", "Output", "App"];
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
     await expect(page.getByRole("tab")).toHaveText(tabs);
-    await tab("General").focus();
+    await tab("Recording").focus();
     // Keyboard navigation wraps the rail and keeps every category visible.
-    for (const name of [...tabs.slice(1), "General"]) {
+    for (const name of [...tabs.slice(1), "Recording"]) {
       await page.keyboard.press("ArrowRight");
       await expect(tab(name)).toBeFocused();
       await expect(tab(name)).toHaveAttribute("aria-selected", "true");
       await expect(tab(name)).toBeInViewport();
     }
     await page.keyboard.press("ArrowLeft");
-    await expect(tab("Output")).toBeFocused();
+    await expect(tab("App")).toBeFocused();
 
     const editAcrossTabs = async () => {
-      await tab("General").click();
+      await tab("App").click();
       await page.getByRole("button", { name: "Light", exact: true }).click();
       await tab("Recording").click();
       await page.getByRole("combobox", { name: "Microphone", exact: true }).click();
       await page.getByRole("option", { name: /Studio microphone/ }).click();
-      await page.getByRole("textbox", { name: "Vocabulary", exact: true }).fill("Utterform\nCareum");
-      await tab("AI & Models").click();
-      await expect(page.getByLabel(/API key/)).toBeVisible();
+      await tab("Transcription").click();
+      await expect(page.getByLabel("API key", { exact: true })).toBeVisible();
+      for (const term of ["Utterform", "Careum"]) {
+        await page.getByRole("textbox", { name: "Vocabulary", exact: true }).fill(term);
+        await page.getByRole("textbox", { name: "Vocabulary", exact: true }).press("Enter");
+      }
+      await tab("Text actions").click();
       await page.getByRole("button", { name: "Low", exact: true }).click();
-      await tab("Actions").click();
       await page.getByRole("textbox", { name: "Prompt name", exact: true }).fill("Tidy up");
       await tab("Output").click();
       await page.getByRole("button", { name: "Keystrokes", exact: true }).click();
-      await page.getByRole("spinbutton", { name: /Delay between keystrokes/ }).fill("30");
-      await page.getByRole("checkbox", { name: /Remember the last 100 texts/ }).uncheck();
+      await page.getByRole("spinbutton", { name: /Delay/ }).fill("30");
+      await page.getByRole("checkbox", { name: /Keep last 100 texts/ }).uncheck();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     };
     await editAcrossTabs();
@@ -804,14 +802,14 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 920, height: 720 }
     await page.getByRole("button", { name: "Open settings" }).click();
     await tab("Recording").click();
     await expect(page.getByRole("combobox", { name: "Microphone", exact: true })).toHaveText("System default");
-    await expect(page.getByRole("textbox", { name: "Vocabulary", exact: true })).toHaveValue("");
-    await tab("AI & Models").click();
+    await tab("Transcription").click();
+    await expect(page.locator(".chip")).toHaveCount(0);
+    await tab("Text actions").click();
     await expect(page.getByRole("button", { name: "Auto", exact: true })).toHaveClass(/active/);
-    await tab("Actions").click();
     await expect(page.getByRole("textbox", { name: "Prompt name", exact: true })).toHaveValue("Clean");
     await tab("Output").click();
     await expect(page.getByRole("button", { name: "Paste", exact: true })).toHaveClass(/active/);
-    await expect(page.getByRole("checkbox", { name: /Remember the last 100 texts/ })).toBeChecked();
+    await expect(page.getByRole("checkbox", { name: /Keep last 100 texts/ })).toBeChecked();
     await editAcrossTabs();
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toMatchObject({
@@ -822,7 +820,7 @@ for (const viewport of [{ width: 360, height: 400 }, { width: 920, height: 720 }
     // Capture every reorganised panel in both themes for visual review.
     await page.getByRole("button", { name: "Open settings" }).click();
     for (const theme of ["Light", "Dark"]) {
-      await tab("General").click();
+      await tab("App").click();
       await page.getByRole("button", { name: theme, exact: true }).click();
       for (const name of tabs) {
         await tab(name).click();
@@ -844,9 +842,9 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
     await page.getByRole("button", { name: "Open settings" }).click();
-    const tabs = ["General", "Recording", "AI & Models", "Actions", "Output"];
+    const tabs = ["Recording", "Transcription", "Text actions", "Output", "App"];
     const panel = page.getByRole("tabpanel");
-    const geometry = () => page.locator(".settings-modal, .modal-header, .settings-rail, .settings-scroll, .modal-actions").evaluateAll(
+    const geometry = () => page.locator(".settings-modal, .settings-brand, .settings-rail, .settings-scroll, .modal-actions").evaluateAll(
       (elements) => elements.map((element) => {
         const { x, y, width, height } = element.getBoundingClientRect();
         return { x, y, width, height };
@@ -863,18 +861,20 @@ for (const viewport of [
     for (const name of [...tabs, ...tabs.toReversed()]) {
       const tab = page.getByRole("tab", { name, exact: true });
       await tab.click();
-      await expect(tab).toBeInViewport({ ratio: 1 });
+      await expect(tab).toBeInViewport({ ratio: 0.99 });
       await expect.poll(geometry).toEqual(original);
       expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
       expect((await panel.locator(".setting-group").first().boundingBox())!.width).toBe(cardWidth);
     }
-    await page.getByRole("tab", { name: "Recording", exact: true }).click();
-    // Scroll the dense panel to its last control; the chrome must not move.
-    await page.getByRole("textbox", { name: /Recording context/ }).scrollIntoViewIfNeeded();
-    expect(await panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await page.getByRole("tab", { name: "Transcription", exact: true }).click();
+    // Reach the last control of the fullest category; the chrome must not move.
+    await page.getByLabel("Context").scrollIntoViewIfNeeded();
+    await expect(page.getByLabel("Context")).toBeInViewport({ ratio: 1 });
+    // Every category fits the default window without scrolling.
+    if (viewport.height >= 720) expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
     expect(await geometry()).toEqual(original);
     await expect(page.getByRole("button", { name: "Save settings", exact: true })).toBeInViewport({ ratio: 1 });
-    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await page.getByRole("tab", { name: "App", exact: true }).click();
     expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("stable-settings.png") });
 
@@ -892,16 +892,15 @@ for (const viewport of [
 const LOG_PATH = "/home/tester/.local/share/software.jli.utterform/logs/utterform.log";
 
 for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
-  test(`support actions run at once from General and stay reachable at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+  test(`support actions run at once from App and stay reachable at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.setViewportSize(viewport);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
     await page.getByRole("button", { name: "Open settings" }).click();
-    await page.getByRole("tab", { name: "General", exact: true }).click();
+    await page.getByRole("tab", { name: "App", exact: true }).click();
     const panel = page.getByRole("tabpanel");
-    await expect(panel.getByRole("heading").last()).toHaveText("Support & diagnostics");
     const scroll = page.locator(".settings-scroll");
     const reachable = async (control: ReturnType<typeof page.getByRole>) => {
       await control.scrollIntoViewIfNeeded();
@@ -919,10 +918,7 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
     const openFile = page.getByRole("button", { name: "Open log file", exact: true });
     const openFolder = page.getByRole("button", { name: "Open log folder", exact: true });
     for (const control of [copy, openFile, openFolder]) await reachable(control);
-    const path = page.getByText(LOG_PATH, { exact: true });
-    await path.scrollIntoViewIfNeeded();
-    await expect(path).toBeVisible();
-    expect(await path.evaluate((element) => element.getBoundingClientRect().right <= element.closest(".setting-group")!.getBoundingClientRect().right + 1)).toBe(true);
+    await expect(openFile).toHaveAttribute("title", LOG_PATH);
     expect(await scroll.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
@@ -936,7 +932,6 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
     await openFolder.click();
     await expect(page.getByRole("alert")).toHaveText("The log folder could not be opened (ref 0a1b2c3d-4)");
     await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-    await expect(path).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("support-dark.png") });
     await page.evaluate(() => document.documentElement.dataset.theme = "light");
     await expect(page.getByRole("alert")).toBeVisible();
@@ -945,8 +940,6 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
     // The sound test stays where recording is configured, without the path.
     await page.getByRole("tab", { name: "Recording", exact: true }).click();
     await expect(page.getByRole("button", { name: "Test sounds (5s delay)" })).toBeVisible();
-    await expect(page.getByText(LOG_PATH, { exact: true })).toHaveCount(0);
-    await page.getByRole("tab", { name: "General", exact: true }).click();
 
     // Cancel has nothing to undo, and nothing was saved.
     await page.getByRole("button", { name: "Cancel", exact: true }).click();

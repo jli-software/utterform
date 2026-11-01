@@ -423,6 +423,16 @@ shortcut capture, typing delay and history retention. Per-panel dark/light scree
 are written to the ignored `test-results/` directory for visual inspection. Desktop IPC
 is mocked: native WebKit/WebView rendering and physical audio/input remain manual checks.
 
+## 0.7.14 — Settings rebuilt
+
+Automated: every category at 920×720 without scrolling, and reachable at 360×400 and
+920×400; focus contained from the first tab to Save; Cancel restoring edits across all
+five categories; words added with Enter, once, removed with ×, kept from a pasted list,
+and saved when typed but not added; the model chosen in the list; both themes captured.
+
+Still to confirm by hand on an installed build: tooltips in the native WebView, a real
+model download with its progress bar, and the Wayland command row on Omarchy.
+
 ## 0.7.12 — tray confirmation
 
 Native tests cover green/red geometry at 16/32 px, unchanged idle bytes, five-second

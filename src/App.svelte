@@ -30,6 +30,7 @@
     Theme,
   } from "./lib/types";
   import { api } from "./lib/api";
+  import Icon from "./lib/Icon.svelte";
   import SelectMenu from "./lib/SelectMenu.svelte";
   import ShortcutRecorder from "./lib/ShortcutRecorder.svelte";
   import { isApplePlatform } from "./lib/shortcut";
@@ -45,16 +46,28 @@
   /// anywhere: it is read from `engine` and `cloud_model` and written back as
   /// exactly those two, so Settings and the main window cannot disagree.
   type TranscriptionMode = "gpt_transcribe" | "gpt_live_transcribe" | "local_whisper";
-  type SettingsTab = "general" | "recording" | "ai" | "actions" | "output";
+  type SettingsTab = "recording" | "transcription" | "actions" | "output" | "app";
   type SupportAction = "copy" | "file" | "folder";
 
-  const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
-    { id: "general", label: "General" },
-    { id: "recording", label: "Recording" },
-    { id: "ai", label: "AI & Models" },
-    { id: "actions", label: "Actions" },
-    { id: "output", label: "Output" },
+  const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: "mic" | "wave" | "spark" | "output" | "gear" }> = [
+    { id: "recording", label: "Recording", icon: "mic" },
+    { id: "transcription", label: "Transcription", icon: "wave" },
+    { id: "actions", label: "Text actions", icon: "spark" },
+    { id: "output", label: "Output", icon: "output" },
+    { id: "app", label: "App", icon: "gear" },
   ];
+  // Explanations live in tooltips; the page itself stays short.
+  const ENGINES: Array<{ mode: TranscriptionMode; label: string; icon: "cloud" | "bolt" | "chip"; hint: string }> = [
+    { mode: "gpt_transcribe", label: "Cloud", icon: "cloud", hint: "GPT Transcribe. Audio is sent to OpenAI." },
+    { mode: "gpt_live_transcribe", label: "Live", icon: "bolt", hint: "GPT Live Transcribe. Audio streams to OpenAI and text appears at your cursor. Plain only. Do not move the cursor, change fields or type while dictating. Line breaks become spaces." },
+    { mode: "local_whisper", label: "Local", icon: "chip", hint: "Local Whisper. Audio stays on this device; only text actions other than Plain use OpenAI." },
+  ];
+  const THEMES: Array<{ value: Theme; label: string; icon: "screen" | "sun" | "moon" }> = [
+    { value: "system", label: "System", icon: "screen" },
+    { value: "light", label: "Light", icon: "sun" },
+    { value: "dark", label: "Dark", icon: "moon" },
+  ];
+  const TOGGLE_COMMAND = "utterform --toggle";
   const EFFORTS: Array<{ value: TextEffort | null; label: string }> = [
     { value: null, label: "Auto" },
     { value: "minimal", label: "Minimal" },
@@ -69,7 +82,7 @@
   let models: LocalModel[] = [];
   let selectedAction: string = "plain";
   let showSettings = false;
-  let settingsTab: SettingsTab = "general";
+  let settingsTab: SettingsTab = "recording";
   // The shipped prompts come from the backend so there is only ever one copy of
   // them; this list stands in until it answers, and in a browser preview.
   let builtInActions: BuiltInAction[] = BUILT_IN_ACTIONS;
@@ -178,7 +191,7 @@
   $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
     : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
       ? `Place the cursor in your text field, then press ${settings.global_hotkey} to start and finish live dictation.`
-      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → General.";
+      : "Place the cursor in your text field and use your system dictation shortcut to start and finish. Configure it in Settings → Recording.";
   $: selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
   $: displayedText = selectedHistory?.text ?? result?.text ?? "";
   // Number keys follow the list, so a renamed or added action still has one.
@@ -196,15 +209,11 @@
   $: editedCustom = settings.custom_actions.find((action) => `custom:${action.id}` === selectedPrompt) ?? null;
   // Split on lines, so a term can never carry the newline the API refuses; only
   // the angle brackets have to be caught here.
-  $: rejectedTerms = vocabularyDraft
-    .split("\n")
-    .map((term) => term.trim())
-    .filter((term) => term && FORBIDDEN_IN_KEYWORD.test(term));
+  $: rejectedTerms = settings.vocabulary.filter((term) => FORBIDDEN_IN_KEYWORD.test(term));
   $: historyOptions = history.map((entry) => ({ value: entry.id, label: entry.title, hint: formatHistoryTime(historyTimestamp(entry), now) }));
   $: displayedTimestamp = selectedHistory ? historyTimestamp(selectedHistory) : resultTimestamp;
   $: recordingActive = phase === "recording" || phase === "paused";
   $: deviceOptions = [{ value: "", label: "System default" }, ...devices.map((device) => ({ value: device.id, label: device.name, hint: device.isDefault ? "Default microphone" : undefined }))];
-  $: modelOptions = models.map((model) => ({ value: model.id, label: model.name, hint: model.downloaded ? "Ready on this device" : "Download required" }));
   $: canRecord = liveMode || settings.copy_to_clipboard || settings.save_to_file || settings.type_at_cursor;
   // A key that could not be reserved at startup had nowhere to report; the
   // field it belongs to is where the user finds out. Derived rather than read
@@ -532,7 +541,7 @@
       settings.engine === "local_whisper" &&
       !models.some((model) => model.id === settings.local_model_id && model.downloaded)
     ) {
-      setError("Download and select a model in Settings → AI & Models before recording.");
+      setError("Download and select a model in Settings → Transcription before recording.");
       return;
     }
     try {
@@ -890,6 +899,8 @@
     // A reading that has not been put back yet owns the shortcut; saving must
     // not register the new key underneath it.
     await hotkeyCaptureWork;
+    // A word typed but not yet added is still something the user asked for.
+    addVocabulary();
     const previousHotkey = settingsSnapshot?.global_hotkey ?? null;
     try {
       await api.saveSettings(settings);
@@ -911,14 +922,14 @@
           // the dialog stays open where the shortcut was entered.
           hotkeyError = String(error);
           hotkeySupport = { ...hotkeySupport, failure: hotkeyError };
-          selectSettingsTab("general");
+          selectSettingsTab("recording");
           return;
         }
       }
       if (!(await saveAutostart())) {
         // The startup entry is the only thing left undone, and the switch it
         // belongs to is where the reason is waiting.
-        selectSettingsTab("general");
+        selectSettingsTab("app");
         return;
       }
       showSettings = false;
@@ -979,8 +990,8 @@
   function openSettings() {
     settingsSnapshot = structuredClone(settings);
     confirmClear = false;
-    settingsTab = "general";
-    vocabularyDraft = settings.vocabulary.join("\n");
+    settingsTab = "recording";
+    vocabularyDraft = "";
     selectPrompt(promptExists(selectedPrompt) ? selectedPrompt : firstEditablePrompt());
     supportMessage = "";
     supportError = "";
@@ -1030,12 +1041,23 @@
     (document.getElementById(`settings-tab-${next.id}`) as HTMLElement | null)?.focus();
   }
 
-  function updateVocabulary(value: string) {
-    vocabularyDraft = value;
-    settings = {
-      ...settings,
-      vocabulary: value.split("\n").map((term) => term.trim()).filter(Boolean),
-    };
+  function addVocabulary(text = vocabularyDraft) {
+    vocabularyDraft = "";
+    const terms = text.split("\n").map((term) => term.trim()).filter(Boolean);
+    if (!terms.length) return;
+    settings = { ...settings, vocabulary: [...new Set([...settings.vocabulary, ...terms])] };
+  }
+
+  /// A pasted list keeps its lines; a single-line field would run them together.
+  function pasteVocabulary(event: ClipboardEvent) {
+    const text = event.clipboardData?.getData("text") ?? "";
+    if (!text.includes("\n")) return;
+    event.preventDefault();
+    addVocabulary(`${vocabularyDraft}${text}`);
+  }
+
+  function removeVocabulary(term: string) {
+    settings = { ...settings, vocabulary: settings.vocabulary.filter((other) => other !== term) };
   }
 
   /// Store only what differs from what we ship. A field returned to the default
@@ -1241,208 +1263,183 @@
 </main>
 
 {#if showSettings}
-  <div class="modal-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && cancelSettings()}>
+  <div class="modal-backdrop" role="presentation">
     <div class="settings-modal" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="settings-title" onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelSettings(); } }}>
-      <div class="modal-header"><div class="settings-brand"><Brand className="settings-mark" /><div><small>UTTERFORM · {version}</small><h2 id="settings-title">Settings</h2></div></div><button class="icon-button" aria-label="Close settings" onclick={cancelSettings}><svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div class="settings-brand"><Brand className="settings-mark" /><h2 id="settings-title">Settings</h2></div>
 
-      <div class="settings-body">
-        <div class="settings-rail" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-          {#each SETTINGS_TABS as tab, index}
-            <button id={`settings-tab-${tab.id}`} role="tab" class:active={settingsTab === tab.id}
-              aria-selected={settingsTab === tab.id} aria-controls="settings-panel"
-              tabindex={settingsTab === tab.id ? 0 : -1}
-              onclick={() => selectSettingsTab(tab.id)} onkeydown={(event) => moveSettingsTab(event, index)}>
-              <strong>{tab.label}</strong>
-            </button>
-          {/each}
-        </div>
+      <div class="settings-rail" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        {#each SETTINGS_TABS as tab, index}
+          <button id={`settings-tab-${tab.id}`} role="tab" class:active={settingsTab === tab.id}
+            aria-selected={settingsTab === tab.id} aria-controls="settings-panel"
+            tabindex={settingsTab === tab.id ? 0 : -1}
+            onclick={() => selectSettingsTab(tab.id)} onkeydown={(event) => moveSettingsTab(event, index)}>
+            <Icon name={tab.icon} /><strong>{tab.label}</strong>
+          </button>
+        {/each}
+      </div>
 
-        <div class="settings-scroll" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
-        {#if settingsTab === "general"}
-        <div class="setting-group"><h3>Dictation shortcut</h3>
-          {#if hotkeySupport.supported}
-            <label class="toggle-field"><input type="checkbox" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} /><span>Enable global dictation shortcut</span></label>
-            {#if settings.global_hotkey !== null}
-              <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
-                value={settings.global_hotkey || hotkeySupport.default}
-                onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
-                oncapture={captureHotkey} />
-            {/if}
-            {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
-            <p class="privacy-note">Press once to record, again to finish. Works in other apps without opening Utterform.</p>
-          {:else}
-            <p class="privacy-note">{hotkeySupport.explanation}</p>
-          {/if}
-        </div>
-
-        <div class="setting-group"><h3>Appearance</h3><div class="segmented three">
-          {#each ["system", "light", "dark"] as theme}
-            <button class:active={settings.theme === theme} onclick={() => { settings = { ...settings, theme: theme as Theme }; applyTheme(settings.theme); }}>{theme[0].toUpperCase() + theme.slice(1)}</button>
-          {/each}
-        </div></div>
-
-        <div class="setting-group"><h3>Startup</h3>
-          <label class="toggle-field"><input type="checkbox" checked={autostartDraft} disabled={autostartChecking || !autostartAvailable} onchange={(event) => (autostartDraft = event.currentTarget.checked)} /><span>Start Utterform when I sign in{#if autostartChecking} <small>checking…</small>{/if}</span></label>
-          <p class="privacy-note">Starts hidden in the system tray. Open it from the tray when needed.</p>
-          {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
-        </div>
-
-        <div class="setting-group support-group"><h3>Support &amp; diagnostics</h3>
-          <p class="section-description">Logs stay on this device and contain no transcripts or audio. Copy them only when you want to share them.</p>
-          <div class="support-actions">
-            <button class="support-action" aria-busy={supportBusy.copy} disabled={supportBusy.copy} onclick={() => runSupportAction("copy")}>Copy diagnostics</button>
-            <button class="support-action" aria-busy={supportBusy.file} disabled={supportBusy.file} onclick={() => runSupportAction("file")}>Open log file</button>
-            <button class="support-action" aria-busy={supportBusy.folder} disabled={supportBusy.folder} onclick={() => runSupportAction("folder")}>Open log folder</button>
-          </div>
-          {#if supportMessage}<p class="privacy-note" role="status">{supportMessage}</p>{/if}
-          {#if supportError}<p class="setting-error" role="alert">{supportError}</p>{/if}
-          <p class="privacy-note log-location">Log file: <code>{logPath ?? "not available in this session"}</code></p>
-        </div>
-
-        {/if}
-
+      <div class="settings-scroll" id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
         {#if settingsTab === "recording"}
-        <div class="setting-group"><h3>Audio input</h3>
-        <div class="field"><span>Microphone</span><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div>
-        <label class="field"><span>Language hints <small>comma-separated, optional</small></span><input value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></label>
-        </div>
-
-        <div class="setting-group"><h3>Recording feedback</h3>
-          <label class="toggle-field"><input type="checkbox" bind:checked={settings.sound_enabled} /><span>Play recording sounds</span></label>
-          <button class="cue-test" disabled={cueTestPending} onclick={testCues}>{cueTestPending ? "Playing in 5 seconds…" : "Test sounds (5s delay)"}</button>
-          <p class="privacy-note">Start/stop clicks and a chime when text is ready.</p>
+        <div class="setting-group">
+          <div class="setting-row"><span>Microphone</span><div class="setting-control wide"><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => settings = { ...settings, input_device: value || null }} /></div></div>
+          <div class="setting-row" title={hotkeySupport.supported ? "Press once to record, again to finish" : hotkeySupport.explanation}><span>Shortcut</span><div class="setting-control">
+            {#if hotkeySupport.supported}
+              {#if settings.global_hotkey !== null}
+                <ShortcutRecorder id="dictation-shortcut" label="Shortcut" {apple}
+                  value={settings.global_hotkey || hotkeySupport.default}
+                  onchange={(shortcut) => (settings = { ...settings, global_hotkey: shortcut })}
+                  oncapture={captureHotkey} />
+              {/if}
+              <input class="switch" type="checkbox" aria-label="Enable global dictation shortcut" checked={settings.global_hotkey !== null} onchange={(event) => (settings = { ...settings, global_hotkey: event.currentTarget.checked ? settings.global_hotkey ?? hotkeySupport.default : null })} />
+            {:else}
+              <code class="setting-command">{TOGGLE_COMMAND}</code>
+              <button class="icon-action" aria-label="Copy command" title="Copy command" onclick={() => api.copyText(TOGGLE_COMMAND).catch(setError)}><Icon name="copy" /></button>
+            {/if}
+          </div></div>
+          {#if hotkeyMessage}<p class="setting-error" role="alert">{hotkeyMessage}</p>{/if}
+          <div class="setting-row" title="Start/stop clicks and a chime when text is ready"><span>Sounds</span><div class="setting-control">
+            <button class="icon-action" disabled={cueTestPending} aria-label={cueTestPending ? "Playing in 5 seconds…" : "Test sounds (5s delay)"} title={cueTestPending ? "Playing in 5 seconds…" : "Test sounds (5s delay)"} onclick={testCues}><Icon name="play" /></button>
+            <input class="switch" type="checkbox" aria-label="Play recording sounds" bind:checked={settings.sound_enabled} />
+          </div></div>
           {#if cueTestMessage}<pre class="cue-report" role="status">{cueTestMessage}</pre>{/if}
         </div>
-        <div class="setting-group"><h3>Vocabulary</h3>
-          <p class="section-description">Names and terms to recognise, one per line. Works with both engines.</p>
-          <label class="field"><span class="visually-hidden">Vocabulary</span><textarea class="vocabulary" rows="4" aria-label="Vocabulary" placeholder={"Careum\nUtterform\nOmarchy"} value={vocabularyDraft} oninput={(event) => updateVocabulary(event.currentTarget.value)}></textarea></label>
-          {#if rejectedTerms.length}
-            <p class="setting-error" role="alert">Not sent, because the transcription API refuses a term containing &lt; or &gt;: {rejectedTerms.join(", ")}</p>
-          {/if}
-          <label class="field"><span>Recording context <small>optional, cloud only</small></span><textarea rows="2" placeholder="A standup about the billing rewrite." value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })}></textarea></label>
-        </div>
-
         {/if}
 
-        {#if settingsTab === "ai"}
-        <div class="setting-group"><h3>Transcription</h3>
-          <div class="field"><span>Transcription mode</span>
-            <SelectMenu id="settings-transcription" label="Transcription mode" value={transcriptionMode}
-              options={transcriptionOptions} onchange={(value) => settings = transcriptionSettings(value)} />
-          </div>
-          {#if liveMode}
-            <p class="privacy-note">Live dictation streams audio to OpenAI and inserts text at your cursor. Plain only. Start with the dictation shortcut in your target field. Switching windows stops insertion for the rest of the recording.</p>
-            <p class="privacy-note">Do not move the cursor, change fields or type while dictating: changes within a window may go undetected. Line breaks become spaces; Enter is never pressed.</p>
-            {#if !liveSupport.supported}<p class="setting-error" role="status">{liveSupport.explanation}</p>{/if}
-          {/if}
-        <p class="privacy-note">Cloud transcription sends audio to OpenAI. With Local Whisper, only text is sent when an action other than Plain is used.</p></div>
-
-        <div class="setting-group"><h3>OpenAI</h3><label class="field"><span>API key <small>{hasApiKey ? "stored securely" : "not configured"}</small></span><div class="inline-field"><input type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "Enter a replacement key" : "Enter API key"} />{#if hasApiKey}<button class="danger-text" onclick={removeApiKey}>Remove</button>{/if}</div></label>
-        <p class="privacy-note">Stored in your system keyring. Used for cloud transcription and text actions.</p></div>
-
-        <div class="setting-group local-models"><div class="group-heading"><h3>Local Whisper models</h3><span class="section-badge">On-device audio</span></div>
-          <p class="section-description">Larger models are more accurate but slower.</p>
-          <div class="model-list">{#each models as model}<div class="model-row" class:selected={model.downloaded && settings.local_model_id === model.id}>
-            <div class="model-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/></svg></div>
-            <div class="model-info"><strong>{model.name}<span class="model-state">{model.downloaded ? settings.local_model_id === model.id ? "Selected" : "Ready" : formatBytes(model.sizeBytes)}</span></strong><span class="model-description">{model.description}</span>
-              {#if busyModel === model.id && !model.downloaded}<progress aria-label={`Downloading ${model.name}`} max="1" value={downloadProgress[model.id] ?? 0}></progress>{/if}
-            </div>
-            <button class:downloaded={model.downloaded} disabled={busyModel !== null} aria-label={`${model.downloaded ? "Remove" : "Download"} ${model.name}`} onclick={() => toggleModel(model)}>{busyModel === model.id ? "Working…" : model.downloaded ? "Remove" : "Download"}</button>
-          </div>{/each}</div>
-          <div class="field"><span>Selected local model</span><SelectMenu id="local-model" label="Selected local model" value={settings.local_model_id ?? ""} options={modelOptions} onchange={(value) => settings = { ...settings, local_model_id: value }} upwards /></div>
+        {#if settingsTab === "transcription"}
+        <div class="setting-group">
+          <div class="setting-row"><span>Engine</span><div class="setting-control"><div class="segmented" role="group" aria-label="Engine">
+            {#each ENGINES as choice}
+              <button class:active={transcriptionMode === choice.mode} aria-pressed={transcriptionMode === choice.mode} title={choice.hint} onclick={() => settings = transcriptionSettings(choice.mode)}><Icon name={choice.icon} />{choice.label}</button>
+            {/each}
+          </div></div></div>
+          {#if liveMode && !liveSupport.supported}<p class="setting-error" role="status">{liveSupport.explanation}</p>{/if}
+          <div class="setting-row" title="Stored in your system keyring"><label for="api-key">API key</label><div class="setting-control">
+            {#if hasApiKey}<span class="setting-ok" title="Stored in your system keyring"><Icon name="check" /><span class="visually-hidden">Stored securely</span></span>{/if}
+            <input id="api-key" class="setting-input short" type="password" autocomplete="off" bind:value={apiKeyInput} placeholder={hasApiKey ? "••••••••" : "sk-…"} />
+            {#if hasApiKey}<button class="icon-action danger-text" aria-label="Remove API key" title="Remove API key" onclick={removeApiKey}><Icon name="trash" /></button>{/if}
+          </div></div>
+          <div class="setting-row" title="Comma-separated, optional"><label for="language-hints">Language</label><div class="setting-control"><input id="language-hints" class="setting-input short" value={settings.language_hints.join(", ")} oninput={(event) => (settings = { ...settings, language_hints: event.currentTarget.value.split(",").map((v) => v.trim()).filter(Boolean) })} placeholder="en, de, fr" /></div></div>
         </div>
 
-        <div class="setting-group"><h3>Text model</h3>
-          <p class="section-description">Used for Actions other than Plain.</p>
-          <label class="field"><span>Model</span><input bind:value={settings.text_model} /></label>
-          <div class="field"><span>Thinking effort <small>lower is faster and cheaper</small></span>
-            <div class="segmented five">
-              {#each EFFORTS as effort}
-                <button class:active={settings.text_effort === effort.value} onclick={() => (settings = { ...settings, text_effort: effort.value })}>{effort.label}</button>
-              {/each}
+        <div class="setting-group" role="radiogroup" aria-label="Local Whisper model">
+          {#each models as model}
+            <div class="setting-row model-row" title={model.description}>
+              <label class="model-choice"><input type="radio" name="local-model" aria-label={model.name} checked={settings.local_model_id === model.id} disabled={!model.downloaded} onchange={() => settings = { ...settings, local_model_id: model.id }} /><span>{model.name}</span><span class="setting-muted">{formatBytes(model.sizeBytes)}</span></label>
+              <button class="icon-action" class:danger-text={model.downloaded} disabled={busyModel !== null} aria-label={`${model.downloaded ? "Remove" : "Download"} ${model.name}`} title={`${model.downloaded ? "Remove" : "Download"} ${model.name}`} onclick={() => toggleModel(model)}><Icon name={model.downloaded ? "trash" : "download"} /></button>
+              {#if busyModel === model.id && !model.downloaded}<progress aria-label={`Downloading ${model.name}`} max="1" value={downloadProgress[model.id] ?? 0}></progress>{/if}
             </div>
-          </div>
-          <p class="privacy-note">Auto uses the model’s default. Unsupported effort levels fall back to the plain transcript.</p>
+          {/each}
+        </div>
+
+        <div class="setting-group">
+          <div class="setting-row" title="Names and terms to recognise. Works with both engines."><label for="vocabulary">Vocabulary</label><div class="chips">
+            {#each settings.vocabulary as term}
+              <span class="chip" class:rejected={FORBIDDEN_IN_KEYWORD.test(term)}>{term}<button aria-label={`Remove ${term}`} onclick={() => removeVocabulary(term)}>×</button></span>
+            {/each}
+            <input id="vocabulary" class="chip-input" placeholder="Add word" value={vocabularyDraft} oninput={(event) => (vocabularyDraft = event.currentTarget.value)} onkeydown={(event) => { if (event.key === "Enter") { event.preventDefault(); addVocabulary(); } }} onblur={() => addVocabulary()} onpaste={pasteVocabulary} />
+          </div></div>
+          {#if rejectedTerms.length}<p class="setting-error" role="alert">Not sent, the API refuses &lt; and &gt;: {rejectedTerms.join(", ")}</p>{/if}
+          <div class="setting-row" title="Cloud only"><label for="transcription-context">Context</label><div class="setting-control wide"><input id="transcription-context" class="setting-input" placeholder="Optional" value={settings.transcription_context} oninput={(event) => (settings = { ...settings, transcription_context: event.currentTarget.value })} /></div></div>
         </div>
         {/if}
 
         {#if settingsTab === "actions"}
-        {#if liveMode}<p class="privacy-note">Live dictation uses Plain only. These prompts remain available when you switch back to GPT Transcribe or Local Whisper.</p>{/if}
-        <div class="setting-group prompts-group"><div class="group-heading"><h3>Prompts</h3><button onclick={addCustomAction}>Add prompt</button></div>
-          <p class="section-description">Choose an action to edit its instructions. Reset restores the original.</p>
-          <div class="prompt-workbench">
-            <div class="prompt-list" role="group" aria-label="Prompts">
-              {#each builtInActions as action}
-                <button class="prompt-entry" class:active={selectedPrompt === action.id} aria-pressed={selectedPrompt === action.id} onclick={() => selectPrompt(action.id)}>
-                  <span class="prompt-entry-name">{actionName(action, settings.action_overrides)}</span>
-                  {#if !action.prompt && action.id === "plain"}<span class="prompt-tag">no prompt</span>
-                  {:else if isActionEdited(action.id, settings.action_overrides)}<span class="prompt-dot" aria-label="Edited"></span>{/if}
-                </button>
-              {/each}
-              {#if settings.custom_actions.length}<span class="prompt-divider">Your own</span>{/if}
-              {#each settings.custom_actions as action}
-                <button class="prompt-entry" class:active={selectedPrompt === `custom:${action.id}`} aria-pressed={selectedPrompt === `custom:${action.id}`} onclick={() => selectPrompt(`custom:${action.id}`)}>
-                  <span class="prompt-entry-name">{action.name || "Untitled prompt"}</span>
-                </button>
-              {/each}
-            </div>
-
-            <div class="prompt-editor">
-              {#if editedCustom}
-                <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "name", nameDraft); }} /></label>
-                <label class="field"><span>Instructions</span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" placeholder="Describe exactly how the transcript should be transformed…" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "prompt", promptDraft); }}></textarea></label>
-                <div class="prompt-footer"><span>{promptDraft.trim().length} characters</span>
-                  <button class="danger-text" onclick={() => removeCustomAction(editedCustom.id)}>Delete prompt</button>
-                </div>
-              {:else if editedPrompt && !editedPrompt.prompt}
-                <div class="prompt-empty"><strong>{actionName(editedPrompt, settings.action_overrides)}</strong>
-                  <p>Transcription only — no rewriting or text model. Free with Local Whisper.</p>
-                </div>
-              {:else if editedPrompt}
-                <label class="field"><span>Name</span><input aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; overrideAction(editedPrompt, "name", nameDraft); }} /></label>
-                <label class="field"><span>Instructions</span><textarea class="prompt-text" rows="7" aria-label="Prompt instructions" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; overrideAction(editedPrompt, "prompt", promptDraft); }}></textarea></label>
-                <div class="prompt-footer">
-                  <span>{promptDraft.trim().length} characters{isActionEdited(editedPrompt.id, settings.action_overrides) ? " · edited" : ""}</span>
-                  <span class="prompt-footer-actions">
-                    <button class="link-button" onclick={() => (showsDefault = showsDefault === editedPrompt.id ? "" : editedPrompt.id)}>{showsDefault === editedPrompt.id ? "Hide the original" : "View the original"}</button>
-                    <button class="danger-text" disabled={!isActionEdited(editedPrompt.id, settings.action_overrides)} onclick={() => resetAction(editedPrompt.id)}>Reset</button>
-                  </span>
-                </div>
-                {#if showsDefault === editedPrompt.id}<p class="prompt-default">{editedPrompt.prompt}</p>{/if}
-              {/if}
-            </div>
-          </div>
+        {#if liveMode}<p class="setting-hint">Live uses Plain only.</p>{/if}
+        <div class="setting-group">
+          <div class="setting-row"><label for="text-model">Model</label><div class="setting-control"><input id="text-model" class="setting-input short" bind:value={settings.text_model} /></div></div>
+          <div class="setting-row" title="Lower is faster and cheaper"><span>Effort</span><div class="setting-control"><div class="segmented" role="group" aria-label="Effort">
+            {#each EFFORTS as effort}
+              <button class:active={settings.text_effort === effort.value} onclick={() => (settings = { ...settings, text_effort: effort.value })}>{effort.label}</button>
+            {/each}
+          </div></div></div>
         </div>
 
+        <div class="setting-group prompt-workbench">
+          <div class="prompt-list" role="group" aria-label="Prompts">
+            {#each builtInActions as action}
+              <button class="prompt-entry" class:active={selectedPrompt === action.id} aria-pressed={selectedPrompt === action.id} onclick={() => selectPrompt(action.id)}>
+                <span class="prompt-entry-name">{actionName(action, settings.action_overrides)}</span>
+                {#if isActionEdited(action.id, settings.action_overrides)}<span class="prompt-dot" aria-label="Edited"></span>{/if}
+              </button>
+            {/each}
+            {#each settings.custom_actions as action}
+              <button class="prompt-entry" class:active={selectedPrompt === `custom:${action.id}`} aria-pressed={selectedPrompt === `custom:${action.id}`} onclick={() => selectPrompt(`custom:${action.id}`)}>
+                <span class="prompt-entry-name">{action.name || "Untitled prompt"}</span>
+              </button>
+            {/each}
+            <button class="icon-action prompt-add" aria-label="Add prompt" title="Add prompt" onclick={addCustomAction}><Icon name="plus" /></button>
+          </div>
+
+          <div class="prompt-editor">
+            {#if editedCustom}
+              <input class="setting-input" aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "name", nameDraft); }} />
+              <textarea class="prompt-text" rows="7" aria-label="Prompt instructions" placeholder="How should the transcript change?" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; updateCustomAction(editedCustom.id, "prompt", promptDraft); }}></textarea>
+              <div class="prompt-tools">
+                <button class="icon-action danger-text" aria-label="Delete prompt" title="Delete prompt" onclick={() => removeCustomAction(editedCustom.id)}><Icon name="trash" /></button>
+              </div>
+            {:else if editedPrompt && !editedPrompt.prompt}
+              <div class="prompt-empty"><strong>{actionName(editedPrompt, settings.action_overrides)}</strong><span>Transcription only</span></div>
+            {:else if editedPrompt}
+              <input class="setting-input" aria-label="Prompt name" value={nameDraft} oninput={(event) => { nameDraft = event.currentTarget.value; overrideAction(editedPrompt, "name", nameDraft); }} />
+              <textarea class="prompt-text" rows="7" aria-label="Prompt instructions" value={promptDraft} oninput={(event) => { promptDraft = event.currentTarget.value; overrideAction(editedPrompt, "prompt", promptDraft); }}></textarea>
+              <div class="prompt-tools">
+                <button class="icon-action" aria-pressed={showsDefault === editedPrompt.id} aria-label={showsDefault === editedPrompt.id ? "Hide the original" : "View the original"} title={showsDefault === editedPrompt.id ? "Hide the original" : "View the original"} onclick={() => (showsDefault = showsDefault === editedPrompt.id ? "" : editedPrompt.id)}><Icon name="eye" /></button>
+                <button class="icon-action danger-text" aria-label="Reset" title="Reset" disabled={!isActionEdited(editedPrompt.id, settings.action_overrides)} onclick={() => resetAction(editedPrompt.id)}><Icon name="undo" /></button>
+              </div>
+              {#if showsDefault === editedPrompt.id}<p class="prompt-default">{editedPrompt.prompt}</p>{/if}
+            {/if}
+          </div>
+        </div>
         {/if}
 
         {#if settingsTab === "output"}
-        {#if liveMode}<p class="privacy-note">Live dictation ignores the typing method. Clipboard and File still run when you finish.</p>{/if}
-        <div class="setting-group"><h3>Typing at the cursor</h3><div class="segmented">
-          <button class:active={settings.typing_method === "paste"} onclick={() => (settings = { ...settings, typing_method: "paste" })}>Paste</button>
-          <button class:active={settings.typing_method === "keystrokes"} onclick={() => (settings = { ...settings, typing_method: "keystrokes" })}>Keystrokes</button>
-        </div>
+        {#if liveMode}<p class="setting-hint">Live ignores Insert.</p>{/if}
+        <div class="setting-group">
+          <div class="setting-row" title={typingNote}><span>Insert</span><div class="setting-control"><div class="segmented" role="group" aria-label="Insert">
+            <button class:active={settings.typing_method === "paste"} onclick={() => (settings = { ...settings, typing_method: "paste" })}>Paste</button>
+            <button class:active={settings.typing_method === "keystrokes"} onclick={() => (settings = { ...settings, typing_method: "keystrokes" })}>Keystrokes</button>
+          </div></div></div>
           {#if settings.typing_method === "keystrokes"}
-            <label class="field"><span>Delay between keystrokes <small>milliseconds</small></span><input type="number" min="0" max="500" step="1" value={settings.typing_delay_ms} oninput={(event) => (settings = { ...settings, typing_delay_ms: Math.max(0, Math.min(500, Math.round(Number(event.currentTarget.value) || 0))) })} /></label>
+            <div class="setting-row" title="Increase the delay if letters go missing"><label for="typing-delay">Delay (ms)</label><div class="setting-control"><input id="typing-delay" class="setting-input tiny" type="number" min="0" max="500" step="1" value={settings.typing_delay_ms} oninput={(event) => (settings = { ...settings, typing_delay_ms: Math.max(0, Math.min(500, Math.round(Number(event.currentTarget.value) || 0))) })} /></div></div>
           {/if}
-          <p class="privacy-note">{typingNote}</p>
           {#if typingSupport.explanation}<p class="setting-error" role="status">{typingSupport.explanation}</p>{/if}
-        </div>
-
-        <div class="setting-group"><h3>File output</h3><label class="field"><span>Default output folder</span><div class="inline-field"><input readonly value={settings.output_directory ?? ""} placeholder="Choose a folder" /><button onclick={chooseOutputFolder}>Browse</button></div></label></div>
-        <div class="setting-group"><h3>Recent texts</h3>
-          <label class="toggle-field"><input type="checkbox" bind:checked={settings.history_enabled} /><span>Remember the last 100 texts on this device</span></label>
-          <p class="privacy-note">Stored on this device, unencrypted. Turning this off does not delete existing history.</p>
-          <button class="clear-history" onclick={clearHistory}>{confirmClear ? "Confirm: delete all saved texts" : "Clear saved history"}</button>
-          {#if confirmClear}<button class="clear-history" onclick={() => confirmClear = false}>Keep history</button>{/if}
-          {#if historyMessage}<p class="privacy-note" role="status">{historyMessage}</p>{/if}
+          <div class="setting-row"><label for="output-folder">Folder</label><div class="setting-control wide"><input id="output-folder" class="setting-input" readonly value={settings.output_directory ?? ""} placeholder="None" /><button class="icon-action" aria-label="Browse" title="Browse" onclick={chooseOutputFolder}><Icon name="folder" /></button></div></div>
+          <div class="setting-row" title="Stored on this device, unencrypted. Turning this off keeps what is already saved."><span>Keep last 100 texts</span><div class="setting-control">
+            {#if confirmClear}
+              <button class="text-action danger-text" onclick={clearHistory}>Confirm: delete all saved texts</button>
+              <button class="text-action" onclick={() => confirmClear = false}>Keep history</button>
+            {:else}
+              <button class="icon-action danger-text" aria-label="Clear saved history" title="Clear saved history" onclick={clearHistory}><Icon name="trash" /></button>
+            {/if}
+            <input class="switch" type="checkbox" aria-label="Keep last 100 texts" bind:checked={settings.history_enabled} />
+          </div></div>
+          {#if historyMessage}<p class="setting-hint" role="status">{historyMessage}</p>{/if}
         </div>
         {/if}
 
+        {#if settingsTab === "app"}
+        <div class="setting-group">
+          <div class="setting-row"><span>Theme</span><div class="setting-control"><div class="segmented" role="group" aria-label="Theme">
+            {#each THEMES as choice}
+              <button class:active={settings.theme === choice.value} onclick={() => { settings = { ...settings, theme: choice.value }; applyTheme(settings.theme); }}><Icon name={choice.icon} />{choice.label}</button>
+            {/each}
+          </div></div></div>
+          <div class="setting-row" title="Starts hidden in the system tray"><span>Start at sign-in</span><div class="setting-control">
+            <input class="switch" type="checkbox" aria-label="Start Utterform when I sign in" aria-busy={autostartChecking} checked={autostartDraft} disabled={autostartChecking || !autostartAvailable} onchange={(event) => (autostartDraft = event.currentTarget.checked)} />
+          </div></div>
+          {#if autostartError}<p class="setting-error" role="alert">{autostartError}</p>{/if}
+          <div class="setting-row" title="Logs stay on this device and contain no transcripts or audio"><span>Logs</span><div class="setting-control">
+            <button class="text-action" aria-label="Copy diagnostics" title="Copy diagnostics" aria-busy={supportBusy.copy} disabled={supportBusy.copy} onclick={() => runSupportAction("copy")}>Copy</button>
+            <button class="text-action" aria-label="Open log file" title={logPath ?? "Log file not available in this session"} aria-busy={supportBusy.file} disabled={supportBusy.file} onclick={() => runSupportAction("file")}>Open</button>
+            <button class="icon-action" aria-label="Open log folder" title="Open log folder" aria-busy={supportBusy.folder} disabled={supportBusy.folder} onclick={() => runSupportAction("folder")}><Icon name="folder" /></button>
+          </div></div>
+          {#if supportMessage}<p class="setting-hint" role="status">{supportMessage}</p>{/if}
+          {#if supportError}<p class="setting-error" role="alert">{supportError}</p>{/if}
         </div>
+        {/if}
       </div>
 
-      <div class="modal-actions"><button class="secondary" onclick={cancelSettings}>Cancel</button><button class="primary" onclick={savePreferences}>Save settings</button></div>
+      <div class="modal-actions"><button class="secondary" onclick={cancelSettings}>Cancel</button><button class="primary" aria-label="Save settings" onclick={savePreferences}>Save</button></div>
     </div>
   </div>
 {/if}

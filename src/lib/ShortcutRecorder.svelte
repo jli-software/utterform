@@ -61,8 +61,8 @@
   onDestroy(stop);
 </script>
 
-<div class="field shortcut-field">
-  <span id={`${id}-label`}>{label} <small>{capturing ? "press the keys you want" : "click, then press the keys you want"}</small></span>
+<div class="shortcut-field">
+  <span id={`${id}-label`} class="visually-hidden">{label}</span>
   <button type="button" class="shortcut-recorder" class:capturing id={id}
     aria-labelledby={`${id}-label ${id}-value`} aria-pressed={capturing}
     onclick={() => (capturing ? stop() : start())} onblur={stop}>

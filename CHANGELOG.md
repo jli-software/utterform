@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.14 — v0.7.14 · Everything in its place
+
+- Rebuild Settings to fill the window, with one row per control and every category visible at the default size without scrolling.
+- Sort by task: Recording, Transcription, Text actions, Output and App. Language, vocabulary and context move to Transcription, the text model to Text actions, appearance, startup and logs to App.
+- Move explanations into tooltips and replace most button labels with icons. Errors stay visible.
+- Add vocabulary word by word with Enter, remove with ×, and keep the lines of a pasted list. A word typed but not yet added is saved too.
+- Choose the local model directly in the model list.
+
+See [0.7.14 release notes](docs/releases/v0.7.14.md).
+
 ## 0.7.13 — v0.7.13 · Nothing said is lost
 
 - Keep a recording whose transcription failed, with **Try again** and **Discard** in the main window. A dropped connection or a busy service is first retried once on its own. Up to five recordings wait, in order; they are removed on success, on Discard or when Utterform quits.

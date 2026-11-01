@@ -29,6 +29,18 @@ delivered. Of the 15 failures, 12 were `empty_result` (ten under two seconds), t
 keyring and one an empty capture. Eight of eleven starts report `previous_run_unclean`,
 probably because a shutdown never reaches `app.exiting`; that is unverified and still open.
 
+## Current handoff — 0.7.14
+
+`feat/simple-settings` rebuilds Settings at Jonas's request (2026-11-01): he could not
+find anything and the window showed little. He rejected a single long page and asked
+for categories, little text, and everything visible at once, then chose stilprobe 4.
+Tooltips carry the explanations, icons replace labels, the categories follow tasks.
+Save, Cancel, the shortcut capture and `AppSettings` are unchanged; only the interface
+moved, so preferences carry over. New in behaviour: vocabulary is added word by word
+(`addVocabulary`, also on blur and on Save, so a typed word is not lost) and the local
+model is chosen in the list. No Rust change beyond the version. Preview and acceptance
+follow the usual route; nothing is merged or tagged.
+
 ## Current handoff — 0.7.12
 
 `work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested
@@ -146,7 +158,7 @@ or put credentials in the shared command. A preview must not silently install `l
    Quit the installed Utterform first (single-instance application). The test uses the
    existing user settings; no installer is needed. Do **not** run the included release
    installer for a branch preview: it downloads from a release tag that does not exist yet.
-4. Jonas checks General ↔ Recording ↔ AI & Models ↔ Actions ↔ Output, scrolling,
+4. Jonas checks Recording ↔ Transcription ↔ Text actions ↔ Output ↔ App, scrolling,
    compact windows and Save/Cancel. Revise and rebuild only the chosen platform as needed.
 5. After acceptance and authorization to finalize, update the pending release wording,
    merge the approved revision into `main`, tag `v0.7.8`, and let the tag workflow build

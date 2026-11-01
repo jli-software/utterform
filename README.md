@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.13 — Nothing said is lost** keeps a recording when transcription fails, with Try again and Discard, and reports failures even when the window is hidden. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.13.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.13).
+> Utterform is under active development. **0.7.14 — Everything in its place** rebuilds Settings: five clear categories, little text, and everything in view without scrolling. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.14.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.14).
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.13 — Nothing said is lost](https://github.com/jli-software/utterform/releases/tag/v0.7.13)**.
+**[0.7.14 — Everything in its place](https://github.com/jli-software/utterform/releases/tag/v0.7.14)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.13 release notes](docs/releases/v0.7.13.md) for the current changes.
+See the [0.7.14 release notes](docs/releases/v0.7.14.md) for the current changes.
 
 ### Windows — one-line install or update
 
@@ -94,28 +94,28 @@ sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 The global dictation shortcut is prominent, theme and startup controls are nearby,
 and the remaining settings are grouped by recording, models, actions, and output.
 
-![Utterform General settings with the global dictation shortcut](docs/images/utterform-settings-general-dark.png)
+![Utterform Recording settings with microphone, shortcut and sounds](docs/images/utterform-settings-recording-dark.png)
 
 Every built-in action is readable and editable. Add your own prompt, or keep **Plain**
 for a transcript that never calls a text model.
 
-![Utterform Actions settings with the editable Clean prompt](docs/images/utterform-settings-actions-dark.png)
+![Utterform Text actions settings with an editable prompt](docs/images/utterform-settings-actions-dark.png)
 
 | Category | Controls |
 | --- | --- |
-| General | Dictation shortcut, appearance, startup, support and diagnostics |
-| Recording | Microphone, language hints, sounds, vocabulary, and context |
-| AI & Models | Transcription mode, OpenAI key, local models, text model, and thinking effort |
-| Actions | Built-in and custom prompts |
+| Recording | Microphone, dictation shortcut, and sounds |
+| Transcription | Engine, OpenAI key, language, local models, vocabulary, and context |
+| Text actions | Text model, effort, and prompts |
 | Output | Typing method, file folder, and local history |
+| App | Theme, startup, and logs |
 
-Settings opens on General. Save applies edits across categories; Cancel restores the
+Settings opens on Recording. Save applies edits across categories; Cancel restores the
 previous preferences. Explicit model downloads/removals, key removal, and confirmed
 history deletion take effect immediately.
 
 ## Live dictation — Windows and Omarchy
 
-In **Settings → AI & Models → Transcription mode**, choose **GPT Live Transcribe**.
+In **Settings → Transcription → Engine**, choose **Live**.
 The existing **GPT Transcribe** option keeps the complete-recording workflow unchanged.
 Both cloud models use your saved OpenAI key, language hints, vocabulary and recording context.
 
@@ -134,7 +134,7 @@ from the target with the shortcut, not by clicking Record inside Utterform.
   matches its own shortcuts against Utterform's keys by keycode, so Utterform keeps
   characters off the keycodes Omarchy binds and waits briefly after a stop request
   for the shortcut's modifier to be released. Each Live recording is numbered in the
-  local log (Settings → General → Support & diagnostics) with its target window address,
+  local log (Settings → App → Logs) with its target window address,
   workspace id and the focus events it saw, without any text.
 - **macOS and other desktops:** keep using GPT Transcribe or Local Whisper. Live support
   for macOS is deferred to a separate future release.
@@ -164,7 +164,7 @@ The new mark is included in the executable, tray, Windows setup/uninstaller, Lin
 
 Press one key, speak, press it again. The window never comes forward, so you stay in whatever you were typing in. How the key reaches Utterform depends on who owns the keyboard.
 
-**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → General → Dictation shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
+**Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → Recording → Shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
 
 **Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 
@@ -186,7 +186,7 @@ If Utterform is not running yet, the command starts it and still records.
 
 ## Start with your session
 
-**Settings → General → Startup → Start Utterform when I sign in** puts Utterform in
+**Settings → App → Start at sign-in** puts Utterform in
 your system's startup items. It starts hidden in the system tray: no window opens and
 nothing takes focus from what you signed in to do — open it from the tray when you
 want it. It is off until you turn it on, and turning it off removes the entry again.
@@ -214,7 +214,7 @@ Enable **Type** in the output bar (or press `T`) to have the finished text put i
 
 **Paste** is the default. The whole text moves in one step, so nothing can be dropped or reordered on the way — the reason a terminal used to turn "Session" into "ession". Utterform sends the paste a terminal listens for — `Ctrl+Shift+V` on Linux, `Shift+Insert` on Windows — and the one every other window takes (`Ctrl+V`). Paste delivery leaves the text on the clipboard.
 
-**Keystrokes** is available under **Settings → Output → Typing at the cursor** for windows that refuse a paste. It types character by character, with a leading Shift tap for the Wayland clients that swallow the first character and an adjustable delay (15 ms by default) for the ones that reorder fast input.
+**Keystrokes** is available under **Settings → Output → Insert** for windows that refuse a paste. It types character by character, with a leading Shift tap for the Wayland clients that swallow the first character and an adjustable delay (15 ms by default) for the ones that reorder fast input.
 
 On Linux both methods need the session's own input tool, because a Wayland client cannot synthesize input for another window:
 
@@ -235,11 +235,11 @@ Pick an action on the left, rewrite its name or its instructions on the right. *
 
 Only what differs from the shipped text is stored, so a prompt you left alone still improves when Utterform does — and an instruction you cleared falls back to the shipped one rather than costing you the recording.
 
-Under **Settings → AI & Models → Text model**: the model that runs these prompts (`gpt-5-mini` by default) and its **thinking effort** — Auto, Minimal, Low, Medium or High. Auto leaves the model its own default; lower is faster and cheaper. Not every model offers every level, and one that does not know the level you chose refuses the request, in which case the plain transcript is delivered and the reason is shown.
+Under **Settings → Text actions**: the model that runs these prompts (`gpt-5-mini` by default) and its **effort** — Auto, Minimal, Low, Medium or High. Auto leaves the model its own default; lower is faster and cheaper. Not every model offers every level, and one that does not know the level you chose refuses the request, in which case the plain transcript is delivered and the reason is shown.
 
 ## Vocabulary
 
-Names, products and spellings a model would otherwise guess at go under **Settings → Recording → Vocabulary**, one per line. Write *Careum* there and it stops coming back as *Kareum*.
+Names, products and spellings a model would otherwise guess at go under **Settings → Transcription → Vocabulary**, word by word with Enter; a pasted list keeps its lines. Write *Careum* there and it stops coming back as *Kareum*.
 
 GPT Transcribe receives them as `keywords`, the parameter it offers for exactly this; local Whisper receives them as the text it starts from, which is Whisper's own way of biasing a spelling. They are hints either way — the model still transcribes what it hears. **Recording context** beside it is free-form ("a standup about the billing rewrite") and reaches GPT Transcribe only.
 
@@ -308,7 +308,7 @@ Global dictation is separate from these: see [Dictate from anywhere](#dictate-fr
 
 ## Support and diagnostics
 
-**Settings → General → Support & diagnostics** shows where the log is and offers three immediate actions. They are not part of the settings draft: Save and Cancel neither apply nor undo them.
+**Settings → App → Logs** offers three immediate actions; the tooltip on **Open** shows where the log is. They are not part of the settings draft: Save and Cancel neither apply nor undo them.
 
 - **Copy diagnostics** puts a report of at most 256 KiB on the clipboard — a short header (version, OS, run, whether the previous run ended cleanly) followed by the newest log lines, sanitized again. This replaces what the clipboard held; paste it wherever you want to share it.
 - **Open log file** opens the current log in the system's default application.
