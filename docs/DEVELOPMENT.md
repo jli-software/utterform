@@ -18,7 +18,25 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.7.12
+## Current handoff — 0.8.0
+
+Stage 0.8.0 of [the roadmap](plans/v1.0-roadmap.md), branch
+`work/utterform-0.8.0-omarchy-dictation` (based on `plan/utterform-1.0`, so it also carries
+the roadmap to `main`). Utterform becomes an Omarchy 4.5 dictation backend: three commands
+in `packaging/omarchy/`, shipped in the Linux package under `share/omarchy/` and copied by
+`install-linux.sh` next to the launcher only where `omarchy-dictation-use` exists, plus one
+row in `~/.config/omarchy/extensions/omarchy-menu.jsonc`. `App.svelte` keeps a `stop` that
+arrives while a recording is starting. Design in [ARCHITECTURE.md → Global
+dictation](ARCHITECTURE.md#global-dictation), validation in [TESTING.md](TESTING.md).
+
+The preview has to go through the installer, because the integration is what it installs.
+From the extracted `Desktop builds` Linux artifact:
+`UTTERFORM_VERSION=preview UTTERFORM_RELEASE_BASE_URL="file://$PWD" sh install-linux.sh`.
+That replaces the installed Utterform with the preview; rerunning the stable one-liner
+goes back. Acceptance on `asus16`: Utterform in Setup → Defaults → Dictation, Alt + Space,
+Right Alt held, Super + D still working.
+
+## Previous handoff — 0.7.12
 
 `work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested
 Linux and Windows previews add five-second green success feedback in `tray.rs`.

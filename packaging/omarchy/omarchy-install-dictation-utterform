@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# omarchy:summary=Use Utterform for dictation
+# Installed by Utterform (https://github.com/jli-software/utterform).
+
+set -e
+
+if ! command -v utterform >/dev/null 2>&1; then
+  echo "Utterform is not installed. Install it with:" >&2
+  echo "  curl -fsSL https://github.com/jli-software/utterform/releases/latest/download/install-linux.sh | sh" >&2
+  exit 1
+fi
+
+# Records the choice, after stopping the previous backend. Omarchy binds
+# Alt + Space and Right Alt once the backend's own command (utterform) exists.
+omarchy-dictation-use utterform
+omarchy-restart-hyprctl
+omarchy-notification-send -g "" "Utterform dictation ready" "$(omarchy-i18n dictation.hint 2>/dev/null)" -t 10000 || true

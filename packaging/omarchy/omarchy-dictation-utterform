@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# omarchy:summary=Record dictation using Utterform
+# omarchy:args=<start|stop|toggle>
+# Installed by Utterform (https://github.com/jli-software/utterform).
+
+# Push-to-talk sends start and stop in quick succession, and omarchy-dictation
+# runs them one after the other. A running Utterform answers each request in
+# about 50 ms, so a request is handed over and waited for: that keeps the order.
+# A request that has to start Utterform is not waited for, because the started
+# process is the app itself and does not exit.
+
+running() {
+  pgrep -u "$(id -u)" -x utterform >/dev/null 2>&1
+}
+
+launch() {
+  if command -v uwsm-app >/dev/null 2>&1; then
+    uwsm-app -- utterform "$1" >/dev/null 2>&1
+  else
+    setsid -f utterform "$1" </dev/null >/dev/null 2>&1
+  fi
+}
+
+case "${1:-}" in
+  start|toggle)
+    if running; then
+      exec utterform "--$1"
+    fi
+    launch "--$1"
+    ;;
+  stop)
+    # Nothing is recording when Utterform is not running, and stopping must
+    # never start it: Omarchy also calls stop when another backend is chosen.
+    if running; then
+      exec utterform --stop
+    fi
+    ;;
+  *)
+    echo "Usage: omarchy dictation utterform <start|stop|toggle>" >&2
+    exit 1
+    ;;
+esac
