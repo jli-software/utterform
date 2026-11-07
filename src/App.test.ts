@@ -1358,7 +1358,7 @@ describe("the ready boundary after processing", () => {
     expect(api.startRecording).toHaveBeenCalledTimes(2);
   });
 
-  it("does not stop a recording that is still starting", async () => {
+  it("does not let a toggle stop a recording that is still starting", async () => {
     let started!: () => void;
     vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((done) => started = done));
     const view = render(App);
@@ -1366,11 +1366,43 @@ describe("the ready boundary after processing", () => {
     await remoteIntent("toggle");
     await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
     await remoteIntent("toggle");
-    await remoteIntent("stop");
+    await remoteIntent("start");
     started();
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
     expect(api.finishRecording).not.toHaveBeenCalled();
     expect(api.startRecording).toHaveBeenCalledOnce();
+  });
+
+  // Omarchy's push-to-talk sends `--stop` the moment Right Alt is let go. A
+  // short press releases it while the microphone opens and the start cue
+  // plays; dropping that stop would leave the recording running.
+  it("keeps a push-to-talk stop that arrives while the recording is starting", async () => {
+    let started!: () => void;
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((done) => started = done));
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "Short", savedPath: null,
+      copiedToClipboard: true, typedAtCursor: true, deliveryWarnings: [], durationMs: 400, engine: "open_ai" });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await remoteIntent("start");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    await remoteIntent("stop");
+    expect(api.finishRecording).not.toHaveBeenCalled();
+    started();
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledOnce());
+    await waitFor(() => expect(view.queryByText("Typed at the cursor · Copied to clipboard")).not.toBeNull());
+  });
+
+  it("forgets a stop kept for a start that failed", async () => {
+    vi.mocked(api.startRecording).mockImplementationOnce(() => new Promise<void>((_, reject) => setTimeout(() => reject("No microphone"), 0)));
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await remoteIntent("start");
+    await remoteIntent("stop");
+    await waitFor(() => expect(view.queryByText(/No microphone/)).not.toBeNull());
+    await remoteIntent("start");
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect(api.startRecording).toHaveBeenCalledTimes(2);
+    expect(api.finishRecording).not.toHaveBeenCalled();
   });
 });
 

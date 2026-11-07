@@ -49,6 +49,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - name: Test the Omarchy dictation backend
+        run: scripts/test-omarchy-dictation.sh
       - run: npm run build
       - name: Test production GUI
         if: runner.os == 'Linux'

@@ -170,6 +170,17 @@ Press one key, speak, press it again. The window never comes forward, so you sta
 
 **Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → Recording → Shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
 
+**Omarchy 4.5 and later — Omarchy's own dictation keys.** On Omarchy the installer
+also registers Utterform as a dictation backend. Choose **Utterform** in the Omarchy menu
+under **Setup → Defaults → Dictation**; Omarchy then binds **Alt + Space** to start and
+finish, and **holding Right Alt** records while the key is held. A short press is not
+lost: letting go while the start sound still plays finishes the recording as soon as it
+runs. Choosing another backend there hands the keys back. The installer adds one row to
+`~/.config/omarchy/extensions/omarchy-menu.jsonc` (a backup is kept next to it) and puts
+three `omarchy-*-dictation-utterform` commands next to `~/.local/bin/utterform`.
+`omarchy-remove-dictation-utterform` removes exactly these again and leaves Utterform
+installed.
+
 **Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 
 ```

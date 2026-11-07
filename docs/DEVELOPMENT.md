@@ -4,37 +4,25 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Test one platform before release (supersedes the earlier automatic-release rule):** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
+- **Merge and release at once (Jonas, 2026-11-07; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged and tagged straight away for the full Linux/Windows/macOS release. Jonas tests the installed release afterwards; nothing waits for a preview. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
+- *Superseded:* **Test one platform before release:** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
 
 ## Road to 1.0
 
-Decided with Jonas on 2026-10-31. Three stages:
-
-1. **Reliability (0.7.13, this branch).** Keep recordings through failures, report
-   failures from a hidden window, survive a keyring restart. Details in
-   [ARCHITECTURE.md](ARCHITECTURE.md), section "When a recording fails".
-2. **First-run assistant (0.8.0).** Part of 1.0 by Jonas's decision: skippable, short
-   welcome, API key or local model, language by typing `de`, optional vocabulary that
-   can wait until later. The contract is `docs/plans/v0.8.0-onboarding-assistant.md` on
-   Draft PR #39; rebase it first, its base predates 0.7.11.
-3. **1.0 finish.** Installed acceptance on Linux, Windows and macOS (including issue #40
-   and the outstanding 0.7.12 tray checks), then release and a new WinGet submission,
-   which does not follow GitHub releases by itself.
-
-Field evidence came from the local log on `asus16`: 551 recordings since 2026-09-23, 536
-delivered. Of the 15 failures, 12 were `empty_result` (ten under two seconds), two were the
-keyring and one an empty capture. Eight of eleven starts report `previous_run_unclean`,
-probably because a shutdown never reaches `app.exiting`; that is unverified and still open.
+Replanned with Jonas on 2026-11-07: Omarchy dictation backend, Settings from scratch,
+Codex login for text actions, context from selection and clipboard, action per
+application, audio files, first-run assistant, then 1.0. Stages, decisions and open
+proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 2026-10-31
+(reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
+(`feat/simple-settings`) was rejected and will not be merged.
 
 ## Current handoff — 0.9.0 Settings from scratch
 
-Stage 0.9.0 of the 1.0 roadmap (`docs/plans/v1.0-roadmap.md` on `plan/utterform-1.0`).
-Branch `work/utterform-0.9.0-settings`, worktree `~/git/utterform-settings` on `asus16`.
-It is based on main/v0.7.13; 0.8.0 (Omarchy dictation backend) is developed in parallel
-and merges first, so rebase this branch on main after that and keep both changelog entries.
+Stage 0.9.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.9.0-settings`
+(worktree `~/git/utterform-settings` on `asus16`), rebased on main/v0.8.0.
 
 Jonas accepted the mock-up on 2026-11-07: search field on top, categories as tabs below,
 one row per setting. Built to the roadmap rules: no Save/Cancel, every change applies at
@@ -44,12 +32,27 @@ The "Context" category of the roadmap proposal is left out until 0.11.0 gives it
 0.10.0 adds the Codex provider to the AI category. Reused from the rejected 0.7.14
 branch: vocabulary as chips, local model chosen in its list. Not its layout.
 
-Settings schema and backend are unchanged; existing preferences carry over.
+Settings schema and backend are unchanged; existing preferences carry over. A Linux
+preview (run 42369624453) was built before the release rule changed and Jonas called it
+"super"; per the rule above it is released at once.
 
-Linux preview: Desktop builds run 42369624453 from `058422b`, artifact
-`utterform-binaries-linux-x86_64`. **Jonas accepted it on 2026-11-07** ("ja, ist super").
-Still open: wait for the 0.8.0 merge, rebase on main (keep both changelog entries and the
-0.8 handoff), re-run validation, then merge, tag `v0.9.0` and release.
+## Previous handoff — 0.8.0
+
+Stage 0.8.0 of [the roadmap](plans/v1.0-roadmap.md), branch
+`work/utterform-0.8.0-omarchy-dictation` (based on `plan/utterform-1.0`, so it also carries
+the roadmap to `main`). Utterform becomes an Omarchy 4.5 dictation backend: three commands
+in `packaging/omarchy/`, shipped in the Linux package under `share/omarchy/` and copied by
+`install-linux.sh` next to the launcher only where `omarchy-dictation-use` exists, plus one
+row in `~/.config/omarchy/extensions/omarchy-menu.jsonc`. `App.svelte` keeps a `stop` that
+arrives while a recording is starting. Design in [ARCHITECTURE.md → Global
+dictation](ARCHITECTURE.md#global-dictation), validation in [TESTING.md](TESTING.md).
+
+Released directly as 0.8.0; the Linux preview build 42369068585 (`5aee9d1`) passed its package
+checks. To test a branch build of the integration, go through its installer, from the
+extracted `Desktop builds` Linux artifact:
+`UTTERFORM_VERSION=preview UTTERFORM_RELEASE_BASE_URL="file://$PWD" sh install-linux.sh`.
+Still to be checked on `asus16` after the release: Utterform in Setup → Defaults → Dictation,
+Alt + Space, Right Alt held (also briefly), Super + D still working.
 
 ## Previous handoff — 0.7.12
 

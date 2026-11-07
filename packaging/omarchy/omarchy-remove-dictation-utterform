@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=Remove Utterform's Omarchy dictation integration
+# Installed by Utterform (https://github.com/jli-software/utterform).
+#
+# Removes only what the Utterform installer added for Omarchy: these three
+# commands, the Setup > Defaults > Dictation menu row and, if Utterform is the
+# chosen backend, that choice. Utterform itself stays installed.
+
+set -e
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+bin_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+marker="Installed by Utterform (https://github.com/jli-software/utterform)."
+menu="$config_home/omarchy/extensions/omarchy-menu.jsonc"
+menu_id='"setup.default.dictation.utterform"'
+backend_config="$config_home/omarchy/defaults/dictation"
+
+if [[ -f $backend_config && $(< "$backend_config") == "utterform" ]]; then
+  # The same lock omarchy-dictation and omarchy-dictation-use take.
+  exec 9> "$backend_config.lock"
+  flock -w 5 9 || { echo "Dictation is busy; try again." >&2; exit 1; }
+  rm -f "$backend_config"
+  exec 9>&-
+  changed_backend=true
+fi
+
+if [[ -f $menu ]] && grep -qF "$menu_id" "$menu"; then
+  cp -p "$menu" "$menu.bak.$(date +%s)"
+  temporary=$(mktemp "$menu.XXXXXX")
+  grep -vF "$menu_id" "$menu" > "$temporary" || true
+  chmod --reference="$menu" "$temporary" 2>/dev/null || true
+  mv -f "$temporary" "$menu"
+fi
+
+for name in omarchy-dictation-utterform omarchy-install-dictation-utterform omarchy-remove-dictation-utterform; do
+  if [[ -f $bin_dir/$name ]] && grep -qF "$marker" "$bin_dir/$name"; then
+    rm -f "$bin_dir/$name"
+  fi
+done
+
+if [[ ${changed_backend:-false} == true ]] && command -v omarchy-restart-hyprctl >/dev/null 2>&1; then
+  omarchy-restart-hyprctl
+fi

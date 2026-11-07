@@ -47,6 +47,12 @@ launcher="$prefix/bin/utterform"
   printf 'Utterform package test: launcher is missing\n' >&2
   exit 1
 }
+for script in omarchy-dictation-utterform omarchy-install-dictation-utterform omarchy-remove-dictation-utterform; do
+  [ -x "$prefix/share/utterform/share/omarchy/$script" ] || {
+    printf 'Utterform package test: the package lacks %s\n' "$script" >&2
+    exit 1
+  }
+done
 [ ! -e "$prefix/share/utterform/AppRun" ] || {
   printf 'Utterform package test: legacy AppImage runtime was not replaced\n' >&2
   exit 1

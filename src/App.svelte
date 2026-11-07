@@ -174,6 +174,10 @@
   // meanwhile waits for the write, so it runs with what was confirmed.
   let transcriptionSaving = false;
   let transcriptionWork: Promise<void> = Promise.resolve();
+  // Push-to-talk (Omarchy's Right Alt) sends stop as soon as the key is let go,
+  // which can be while the microphone is still being prepared and the start
+  // cue plays. That stop is kept and finishes the recording once it runs.
+  let stopRequested = false;
 
   $: liveMode = settings.engine === "open_ai" && settings.cloud_model === "gpt_live_transcribe";
   $: transcriptionMode = transcriptionModeOf(settings);
@@ -426,6 +430,7 @@
         break;
       case "stop":
         if (recordingActive) await finishRecording();
+        else if (phase === "starting") stopRequested = true;
         break;
       case "cancel":
         if (recordingActive) await cancelRecording();
@@ -558,6 +563,7 @@
       liveStatus = null;
       liveStatusError = "";
       liveFailurePending = false;
+      stopRequested = false;
       phase = "starting";
       message = liveMode ? "Connecting GPT Live Transcribe…" : "Preparing the microphone…";
       // After `phase` is set, so a second press meanwhile is turned away; a
@@ -582,8 +588,12 @@
       // The worker can fail before start IPC resolves. Hidden WebViews skip
       // polling, so retain the native event through the starting phase.
       if (liveMode && liveFailurePending) await finishRecording();
-      else if (liveMode) void pollRecording();
+      else if (stopRequested) {
+        stopRequested = false;
+        await finishRecording();
+      } else if (liveMode) void pollRecording();
     } catch (error) {
+      stopRequested = false;
       setError(error);
     }
   }
