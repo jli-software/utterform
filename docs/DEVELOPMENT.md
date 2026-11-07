@@ -44,8 +44,12 @@ The "Context" category of the roadmap proposal is left out until 0.11.0 gives it
 0.10.0 adds the Codex provider to the AI category. Reused from the rejected 0.7.14
 branch: vocabulary as chips, local model chosen in its list. Not its layout.
 
-Settings schema and backend are unchanged; existing preferences carry over. Not yet done:
-Linux preview build and Jonas's acceptance; no merge, tag or release.
+Settings schema and backend are unchanged; existing preferences carry over.
+
+Linux preview: Desktop builds run 42369624453 from `058422b`, artifact
+`utterform-binaries-linux-x86_64`. **Jonas accepted it on 2026-11-07** ("ja, ist super").
+Still open: wait for the 0.8.0 merge, rebase on main (keep both changelog entries and the
+0.8 handoff), re-run validation, then merge, tag `v0.9.0` and release.
 
 ## Previous handoff — 0.7.12
 
