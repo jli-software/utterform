@@ -90,6 +90,30 @@ pub enum Theme {
     System,
 }
 
+/// Who runs the text actions. Transcription always uses the OpenAI key or a
+/// local model; only the rewriting afterwards can go through ChatGPT.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum TextProvider {
+    /// The OpenAI API, paid per request with the stored key.
+    #[default]
+    #[serde(rename = "openai_key")]
+    OpenAiKey,
+    /// The user's ChatGPT subscription through the Codex CLI login.
+    /// Experimental: OpenAI does not support it for third-party apps.
+    #[serde(rename = "codex")]
+    Codex,
+}
+
+impl TextProvider {
+    /// The stored name, for diagnostic events.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAiKey => "openai_key",
+            Self::Codex => "codex",
+        }
+    }
+}
+
 /// How much the text model thinks before rewriting a transcript. Lower is
 /// faster and cheaper; `None` sends nothing and leaves the model its own
 /// default, so a model that does not know a level cannot reject the request.
@@ -127,6 +151,11 @@ pub struct AppSettings {
     pub language_hints: Vec<String>,
     pub type_at_cursor: bool,
     pub text_model: String,
+    /// Where the text actions run. The OpenAI key stays in use for transcription.
+    pub text_provider: TextProvider,
+    /// The ChatGPT model for text actions. `None` takes the fastest model the
+    /// Codex CLI lists, so a model OpenAI retires is never stuck in Settings.
+    pub codex_model: Option<String>,
     /// Reasoning effort for the text transformation, where the model offers it.
     pub text_effort: Option<TextEffort>,
     /// Literal terms to expect in the audio: names, products, spellings the
@@ -171,6 +200,8 @@ impl Default for AppSettings {
             language_hints: Vec::new(),
             type_at_cursor: false,
             text_model: "gpt-5-mini".into(),
+            text_provider: TextProvider::OpenAiKey,
+            codex_model: None,
             text_effort: None,
             vocabulary: Vec::new(),
             transcription_context: String::new(),

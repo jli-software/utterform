@@ -101,7 +101,7 @@ and the matching rows from every category appear, ready to change right there.
 | --- | --- |
 | Recording | Microphone, shortcut, sounds |
 | Transcription | Engine (Cloud, Live, Local), OpenAI key, language, vocabulary, context, local model |
-| AI | Actions (built-in and your own prompts), text model and thinking effort |
+| AI | Actions (built-in and your own prompts), provider (OpenAI key or ChatGPT), text model and thinking effort |
 | Output | Typing method, keystroke delay, file folder, history |
 | App | Theme, start at login, diagnostics |
 
@@ -251,6 +251,12 @@ Pick an action on the left, rewrite its name or its instructions on the right. *
 Only what differs from the shipped text is stored, so a prompt you left alone still improves when Utterform does — and an instruction you cleared falls back to the shipped one rather than costing you the recording.
 
 Under **Settings → AI → Text model**: the model that runs these prompts (`gpt-5-mini` by default) and its **thinking effort** — Auto, Minimal, Low, Medium or High. Auto leaves the model its own default; lower is faster and cheaper. Not every model offers every level, and one that does not know the level you chose refuses the request, in which case the plain transcript is delivered and the reason is shown.
+
+### On your ChatGPT subscription (experimental)
+
+**Settings → AI → Provider → ChatGPT** runs these prompts on your ChatGPT subscription instead of the API, at no extra cost. It uses the login of the [Codex CLI](https://developers.openai.com/codex/cli): install it and run `codex login` once; Utterform reads that login from `~/.codex/auth.json` (or `$CODEX_HOME`) and renews it when it expires. Transcription still uses your OpenAI key or the local model. **Text model** then lists the models the Codex CLI offers; *Auto* takes the fastest.
+
+OpenAI does not officially support other apps on this path and may block it, which is why it is marked *Experimental*. Utterform does not quietly fall back to your API key: if ChatGPT refuses, the reason is shown and the plain transcript is delivered.
 
 ## Vocabulary
 
