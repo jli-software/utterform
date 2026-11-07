@@ -230,6 +230,7 @@ mod tests {
             save_to_file,
             type_at_cursor,
             output_format: OutputFormat::Txt,
+            context: None,
         }
     }
 

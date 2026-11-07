@@ -90,6 +90,7 @@ mod tests {
                 save_to_file: false,
                 type_at_cursor: true,
                 output_format: OutputFormat::Txt,
+                context: None,
             },
         }
     }

@@ -2,12 +2,13 @@
 /// search field filters this list; the categories show their part of it. A row
 /// missing here can be neither shown nor found, so a new setting starts here.
 
-export type SettingsCategory = "recording" | "transcription" | "ai" | "output" | "app";
+export type SettingsCategory = "recording" | "transcription" | "ai" | "context" | "output" | "app";
 
 export const SETTINGS_CATEGORIES: Array<{ id: SettingsCategory; label: string }> = [
   { id: "recording", label: "Recording" },
   { id: "transcription", label: "Transcription" },
   { id: "ai", label: "AI" },
+  { id: "context", label: "Context" },
   { id: "output", label: "Output" },
   { id: "app", label: "App" },
 ];
@@ -16,6 +17,7 @@ export type SettingsRowId =
   | "microphone" | "shortcut" | "sounds"
   | "engine" | "api-key" | "language" | "vocabulary" | "context" | "local-model"
   | "actions" | "text-provider" | "text-model"
+  | "context-selection" | "context-clipboard"
   | "typing" | "typing-delay" | "folder" | "history"
   | "theme" | "autostart" | "diagnostics";
 
@@ -35,11 +37,13 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { id: "api-key", category: "transcription", label: "OpenAI key", keywords: ["api", "token", "secret", "keyring"] },
   { id: "language", category: "transcription", label: "Language", keywords: ["languages", "hints", "german", "english", "deutsch"] },
   { id: "vocabulary", category: "transcription", label: "Vocabulary", keywords: ["words", "terms", "names", "dictionary", "spelling"] },
-  { id: "context", category: "transcription", label: "Context", keywords: ["topic", "recording context", "hint"] },
+  { id: "context", category: "transcription", label: "Topic", keywords: ["context", "about", "recording context", "hint", "prompt"] },
   { id: "local-model", category: "transcription", label: "Local model", keywords: ["whisper", "download", "offline", "model", "on device"] },
   { id: "actions", category: "ai", label: "Actions", keywords: ["prompts", "prompt", "clean", "polish", "summarize", "email", "custom", "rewrite"] },
   { id: "text-provider", category: "ai", label: "Provider", keywords: ["chatgpt", "codex", "subscription", "plus", "pro", "abo", "login", "openai", "experimental"] },
   { id: "text-model", category: "ai", label: "Text model", keywords: ["model", "gpt", "effort", "thinking", "reasoning", "llm"] },
+  { id: "context-selection", category: "context", label: "Selection", keywords: ["selected", "highlighted", "marked", "primary", "reply", "material"] },
+  { id: "context-clipboard", category: "context", label: "Clipboard", keywords: ["copied", "copy", "paste", "material"] },
   { id: "typing", category: "output", label: "Type at cursor", keywords: ["paste", "keystrokes", "typing", "insert"] },
   { id: "typing-delay", category: "output", label: "Keystroke delay", keywords: ["delay", "milliseconds", "slow", "typing"] },
   { id: "folder", category: "output", label: "Folder", keywords: ["file", "directory", "save", "export", "output"] },

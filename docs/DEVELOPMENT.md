@@ -19,7 +19,20 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.13.0 Audio files
+## Current handoff — 0.11.0 Context: selected text and clipboard
+
+Stage 0.11.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.11.0-context`.
+A new built-in action **Context**: the transcript is the instruction, the selected text
+(Linux, read at recording start) or else the clipboard is the material (`context.rs`).
+Jonas decided: its own action, no per-action switch; Linux reads the selection,
+Windows/macOS the clipboard only (no simulated Ctrl+C). Settings → Context has the two
+switches; the transcription row *Context* became *Topic*. Design in
+[ARCHITECTURE.md → Context](ARCHITECTURE.md#context-selected-text-and-clipboard-0110),
+live measurement in [TESTING.md](TESTING.md). Merged into `main` without tag or release;
+ships with 1.0. Next stage: 0.12.0 action per application — discuss with Jonas first;
+0.14.0 first-run assistant is the next one that can simply be built.
+
+## Previous handoff — 0.13.0 Audio files
 
 Stage 0.13.0 of [the roadmap](plans/v1.0-roadmap.md), branch
 `work/utterform-0.13.0-audio-files`. Voice messages and recordings are decoded by

@@ -27,6 +27,7 @@
     LiveStatus,
     LiveSupport,
     TypingSupport,
+    ContextSupport,
     ProcessResult,
     RemoteIntent,
     TextEffort,
@@ -133,6 +134,7 @@
   let liveStatus: LiveStatus | null = null;
   let liveSupport: LiveSupport = { supported: false, explanation: "Live dictation requires the Windows or Omarchy desktop app." };
   let typingSupport: TypingSupport = { supported: true, explanation: "" };
+  let contextSupport: ContextSupport = { selection: true, explanation: "" };
   let liveStatusError = "";
   let liveFailurePending = false;
   let polling = false;
@@ -284,7 +286,7 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport, typingSupport] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport, typingSupport, contextSupport] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
@@ -293,6 +295,7 @@
         api.listBuiltInActions(),
         api.liveSupport().catch(() => ({ supported: false, explanation: "Live dictation support could not be checked. Restart Utterform to try again." })),
         api.typingSupport().catch(() => ({ supported: true, explanation: "" })),
+        api.contextSupport().catch(() => ({ selection: false, explanation: "Could not be checked." })),
       ]);
       settings = { ...DEFAULT_SETTINGS, ...settings, cloud_model: settings.cloud_model ?? "gpt_transcribe" };
       applyTheme(settings.theme);
@@ -1645,7 +1648,7 @@
             onchange={(values) => change({ vocabulary: values })} /></div></div>
       {/if}
       {#if shownRows.has("context")}
-        <div class="setting-row" title="Optional, cloud only. What the recordings are about.">{@render rowHead("context", "Context", "transcription-context")}
+        <div class="setting-row" title="Optional, cloud only. What the recordings are about.">{@render rowHead("context", "Topic", "transcription-context")}
           <input id="transcription-context" class="row-input" placeholder="Optional" value={settings.transcription_context}
             oninput={(event) => change({ transcription_context: event.currentTarget.value }, TYPING_SAVE_DELAY_MS)} /></div>
       {/if}
@@ -1686,6 +1689,25 @@
       {#if shownRows.has("text-model")}
         <button class="setting-row more-row" title="Used for actions other than Plain" onclick={() => openDetail("text-model")}>{@render rowHead("text-model", "Text model")}
           <span class="row-more">{textModelSummary} · {effortLabel}</span></button>
+      {/if}
+
+      <!-- Context: what the Context action reads when its recording starts -->
+      {#if shownRows.has("context-selection")}
+        <div class="setting-row" title="The Context action reads the selected text when you start speaking.">{@render rowHead("context-selection", "Selection")}
+          <div class="row-control">
+            <input type="checkbox" role="switch" class="switch" aria-label="Read the selection" disabled={!contextSupport.selection}
+              checked={contextSupport.selection && settings.context_selection} onchange={(event) => change({ context_selection: event.currentTarget.checked })} />
+          </div>
+          {#if contextSupport.explanation}<p class="row-note row-message" role="status">{contextSupport.explanation}</p>{/if}
+        </div>
+      {/if}
+      {#if shownRows.has("context-clipboard")}
+        <div class="setting-row" title="Used when nothing is selected. Utterform's own last text is skipped.">{@render rowHead("context-clipboard", "Clipboard")}
+          <div class="row-control">
+            <input type="checkbox" role="switch" class="switch" aria-label="Read the clipboard" checked={settings.context_clipboard}
+              onchange={(event) => change({ context_clipboard: event.currentTarget.checked })} />
+          </div>
+        </div>
       {/if}
 
       <!-- Output -->

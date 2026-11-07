@@ -62,7 +62,9 @@ test.beforeEach(async ({ page }) => {
               { id: "summarize", name: "Summarize", hint: "Keep the essentials", prompt: "Summarize the transcript concisely in the speaker's language. Return only the summary." },
               { id: "prompt", name: "Prompt", hint: "Shape it into an AI prompt", prompt: "Convert the transcript into a precise, self-contained prompt for an AI assistant. Return only the prompt." },
               { id: "email", name: "Email", hint: "Turn it into a ready-to-send email", prompt: "Write the transcript as an email in the speaker's language. Return only the email." },
+              { id: "context", name: "Context", hint: "Apply your words to the selected text", prompt: "Carry out the spoken instruction on the material. Return only the resulting text." },
             ];
+            case "context_support": return Reflect.get(window, "__contextSupport") ?? { selection: true, explanation: "" };
             case "get_settings": return settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
             case "has_openai_api_key": return true;
@@ -557,7 +559,7 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
 }
 
 const saved = (page: Page) => page.evaluate(() => Reflect.get(window, "__savedSettings") as Record<string, unknown> | null);
-const CATEGORIES = ["Recording", "Transcription", "AI", "Output", "App"];
+const CATEGORIES = ["Recording", "Transcription", "AI", "Context", "Output", "App"];
 
 for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
   test(`settings write every change at once, without Save, at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
@@ -913,4 +915,36 @@ test("text actions can run on the ChatGPT subscription, marked experimental", as
   await page.getByRole("combobox", { name: "ChatGPT model" }).click();
   await expect(page.getByRole("option", { name: "GPT-6.1-Sol" })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("ai-chatgpt-model.png") });
+});
+
+test("the Context action's sources are switched in their own category, at once", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: "Context", exact: true }).click();
+  const selection = page.getByRole("switch", { name: "Read the selection" });
+  const clipboard = page.getByRole("switch", { name: "Read the clipboard" });
+  await expect(selection).toBeChecked();
+  await expect(clipboard).toBeChecked();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("context.png") });
+  await clipboard.click();
+  await expect.poll(() => page.evaluate(() => (Reflect.get(window, "__savedSettings") as { context_clipboard?: boolean } | null)?.context_clipboard)).toBe(false);
+  await selection.click();
+  await expect.poll(() => page.evaluate(() => (Reflect.get(window, "__savedSettings") as { context_selection?: boolean } | null)?.context_selection)).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("without a way to read the selection, Context says what to do and keeps the clipboard", async ({ page }, testInfo) => {
+  await page.addInitScript(() => Object.assign(window, { __contextSupport: { selection: false, explanation: "Linux only for now. Copy the text first." } }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: "Context", exact: true }).click();
+  await expect(page.getByRole("switch", { name: "Read the selection" })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Read the selection" })).not.toBeChecked();
+  await expect(page.getByText("Linux only for now. Copy the text first.")).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Read the clipboard" })).toBeEnabled();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("context-elsewhere.png") });
 });

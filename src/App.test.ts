@@ -30,6 +30,7 @@ vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   listBuiltInActions: vi.fn(),
   liveSupport: vi.fn(), getLiveStatus: vi.fn(), typingSupport: vi.fn(async () => ({ supported: true, explanation: "" })),
+  contextSupport: vi.fn(async () => ({ selection: true, explanation: "" })),
   hasOpenAiApiKey: vi.fn(async () => true), codexStatus: vi.fn(), openCodexSetup: vi.fn(async () => {}), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
@@ -652,7 +653,7 @@ describe("typing at the cursor", () => {
     await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
     await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
     await showSettingsTab(view, "Transcription");
-    await fireEvent.input(view.getByRole("textbox", { name: "Context" }), { target: { value: "A standup" } });
+    await fireEvent.input(view.getByRole("textbox", { name: "Topic" }), { target: { value: "A standup" } });
     expect(api.saveSettings).not.toHaveBeenCalled();
     await fireEvent.click(view.getByRole("button", { name: "Close settings" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ transcription_context: "A standup" })));

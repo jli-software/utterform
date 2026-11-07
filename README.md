@@ -100,8 +100,9 @@ and the matching rows from every category appear, ready to change right there.
 | Category | Rows |
 | --- | --- |
 | Recording | Microphone, shortcut, sounds |
-| Transcription | Engine (Cloud, Live, Local), OpenAI key, language, vocabulary, context, local model |
+| Transcription | Engine (Cloud, Live, Local), OpenAI key, language, vocabulary, topic, local model |
 | AI | Actions (built-in and your own prompts), provider (OpenAI key or ChatGPT), text model and thinking effort |
+| Context | What the Context action may read: selection, clipboard |
 | Output | Typing method, keystroke delay, file folder, history |
 | App | Theme, start at login, diagnostics |
 
@@ -244,7 +245,7 @@ On **macOS** nothing needs installing either: paste is ⌘V, which every Mac win
 
 ## Prompts you can rewrite
 
-Utterform ships six actions. **Plain** delivers what you said, word for word, and never reaches a text model. **Clean**, **Polish**, **Summarize**, **Prompt** and **Email** each run a written instruction, and every one of them is yours to change under **Settings → AI → Actions**.
+Utterform ships seven actions. **Plain** delivers what you said, word for word, and never reaches a text model. **Clean**, **Polish**, **Summarize**, **Prompt**, **Email** and **Context** each run a written instruction, and every one of them is yours to change under **Settings → AI → Actions**.
 
 Pick an action on the left, rewrite its name or its instructions on the right. *View the original* shows the text Utterform ships before you write over it, and *Reset* brings it back. A dot marks the ones you have changed. **Add prompt** creates one of your own, which appears in the action menu beside the others.
 
@@ -263,6 +264,24 @@ OpenAI does not officially support other apps on this path and may block it, whi
 Drop an audio file on the window, open one with the folder button next to Settings (or `O`), run `utterform --file <path>`, or choose **Open with → Utterform** in your file manager. The text goes to the history and the clipboard — and to a file when File is on — with the chosen action applied, the same as a dictation; it is never typed at the cursor.
 
 WhatsApp and Telegram voice messages (`.opus`, `.ogg`), phone recordings (`.m4a`), MP3, WAV, FLAC, WebM and AIFF work, up to two hours. With GPT Transcribe, audio longer than twelve minutes is sent in parts of about ten minutes, cut at pauses, so OpenAI's 25 MB upload limit does not stop it. Utterform only adds itself to "Open with"; your default player stays as it is.
+
+## Context: say what to do with the selected text
+
+Select some text — an email, a paragraph, a message — start a recording with the
+**Context** action and say what to do with it: "reply that Monday at ten works",
+"translate this into French", "make it shorter". The result arrives at the cursor.
+What you say is the instruction, the selected text the material.
+
+The selection is read when the recording starts. On **Linux** Utterform reads the
+selected text directly (`wl-paste --primary` from wl-clipboard on Wayland, `xclip` or
+`xsel` on X11); it presses nothing in the other window. On **Windows and macOS** it uses
+the clipboard: copy the text first. When nothing is selected the clipboard is used,
+except for Utterform's own last text; with neither, the instruction runs on its own.
+**Settings → Context** switches either source off.
+
+Only the Context action reads the selection or the clipboard, never plain dictation or
+another action. On Linux the primary selection is whatever you selected last, even in
+another window, so check what is selected before you use Context for something private.
 
 ## Vocabulary
 
@@ -329,6 +348,7 @@ Global dictation is separate from these: see [Dictate from anywhere](#dictate-fr
 - **GPT Transcribe:** the temporary audio recording is sent to OpenAI — for an opened audio file, a decoded copy of its audio.
 - **Local Whisper + Plain:** audio and text stay on the device.
 - **Local Whisper + transformed action:** audio stays local; transcribed text is sent to OpenAI.
+- **Context action:** the selected or copied text (up to 20,000 characters) is sent to the text model with your instruction. No other action reads the selection or the clipboard.
 - Temporary recordings are deleted after processing or cancellation.
 - The OpenAI API key is never written to `settings.json`; it is stored through the native OS keyring.
 - The last 100 completed texts are stored unencrypted on this device in `history.json`, including clipboard-only output. Titles are generated locally, without an AI call. Disable future storage or clear existing history in Settings; exported files and clipboard contents are not cleared.

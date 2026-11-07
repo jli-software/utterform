@@ -5,6 +5,7 @@ mod audio_file;
 mod autostart;
 mod cli;
 mod commands;
+mod context;
 mod diagnostics;
 mod domain;
 mod feedback;
@@ -255,6 +256,7 @@ pub fn run() {
         )
         .manage(audio::AudioCaptureState::default())
         .manage(retained::RetainedRecordings::default())
+        .manage(context::CapturedContext::default())
         .manage(commands::FileBusy::default())
         .manage(feedback::DoneCues::default())
         .manage(tray::TrayState::default())
@@ -301,6 +303,7 @@ pub fn run() {
             commands::apply_global_hotkey,
             commands::list_built_in_actions,
             commands::typing_support,
+            commands::context_support,
             commands::get_settings,
             commands::save_settings,
             commands::list_input_devices,

@@ -177,6 +177,10 @@ pub struct AppSettings {
     /// A system-wide dictation key, where the operating system grants one.
     /// `None` disables it; Wayland ignores it and keeps using `--toggle`.
     pub global_hotkey: Option<String>,
+    /// The Context action may read the selected text (Linux).
+    pub context_selection: bool,
+    /// The Context action may read the clipboard when nothing is selected.
+    pub context_clipboard: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +217,8 @@ impl Default for AppSettings {
             typing_method: TypingMethod::Paste,
             typing_delay_ms: crate::typing::DEFAULT_DELAY_MS,
             global_hotkey: Some(crate::hotkey::DEFAULT.to_string()),
+            context_selection: true,
+            context_clipboard: true,
         }
     }
 }
@@ -234,6 +240,10 @@ pub struct ProcessRequest {
     pub save_to_file: bool,
     pub type_at_cursor: bool,
     pub output_format: OutputFormat,
+    /// What the Context action read when its recording started. Never sent by
+    /// the interface; carried here so a kept recording retries with it.
+    #[serde(skip)]
+    pub context: Option<crate::context::Captured>,
 }
 
 #[derive(Debug, Clone, Serialize)]
