@@ -70,6 +70,57 @@ The audio is the one thing that cannot be recreated, so failures keep it.
 `keyring` holds one Secret Service session for the process lifetime and that session
 ends with the daemon. macOS and Windows have no such session.
 
+## Audio files (0.13.0)
+
+A file is turned into what a recording leaves behind and then takes the recording's path.
+`audio_file::decode` probes the content with Symphonia (Ogg, Matroska/WebM, MP4/M4A, MP3,
+WAV, FLAC, AIFF, CAF; AAC, MP3, FLAC, Vorbis, PCM, ADPCM, ALAC) and decodes Opus through
+`symphonia-adapter-libopus`, which compiles libopus into the binary with CMake — Symphonia
+has no Opus decoder of its own. Each packet is mixed to mono and streamed through a small
+resampler (box average when going down, linear interpolation when going up) into a
+temporary 16 kHz mono 16-bit WAV from `audio::new_temporary_wav`, named like a recording so
+the stale cleanup knows it. The result is an ordinary `RecordingArtifact`; nothing
+downstream knows where the audio came from, and dropping it deletes the copy. Undecodable
+packets are skipped and counted; a cut-off file keeps what came before the cut; more than
+two hours is refused while decoding.
+
+`commands::transcribe_file` takes a path, a source (`drop`, `open`, `command_line`,
+`open_with`) and the usual `ProcessRequest`, forces clipboard on and cursor off, refuses
+while a recording or Live dictation runs or another file is in progress (`FileBusy`), and
+calls `process_recording` with `Origin::File`. That origin logs `mode=file` and keeps no
+copy when transcription fails: the original is still there, so opening it again is the
+retry.
+
+Files from outside queue in `PendingFiles` (at most 20): the launch's own arguments,
+a second instance's arguments resolved against its working directory, and macOS'
+`RunEvent::Opened`. `cli::files_from` reads `--file <path>`, `--file=<path>`, `file://`
+URLs and a bare argument that names an existing file — the form "Open with" and the
+Windows registry use — so `utterform toggle` keeps meaning what it did. The interface
+hears `file-waiting`, takes paths with `take_pending_file` one at a time while it is free,
+and also drains the queue once at start. Drag and drop uses the webview's
+`tauri://drag-enter/-leave/-drop` events.
+
+Uploads: `transcription::openai` cuts audio longer than twelve minutes into parts of about
+ten (`split_at_pauses`), moving each cut to the quietest 100 ms window in the 30 s before
+the mark, uploads them in order and joins the texts with a space. A silent part adds
+nothing; any other failure fails the whole file. Local Whisper takes the whole buffer.
+`RecordingArtifact::whisper_pcm` now reads frame by frame and skips resampling at 16 kHz,
+so a two-hour file costs one buffer of about 460 MB rather than three.
+
+"Open with" registration: Linux's desktop entry lists audio MIME types with `Exec=… %F`;
+Windows' NSIS hook writes `Utterform.AudioFile` into each type's `OpenWithProgids` and an
+`Applications\utterform.exe` entry, under HKCU, and removes them on a real uninstall —
+Tauri's own `fileAssociations` is not used because its NSIS macro replaces the type's
+default program; macOS' `Info.plist` declares `CFBundleDocumentTypes` for `public.audio`
+with rank `Alternate`.
+
+Events: `file.requested` (source, count), `file.started` (recording, source),
+`file.decoded` (codec, source rate and channels, skipped packets, audio and decode ms),
+`file.failed` (class, stage `start` or `decode`), `file.packets_skipped`,
+`file.requests_dropped`, `transcription.split` (parts), `transcription.part_failed`, then
+the recording's own `transcription.*` → `recording.completed mode=file`. Names, paths and
+extensions of files are never logged.
+
 ## Background capture & feedback
 
 Capture is owned by Rust/CPAL, not the WebView. Focus changes, minimization, and closing the window to tray do not stop a recording. Explicit Stop processes it, Escape discards it, and tray Quit discards active audio before exiting. No microphone capture starts merely by launching the app. The in-window keys stay focused-window shortcuts; global dictation is a separate path described below.
@@ -199,11 +250,11 @@ Diagnostics are local, bounded and free of user content, and `diagnostics.rs` is
 
 **Storage.** `tauri-plugin-log` 2.9 supplies the filtered logger and writes to stderr; Utterform's bounded writer stores `utterform.log` in Tauri's log directory (`app_log_dir`: `$XDG_DATA_HOME/software.jli.utterform/logs` on Linux, `~/Library/Logs/software.jli.utterform` on macOS, `%LOCALAPPDATA%\software.jli.utterform\logs` on Windows). It checks the size after every record and rotates at 2 MiB to `utterform.1.log` and `utterform.2.log`, so the disk budget is about 6 MiB. It buffers at most one already-bounded record and drops that record after a write or rotation failure, preventing a full disk or a removed/locked log directory from growing process memory without limit. The level is `INFO` in release builds and `DEBUG` in debug builds, and a filter admits only the `utterform`/`utterform_lib` targets and the frontend bridge's `utterform::frontend` — dependency output is never written. The logger is built with the plugin's `split` and attached in `setup` before anything else runs, rather than registered as a plugin: its only other content is a JavaScript `log` command the WebView must not reach, and a log directory that cannot be created then costs the file instead of the launch (events still reach stderr and `diagnostics.file_unavailable` says why). The 0.7.8 `utterform.log` in app-local-data is not moved, deleted or written.
 
-**Events.** One line per event: `2026-09-16T08:00:00.123Z INFO  utterform run=1a2b3c4d recording.opened recording=3 device="Studio microphone" open_ms=42`. Names are stable and dotted (`app.*`, `recording.*`, `transcription.*`, `transform.*`, `history.*`, `delivery.*`, `live.*`, `cue.*`, `settings.*`, `hotkey.*`, `models.*`, `secrets.*`, `support.*`, `window.*`, `tray.*`, `typing.*`, `frontend.error`); fields are `key=value`, quoted and escaped when they contain whitespace, quotes, `=` or backslashes. Every line carries `run`, eight hex digits for this process, so a file shared by several runs stays attributable. Every batch and Live recording gets a process-local `recording` id from one counter, carried through `StartedRecording`, `ActiveRecording`, `RecordingArtifact` and the Live `Session` — separate from the `Instant` that identifies a capture session. A run of a recording therefore reads as `recording.requested` → `recording.opened` → `recording.armed` → `recording.stopped` → `transcription.started/completed` → `transform.started/completed` or `transform.fallback` → `history.saved` → `delivery.completed` → `recording.completed`, and a Live one adds `live.input_ready`, `live.connected`, `live.streaming`, `live.stream_completed` and the input worker's events.
+**Events.** One line per event: `2026-09-16T08:00:00.123Z INFO  utterform run=1a2b3c4d recording.opened recording=3 device="Studio microphone" open_ms=42`. Names are stable and dotted (`app.*`, `recording.*`, `file.*`, `transcription.*`, `transform.*`, `history.*`, `delivery.*`, `live.*`, `cue.*`, `settings.*`, `hotkey.*`, `models.*`, `secrets.*`, `support.*`, `window.*`, `tray.*`, `typing.*`, `frontend.error`); fields are `key=value`, quoted and escaped when they contain whitespace, quotes, `=` or backslashes. Every line carries `run`, eight hex digits for this process, so a file shared by several runs stays attributable. Every batch and Live recording gets a process-local `recording` id from one counter, carried through `StartedRecording`, `ActiveRecording`, `RecordingArtifact` and the Live `Session` — separate from the `Instant` that identifies a capture session. A run of a recording therefore reads as `recording.requested` → `recording.opened` → `recording.armed` → `recording.stopped` → `transcription.started/completed` → `transform.started/completed` or `transform.fallback` → `history.saved` → `delivery.completed` → `recording.completed`, and a Live one adds `live.input_ready`, `live.connected`, `live.streaming`, `live.stream_completed` and the input worker's events.
 
 **Failures and references.** Low-level code returns a `diagnostics::Failure`: the message the user reads, kept apart from a closed-vocabulary `class`, an optional HTTP `status` and an optional `detail` (an `io::ErrorKind`, a keyring variant, an audio backend's error). `Failure` has no `Display`, so its message — which can quote an OpenAI error body — cannot become a log field by accident. The code that knows the context owns the one event: `failure!` logs `ERROR`, `fallback!` logs `WARN` for work that continued without that part, and both append `(ref <run>-<n>)` to the message; the same reference is the event's `ref` field. Guidance the user acts on (add a key, choose an output, a model not yet downloaded, install `wtype`, grant Accessibility, start Live from another application's text field) is logged at `INFO` with `outcome=guidance` and no reference; `typing::is_guidance` and `typing::is_capture_guidance` recognise the platform modules' own refusal sentences for that. Commands that only pass a failure on do not log it again.
 
-**Privacy.** Allowed: version, OS/architecture, desktop and session kind, run/recording/reference ids, durations, counts, enabled modes, model and action ids (a custom action is only `custom`), HTTP statuses, microphone and output device names, program/application names, window classes and bundle ids, error classes, and the platform typing modules' own refusal sentences, which name tools, programs and counts. The text model is named only when it looks like a model id; anything else typed into that field is `custom`. Never: API keys or authorization material, transcripts, history, clipboard or output-file contents, audio, prompts and prompt overrides, vocabulary, language hints, recording context, window titles, request/response bodies, WebSocket deltas, raw third-party errors, full settings or history JSON, output folders (a saved file is named by its basename). Linux Live focus events keep their existing rendering: event name, window address, workspace id. Every record is still normalized by `redact::line` — one physical line, no control or direction-override characters, home directories reduced to `$HOME`, `sk-…` keys, bearer tokens and `Authorization:` values replaced — and bounded to 16 KiB; a copied report applies the same again, legacy lines included. The sanitizer cannot recognise dictated prose; the protection is that it never reaches diagnostics.
+**Privacy.** Allowed: version, OS/architecture, desktop and session kind, run/recording/reference ids, durations, counts, enabled modes, model and action ids (a custom action is only `custom`), HTTP statuses, microphone and output device names, program/application names, window classes and bundle ids, error classes, and the platform typing modules' own refusal sentences, which name tools, programs and counts. The text model is named only when it looks like a model id; anything else typed into that field is `custom`. Never: API keys or authorization material, transcripts, history, clipboard or output-file contents, audio, prompts and prompt overrides, vocabulary, language hints, recording context, window titles, names and paths of opened audio files, request/response bodies, WebSocket deltas, raw third-party errors, full settings or history JSON, output folders (a saved file is named by its basename). Linux Live focus events keep their existing rendering: event name, window address, workspace id. Every record is still normalized by `redact::line` — one physical line, no control or direction-override characters, home directories reduced to `$HOME`, `sk-…` keys, bearer tokens and `Authorization:` values replaced — and bounded to 16 KiB; a copied report applies the same again, legacy lines included. The sanitizer cannot recognise dictated prose; the protection is that it never reaches diagnostics.
 
 **Bounds.** Nothing is logged from the audio callback, the writer loop, per delta, per keystroke, per animation frame or per status poll: glitches, delivered chunks, WebSocket events and audio bytes are counted and reported once. `Limiter` keeps Linux Live focus events at 200 per session and reports `live.focus_events_suppressed`; the frontend bridge admits 50 reports per run (20 per mounted interface on its own side); a failing `get_recording_status` is reported once per run; undelivered model-download progress events are counted and reported once.
 

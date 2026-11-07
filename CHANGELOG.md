@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 · Voice messages and recordings (on `main`, ships with 1.0)
+
+- Transcribe an audio file: the new folder button next to Settings or `O` opens one, dropping it on the window shows **Drop to transcribe** with the action and engine it will use, `utterform --file <path>` and **Open with → Utterform** in the file manager hand one over. Several files are done one after another.
+- The text goes to history and the clipboard, and to a file when File is on; it is never typed at the cursor. The chosen action applies as for a dictation.
+- Read WhatsApp and Telegram voice messages (Opus in Ogg), M4A/AAC from a phone, MP3, WAV, FLAC, Vorbis, WebM and AIFF, up to two hours. Opus is decoded by libopus, compiled into Utterform; nothing has to be installed.
+- Send audio longer than twelve minutes to GPT Transcribe in parts of about ten minutes, each cut at the quietest moment before the mark, so the 25 MB upload limit no longer applies. Local Whisper takes the whole file.
+- Offer Utterform in "Open with" on Linux, Windows and macOS without becoming the default player for any audio type.
+
+See [0.13.0 release notes](docs/releases/v0.13.0.md).
+
 ## 0.10.0 · Text actions on your ChatGPT subscription (on `main`, ships with 1.0)
 
 - Add **Settings → AI → Provider**: OpenAI key or **ChatGPT**. With ChatGPT, Clean, Polish, Summarize, Prompt, Email and your own actions run on your ChatGPT subscription through the Codex CLI login (`codex login`) at no extra cost. Transcription keeps using the OpenAI key or the local model.
