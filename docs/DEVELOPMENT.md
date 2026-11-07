@@ -11,23 +11,12 @@
 
 ## Road to 1.0
 
-Decided with Jonas on 2026-10-31. Three stages:
-
-1. **Reliability (0.7.13, this branch).** Keep recordings through failures, report
-   failures from a hidden window, survive a keyring restart. Details in
-   [ARCHITECTURE.md](ARCHITECTURE.md), section "When a recording fails".
-2. **First-run assistant (0.8.0).** Part of 1.0 by Jonas's decision: skippable, short
-   welcome, API key or local model, language by typing `de`, optional vocabulary that
-   can wait until later. The contract is `docs/plans/v0.8.0-onboarding-assistant.md` on
-   Draft PR #39; rebase it first, its base predates 0.7.11.
-3. **1.0 finish.** Installed acceptance on Linux, Windows and macOS (including issue #40
-   and the outstanding 0.7.12 tray checks), then release and a new WinGet submission,
-   which does not follow GitHub releases by itself.
-
-Field evidence came from the local log on `asus16`: 551 recordings since 2026-09-23, 536
-delivered. Of the 15 failures, 12 were `empty_result` (ten under two seconds), two were the
-keyring and one an empty capture. Eight of eleven starts report `previous_run_unclean`,
-probably because a shutdown never reaches `app.exiting`; that is unverified and still open.
+Replanned with Jonas on 2026-11-07: Omarchy dictation backend, Settings from scratch,
+Codex login for text actions, context from selection and clipboard, action per
+application, audio files, first-run assistant, then 1.0. Stages, decisions and open
+proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 2026-10-31
+(reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
+(`feat/simple-settings`) was rejected and will not be merged.
 
 ## Current handoff — 0.7.12
 
