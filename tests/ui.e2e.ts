@@ -27,6 +27,8 @@ test.beforeEach(async ({ page }) => {
       isTauri: true,
       __copiedText: "",
       __emitRemoteIntent: (intent: string) => callbacks.get(eventHandlers.get("remote-intent") ?? -1)?.({ payload: intent }),
+      __emit: (event: string, payload: unknown) => callbacks.get(eventHandlers.get(event) ?? -1)?.({ payload }),
+      __transcribedFiles: [] as unknown[],
       __finishCount: 0,
       __savedSettings: null,
       __appliedHotkey: undefined,
@@ -87,6 +89,13 @@ test.beforeEach(async ({ page }) => {
             case "get_recording_status": return recordingStatus();
             case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
             case "retained_recording": return Reflect.get(window, "__retained") ?? null;
+            case "take_pending_file": return null;
+            case "transcribe_file": {
+              (Reflect.get(window, "__transcribedFiles") as unknown[]).push({ path: args.path, source: args.source, request: args.request });
+              const entry = { ...latest, id: "3", title: "Bring the blue folder", text: "Bring the blue folder on Monday.", durationMs: 63_000 };
+              history = [entry, ...history];
+              return { historyEntry: entry, text: entry.text, savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [], durationMs: entry.durationMs, engine: "open_ai" };
+            }
             case "notify_if_unattended": return;
             case "play_test_cues": return;
             case "diagnostics_info": return { logPath: "/home/tester/.local/share/software.jli.utterform/logs/utterform.log" };
@@ -862,6 +871,23 @@ for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }
     expect(errors).toEqual([]);
   });
 }
+
+test("a voice message dropped on the window goes to the clipboard", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Open audio file" })).toBeEnabled();
+  const emit = (event: string, payload: unknown) => page.evaluate(([event, payload]) => (Reflect.get(window, "__emit") as (event: string, payload: unknown) => void)(event as string, payload), [event, payload] as const);
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "__emit"))).toBe("function");
+  await emit("tauri://drag-enter", { paths: ["/home/tester/PTT-20261107-WA0003.opus"], position: { x: 400, y: 300 } });
+  await expect(page.getByText("Drop to transcribe")).toBeVisible();
+  await expect(page.getByText("Plain · GPT Transcribe → Clipboard")).toBeVisible();
+  await page.screenshot({ path: "test-results/audio-file-drop.png" });
+  await emit("tauri://drag-drop", { paths: ["/home/tester/PTT-20261107-WA0003.opus"], position: { x: 400, y: 300 } });
+  await expect(page.getByText("Drop to transcribe")).toBeHidden();
+  await expect(page.getByText("Copied to clipboard")).toBeVisible();
+  const calls = await page.evaluate(() => Reflect.get(window, "__transcribedFiles"));
+  expect(calls).toEqual([{ path: "/home/tester/PTT-20261107-WA0003.opus", source: "drop", request: expect.objectContaining({ copyToClipboard: true, typeAtCursor: false }) }]);
+  await page.screenshot({ path: "test-results/audio-file-done.png" });
+});
 
 test("text actions can run on the ChatGPT subscription, marked experimental", async ({ page }, testInfo) => {
   await page.addInitScript(() => Object.assign(window, { __codexSignedOut: true }));

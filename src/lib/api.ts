@@ -15,6 +15,7 @@ import type {
   LiveStatus,
   LiveSupport,
   OutputFormat,
+  FileSource,
   ProcessResult,
   RecordingStatus,
   RemoteIntent,
@@ -86,6 +87,17 @@ export const api = {
     typeAtCursor: boolean;
     outputFormat: OutputFormat;
   }) => invoke<ProcessResult>("finish_recording", { request }),
+  // An audio file: decoded, transcribed, then the same path as a recording.
+  transcribeFile: (path: string, source: FileSource, request: {
+    action: string;
+    customPrompt: string | null;
+    copyToClipboard: boolean;
+    saveToFile: boolean;
+    typeAtCursor: boolean;
+    outputFormat: OutputFormat;
+  }) => invoke<ProcessResult>("transcribe_file", { path, source, request }),
+  // Files handed in from the command line or "Open with", one at a time.
+  takePendingFile: () => invoke<string | null>("take_pending_file"),
   // Whether `codex login` signed the Codex CLI in to ChatGPT, and its models.
   codexStatus: () => invoke<CodexStatus>("codex_status"),
   openCodexSetup: () => invoke<void>("open_codex_setup"),

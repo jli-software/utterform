@@ -29,7 +29,21 @@ Windows/macOS the clipboard only (no simulated Ctrl+C). Settings → Context has
 switches; the transcription row *Context* became *Topic*. Design in
 [ARCHITECTURE.md → Context](ARCHITECTURE.md#context-selected-text-and-clipboard-0110),
 live measurement in [TESTING.md](TESTING.md). Merged into `main` without tag or release;
-ships with 1.0. Next stage: 0.12.0 action per application — discuss with Jonas first.
+ships with 1.0. Next stage: 0.12.0 action per application — discuss with Jonas first;
+0.14.0 first-run assistant is the next one that can simply be built.
+
+## Previous handoff — 0.13.0 Audio files
+
+Stage 0.13.0 of [the roadmap](plans/v1.0-roadmap.md), branch
+`work/utterform-0.13.0-audio-files`. Voice messages and recordings are decoded by
+`audio_file.rs` (Symphonia plus bundled libopus) into a temporary 16 kHz WAV and run
+through `process_recording` with `Origin::File`; GPT Transcribe uploads longer than twelve
+minutes in parts cut at pauses. In: folder button / `O`, drop, `--file`, "Open with"
+(desktop entry, NSIS `OpenWithProgids`, macOS document types — none takes the default).
+Jonas accepted the mock-up. Design in
+[ARCHITECTURE.md → Audio files](ARCHITECTURE.md#audio-files-0130), live results and what
+is open for 1.0 (Windows/macOS "Open with", drag and drop in a real window) in
+[TESTING.md](TESTING.md). Merged into `main` without tag or release; ships with 1.0.
 
 ## Previous handoff — 0.10.0 Codex login for text actions
 

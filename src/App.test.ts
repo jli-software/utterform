@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS } from "./lib/types";
 import type { BuiltInAction, HistoryEntry } from "./lib/types";
 import App from "./App.svelte";
 import { api } from "./lib/api";
+import { open } from "@tauri-apps/plugin-dialog";
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -42,6 +43,7 @@ vi.mock("./lib/api", () => ({ api: {
   playTestCues: vi.fn(),
   diagnosticsInfo: vi.fn(), copyDiagnostics: vi.fn(), openLogFile: vi.fn(), openLogFolder: vi.fn(),
   reportFrontendError: vi.fn(),
+  transcribeFile: vi.fn(), takePendingFile: vi.fn(async () => null),
 } }));
 
 // What the backend answers with: the prompts live in Rust, so the interface
@@ -1647,5 +1649,111 @@ describe("failures only the interface sees", () => {
     expect(api.reportFrontendError).toHaveBeenCalledWith({
       source: "autostart", message: "no startup items on this system", stack: null, phase: "idle",
     });
+  });
+});
+
+describe("an audio file", () => {
+  const fromFile = { historyEntry: { ...latest, id: "3", text: "Bring the blue folder on Monday." }, text: "Bring the blue folder on Monday.", savedPath: null, copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [], durationMs: 63_000, engine: "open_ai" as const };
+  const voiceMessage = "/home/tester/Downloads/PTT-20261107-WA0003.opus";
+
+  beforeEach(() => {
+    vi.mocked(api.transcribeFile).mockReset().mockResolvedValue(fromFile);
+    vi.mocked(api.takePendingFile).mockReset().mockResolvedValue(null);
+    vi.mocked(open).mockReset();
+  });
+
+  async function ready() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: /Latest text/ })).not.toBeNull());
+    await waitFor(() => expect(listeners.has("tauri://drag-drop")).toBe(true));
+    return view;
+  }
+
+  it("opens from the button and goes to history and the clipboard, never the cursor", async () => {
+    vi.mocked(open).mockResolvedValueOnce(voiceMessage);
+    const view = await ready();
+    await fireEvent.click(view.getByRole("button", { name: "Open audio file" }));
+    await waitFor(() => expect(api.transcribeFile).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(open).mock.calls[0][0]).toMatchObject({ multiple: false, directory: false });
+    expect(vi.mocked(open).mock.calls[0][0]?.filters?.[0].extensions).toContain("opus");
+    const [path, source, request] = vi.mocked(api.transcribeFile).mock.calls[0];
+    expect(path).toBe(voiceMessage);
+    expect(source).toBe("open");
+    expect(request).toMatchObject({ action: "plain", copyToClipboard: true, typeAtCursor: false });
+    await waitFor(() => expect(view.queryByText("Copied to clipboard")).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: /Latest text/ }));
+    expect(view.getByRole("region", { name: "Transcript" }).textContent).toContain("blue folder");
+  });
+
+  it("opens with the O key, and a cancelled dialog changes nothing", async () => {
+    vi.mocked(open).mockResolvedValueOnce(null);
+    const view = await ready();
+    await fireEvent.keyDown(window, { key: "o", code: "KeyO" });
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    expect(api.transcribeFile).not.toHaveBeenCalled();
+    expect(view.queryByText("Attention")).toBeNull();
+  });
+
+  it("applies the chosen action", async () => {
+    vi.mocked(open).mockResolvedValueOnce(voiceMessage);
+    const view = await ready();
+    await fireEvent.keyDown(window, { key: "2" });
+    await fireEvent.click(view.getByRole("button", { name: "Open audio file" }));
+    await waitFor(() => expect(api.transcribeFile).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.transcribeFile).mock.calls[0][2].action).toBe("clean");
+  });
+
+  it("shows where a dragged file will go and transcribes it when dropped", async () => {
+    const view = await ready();
+    listeners.get("tauri://drag-enter")!({ payload: { paths: [voiceMessage], position: { x: 1, y: 1 } } });
+    await waitFor(() => expect(view.queryByText("Drop to transcribe")).not.toBeNull());
+    expect(view.getByText(/Plain · GPT Transcribe → Clipboard/)).not.toBeNull();
+    listeners.get("tauri://drag-drop")!({ payload: { paths: [voiceMessage], position: { x: 1, y: 1 } } });
+    await waitFor(() => expect(api.transcribeFile).toHaveBeenCalledWith(voiceMessage, "drop", expect.anything()));
+    expect(view.queryByText("Drop to transcribe")).toBeNull();
+  });
+
+  it("lets a drag that leaves again do nothing", async () => {
+    const view = await ready();
+    listeners.get("tauri://drag-enter")!({ payload: { paths: [voiceMessage], position: { x: 1, y: 1 } } });
+    await waitFor(() => expect(view.queryByText("Drop to transcribe")).not.toBeNull());
+    listeners.get("tauri://drag-leave")!({ payload: null });
+    await waitFor(() => expect(view.queryByText("Drop to transcribe")).toBeNull());
+    expect(api.transcribeFile).not.toHaveBeenCalled();
+  });
+
+  it("takes no file while a recording runs", async () => {
+    const view = await ready();
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
+    expect((view.getByRole("button", { name: "Open audio file" }) as HTMLButtonElement).disabled).toBe(true);
+    listeners.get("tauri://drag-enter")!({ payload: { paths: [voiceMessage], position: { x: 1, y: 1 } } });
+    listeners.get("tauri://drag-drop")!({ payload: { paths: [voiceMessage], position: { x: 1, y: 1 } } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(view.queryByText("Drop to transcribe")).toBeNull();
+    expect(api.transcribeFile).not.toHaveBeenCalled();
+  });
+
+  it("works through files handed in from outside, one after another", async () => {
+    const queue = ["/tmp/one.opus", "/tmp/two.m4a"];
+    vi.mocked(api.takePendingFile).mockImplementation(async () => queue.shift() ?? null);
+    await ready();
+    await waitFor(() => expect(api.transcribeFile).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.transcribeFile).mock.calls.map((call) => [call[0], call[1]])).toEqual([
+      ["/tmp/one.opus", "command_line"],
+      ["/tmp/two.m4a", "command_line"],
+    ]);
+    queue.push("/tmp/three.ogg");
+    listeners.get("file-waiting")!({ payload: null });
+    await waitFor(() => expect(api.transcribeFile).toHaveBeenCalledTimes(3));
+  });
+
+  it("says why a file could not be read", async () => {
+    vi.mocked(open).mockResolvedValueOnce("/tmp/notes.txt");
+    vi.mocked(api.transcribeFile).mockRejectedValueOnce("Utterform cannot read this file. (ref 0a1b2c3d-9)");
+    const view = await ready();
+    await fireEvent.click(view.getByRole("button", { name: "Open audio file" }));
+    await waitFor(() => expect(view.queryByText(/cannot read this file/)).not.toBeNull());
+    expect(api.notifyIfUnattended).toHaveBeenCalledWith("Utterform cannot read this file. (ref 0a1b2c3d-9)", true);
   });
 });

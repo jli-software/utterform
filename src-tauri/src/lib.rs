@@ -1,6 +1,7 @@
 mod actions;
 mod activation;
 mod audio;
+mod audio_file;
 mod autostart;
 mod cli;
 mod commands;
@@ -48,6 +49,57 @@ impl StartupIntent {
         if let Ok(mut slot) = self.0.lock() {
             *slot = Some(intent);
         }
+    }
+}
+
+/// Audio files handed to Utterform from outside — the command line, a file
+/// manager's "Open with", macOS' open event — waiting for the interface to
+/// transcribe them one after another. The interface is told with a
+/// `file-waiting` event and takes them; one that is not ready yet takes them
+/// when it starts.
+#[derive(Default)]
+pub struct PendingFiles(std::sync::Mutex<std::collections::VecDeque<std::path::PathBuf>>);
+
+impl PendingFiles {
+    /// More than this at once is a mistaken selection, not a stack of voice
+    /// messages; the rest is dropped and said so in the log.
+    const LIMIT: usize = 20;
+
+    fn queue(&self) -> std::sync::MutexGuard<'_, std::collections::VecDeque<std::path::PathBuf>> {
+        self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    pub fn take(&self) -> Option<std::path::PathBuf> {
+        self.queue().pop_front()
+    }
+
+    /// Queue `files` and tell the interface. The paths are never logged.
+    fn offer<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+        files: Vec<std::path::PathBuf>,
+        source: &'static str,
+    ) {
+        if files.is_empty() {
+            return;
+        }
+        let count = files.len();
+        let dropped = {
+            let mut queue = self.queue();
+            let room = Self::LIMIT.saturating_sub(queue.len());
+            let dropped = count.saturating_sub(room);
+            queue.extend(files.into_iter().take(room));
+            dropped
+        };
+        diagnostics::info!("file.requested", source = source, files = count);
+        if dropped > 0 {
+            diagnostics::warning!(
+                "file.requests_dropped",
+                dropped = dropped,
+                limit = Self::LIMIT
+            );
+        }
+        diagnostics::notify_interface(app, "file-waiting", ());
     }
 }
 
@@ -163,6 +215,9 @@ pub fn run() {
     // Read before the window and the event loop exist: on Linux an autostart
     // launch has to settle its environment before GTK is initialized.
     let startup_intent = cli::intent_from(std::env::args());
+    let startup_files = std::env::current_dir()
+        .map(|cwd| cli::files_from(std::env::args(), &cwd))
+        .unwrap_or_default();
     #[cfg(target_os = "linux")]
     prepare_autostart_environment(startup_intent);
 
@@ -170,7 +225,8 @@ pub fn run() {
         // Registered first so a launcher entry or a second `utterform` process
         // hands its arguments to the running app instead of starting a rival
         // instance with its own tray icon and recording state.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let files = cli::files_from(&args, std::path::Path::new(&cwd));
             let intent = cli::intent_from(args);
             diagnostics::info!("app.second_instance", intent = intent.as_str());
             if intent.raises_window() {
@@ -182,6 +238,8 @@ pub fn run() {
             if intent.reaches_the_interface() {
                 diagnostics::notify_interface(app, "remote-intent", intent);
             }
+            app.state::<PendingFiles>()
+                .offer(app, files, "command_line");
         }))
         .plugin(autostart())
         .plugin(tauri_plugin_dialog::init())
@@ -199,10 +257,12 @@ pub fn run() {
         .manage(audio::AudioCaptureState::default())
         .manage(retained::RetainedRecordings::default())
         .manage(context::CapturedContext::default())
+        .manage(commands::FileBusy::default())
         .manage(feedback::DoneCues::default())
         .manage(tray::TrayState::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
+        .manage(PendingFiles::default())
         .manage(history::HistoryState::default())
         .manage(hotkey::Failure::default())
         .setup(move |app| {
@@ -211,6 +271,8 @@ pub fn run() {
             diagnostics::install(app.handle());
             let began = std::time::Instant::now();
             let outcome = setup(app, startup_intent);
+            app.state::<PendingFiles>()
+                .offer(app.handle(), startup_files, "command_line");
             if outcome.is_ok() {
                 diagnostics::info!(
                     "app.setup_completed",
@@ -258,6 +320,8 @@ pub fn run() {
             commands::set_recording_paused,
             commands::cancel_recording,
             commands::finish_recording,
+            commands::transcribe_file,
+            commands::take_pending_file,
             commands::retained_recording,
             commands::retry_recording,
             commands::discard_recording,
@@ -285,6 +349,20 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = &event {
                 reveal_main_window(app, "reopen");
+            }
+            // "Open with" and a file dropped on the app's icon arrive as an
+            // open event on macOS, never as arguments.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                let files = urls
+                    .iter()
+                    .filter(|url| url.scheme() == "file")
+                    .filter_map(|url| url.to_file_path().ok())
+                    .collect::<Vec<_>>();
+                if !files.is_empty() {
+                    reveal_main_window(app, "open_file");
+                }
+                app.state::<PendingFiles>().offer(app, files, "open_with");
             }
             // The one clean ending: tray Quit arrives here after capture was
             // discarded. Anything that never gets here leaves the run marker.

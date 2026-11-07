@@ -98,11 +98,15 @@ desktop_tmp="${desktop_file}.tmp.$$"
   printf '%s\n' 'Type=Application'
   printf '%s\n' 'Name=Utterform'
   printf '%s\n' 'Comment=Turn speech into useful text'
-  printf 'Exec=%s\n' "$launcher"
+  # %F: "Open with Utterform" from a file manager hands over voice messages
+  # and recordings to transcribe. Listing the types only adds Utterform to that
+  # menu; the desktop's default player for them stays what it was.
+  printf 'Exec=%s %%F\n' "$launcher"
   printf '%s\n' 'Icon=utterform'
   printf '%s\n' 'Terminal=false'
   printf '%s\n' 'Categories=Utility;AudioVideo;'
   printf '%s\n' 'StartupNotify=true'
+  printf '%s\n' 'MimeType=audio/ogg;audio/opus;audio/x-opus+ogg;audio/x-vorbis+ogg;audio/mpeg;audio/mp4;audio/x-m4a;audio/aac;audio/wav;audio/x-wav;audio/flac;audio/x-flac;audio/webm;audio/x-matroska;audio/x-aiff;'
   # Utterform runs as a single instance; the window class lets desktops match
   # the running window to this entry instead of offering another launch.
   printf '%s\n' 'StartupWMClass=Utterform'

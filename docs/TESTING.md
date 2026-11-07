@@ -10,6 +10,40 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.13.0 Audio files
+
+Unit tests in `audio_file.rs`: the resampler (48 kHz averaged by three, odd ratios keep the
+length, upsampling interpolates, a 12 kHz tone at 48 kHz is attenuated), a stereo 44.1 kHz
+WAV, the Opus, M4A and MP3 fixtures in `src-tauri/tests/fixtures/` (1.5 s of tone, made with
+ffmpeg), a missing file, a text file, a folder and an empty WAV, none of which put the file
+name in the message. `transcription/openai.rs`: twelve minutes go up whole, thirty minutes
+become three parts that each fit 25 MB, a cut lands in a pause. `cli.rs`: `--file`,
+`--file=`, `file://`, a bare existing path relative to the caller's directory, and
+`utterform toggle` still not a file. Interface: Open button and `O` with the dialog filter,
+the chosen action, drop with overlay, a drag that leaves, nothing taken while recording, the
+queue from outside, a failure message. Playwright drops a file at 920×720.
+
+Live on `asus16` (2026-11-07), with an invented German voice message made by Piper TTS and
+encoded like WhatsApp (`ffmpeg -c:a libopus -b:a 16k -ar 16000 -ac 1 -application voip`):
+
+- GPT Transcribe, through
+  `UTTERFORM_LIVE_AUDIO=<file> cargo test --lib live_openai -- --ignored --nocapture`:
+  11 s message word for word in 1.6 s. A 13-minute file (the message 52 times with pauses):
+  two parts, 9:34 and 3:37, 17 s, both ending on a full sentence. The model returned 47 of
+  the 52 identical repetitions — it drops some of a verbatim repeat within one part; the
+  cut itself lost nothing.
+- The built app, isolated (own D-Bus session, `XDG_*` in a scratch folder, no window via
+  `--autostart`), local Whisper Base: `--file <message>` → `file.decoded codec=opus` →
+  history → clipboard in 4.1 s, correct text. A second instance with a relative bare path
+  (what a file manager runs) handed the file to the running one, 2.5 s. No path in the log.
+- `install-linux.sh` into a scratch prefix: the desktop entry has `Exec=… %F` and the
+  MIME types, passes `desktop-file-validate`, and `mimeinfo.cache` lists it.
+
+Not exercised, to check at 1.0: drag and drop and the Open dialog in the real window on
+Linux, Windows and macOS; "Open with" on Windows (registry entries from the NSIS hook,
+Explorer listing Utterform without changing the default player) and on macOS (Finder's
+Open With, `RunEvent::Opened`); a real WhatsApp file from a phone; libopus building on the
+Windows and macOS runners (only Linux CI builds it on pull requests).
 ## 0.11.0 Context
 
 Unit tests in `context.rs`: selection before clipboard, a blank selection is none, a

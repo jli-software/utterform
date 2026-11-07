@@ -1,11 +1,21 @@
 # Changelog
 
+## 0.13.0 · Voice messages and recordings (on `main`, ships with 1.0)
+
+- Transcribe an audio file: the new folder button next to Settings or `O` opens one, dropping it on the window shows **Drop to transcribe** with the action and engine it will use, `utterform --file <path>` and **Open with → Utterform** in the file manager hand one over. Several files are done one after another.
+- The text goes to history and the clipboard, and to a file when File is on; it is never typed at the cursor. The chosen action applies as for a dictation.
+- Read WhatsApp and Telegram voice messages (Opus in Ogg), M4A/AAC from a phone, MP3, WAV, FLAC, Vorbis, WebM and AIFF, up to two hours. Opus is decoded by libopus, compiled into Utterform; nothing has to be installed.
+- Send audio longer than twelve minutes to GPT Transcribe in parts of about ten minutes, each cut at the quietest moment before the mark, so the 25 MB upload limit no longer applies. Local Whisper takes the whole file.
+- Offer Utterform in "Open with" on Linux, Windows and macOS without becoming the default player for any audio type.
+
+See [0.13.0 release notes](docs/releases/v0.13.0.md).
 ## 0.11.0 · Say what to do with the selected text (on `main`, ships with 1.0)
 
 - Add the **Context** action. Select an email, start dictating with Context, say "reply that Monday at ten works", and the reply arrives at the cursor. What you say is the instruction; the selected text is the material. The material is treated as data, so an instruction hidden in it is not followed.
 - Read the selection the moment the recording starts. On Linux that is the selected text itself (`wl-paste --primary` on Wayland, `xclip` or `xsel` on X11) — nothing is pressed in the other window. Windows and macOS use the clipboard: copy the text first.
 - Fall back to the clipboard when nothing is selected, but never to Utterform's own last text. Without either, the instruction runs on its own and a note says so. Material is capped at 20,000 characters, also with a note.
 - Add **Settings → Context** with two switches, **Selection** and **Clipboard**, both on. The transcription row formerly named *Context* is now **Topic**.
+- An audio file opened while Context is chosen is transcribed as it is, with a note.
 - Plain dictation and every other action never read the selection or the clipboard. The material goes to the text model only; the diagnostic log records where it came from and its length, never the text.
 
 See [0.11.0 release notes](docs/releases/v0.11.0.md).
