@@ -17,6 +17,8 @@ describe("the settings catalog", () => {
     expect([...visibleRows("app", "mic")]).toEqual(["microphone"]);
     expect([...visibleRows("app", "output folder")]).toEqual(["folder"]);
     expect(visibleRows("app", "xylophone").size).toBe(0);
+    expect([...visibleRows("app", "chatgpt")]).toEqual(["text-provider"]);
+    expect([...visibleRows("app", "codex")]).toEqual(["text-provider"]);
   });
 
   it("needs every word of a search", () => {

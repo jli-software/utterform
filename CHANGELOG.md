@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0 · Text actions on your ChatGPT subscription (on `main`, ships with 1.0)
+
+- Add **Settings → AI → Provider**: OpenAI key or **ChatGPT**. With ChatGPT, Clean, Polish, Summarize, Prompt, Email and your own actions run on your ChatGPT subscription through the Codex CLI login (`codex login`) at no extra cost. Transcription keeps using the OpenAI key or the local model.
+- Mark it **Experimental**: OpenAI does not support third-party apps on this path and may block it. There is no automatic fallback to the API key; a failure is shown and the plain transcript is delivered, as with any failed action.
+- Choose the ChatGPT model under **Text model** from the models the Codex CLI lists; **Auto** takes the fastest one (GPT-6-Luna today). Effort offers Auto, Low, Medium and High.
+- Renew an expiring ChatGPT sign-in and write it back for the Codex CLI, so both stay signed in. Say when the login is missing before a recording starts, and when the usage limit is reached.
+
+See [0.10.0 release notes](docs/releases/v0.10.0.md).
+
 ## 0.9.0 · Settings, found at once (on `main`, ships with 1.0)
 
 - Rebuild Settings as one page: a search field that finds a setting in any category, five categories (Recording, Transcription, AI, Output, App) and one row per setting.

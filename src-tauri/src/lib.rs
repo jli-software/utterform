@@ -262,6 +262,8 @@ pub fn run() {
             commands::list_history,
             commands::clear_history,
             commands::copy_text,
+            commands::codex_status,
+            commands::open_codex_setup,
             commands::has_openai_api_key,
             commands::set_openai_api_key,
             commands::delete_openai_api_key,

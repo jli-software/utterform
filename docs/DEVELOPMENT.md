@@ -19,7 +19,18 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.9.0 Settings from scratch
+## Current handoff — 0.10.0 Codex login for text actions
+
+Stage 0.10.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.10.0-codex`.
+Settings → AI → Provider chooses OpenAI key or ChatGPT; with ChatGPT the text actions run
+on the subscription through the Codex CLI login (`transcription/codex.rs`, approach from
+`kit`). Jonas decided: "Experimental" label, no fallback to the API key; mock-up accepted.
+Design in [ARCHITECTURE.md → Text actions on ChatGPT](ARCHITECTURE.md#text-actions-on-chatgpt-0100),
+measurements and what was not exercised live in [TESTING.md](TESTING.md). Merged into
+`main` without tag or release; ships with 1.0. Next stage: 0.11.0 context — it can build on
+either provider through `transcription::transform`.
+
+## Previous handoff — 0.9.0 Settings from scratch
 
 Stage 0.9.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.9.0-settings`
 (worktree `~/git/utterform-settings` on `asus16`), rebased on main/v0.8.0.

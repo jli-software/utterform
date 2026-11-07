@@ -17,6 +17,7 @@
     AudioDevice,
     BuiltInAction,
     CloudModel,
+    CodexStatus,
     DownloadProgress,
     HistoryEntry,
     HotkeySupport,
@@ -103,6 +104,9 @@
   // Typed as written rather than reassembled from the parsed terms, so a blank
   // line being typed is not swallowed under the cursor.
   let hasApiKey = false;
+  /// Read each time Settings opens: `codex login` happens in a terminal while
+  /// Utterform stays open.
+  let codexStatus: CodexStatus = { signedIn: false, models: [], defaultModel: null };
   let apiKeyInput = "";
   // Until the backend answers, assume the session grants nothing: a field that
   // appears and then turns out to be dead is worse than one that arrives late.
@@ -220,7 +224,22 @@
   $: localModelSummary = selectedModel
     ? `${selectedModel.name}${selectedModel.downloaded ? "" : " · not downloaded"} · ${downloadedModels.length} on device`
     : `None · ${downloadedModels.length} on device`;
-  $: effortLabel = EFFORTS.find((effort) => effort.value === settings.text_effort)?.label ?? "Auto";
+  $: usesCodex = settings.text_provider === "codex";
+  // The Codex models start at Low; a Minimal chosen for the API runs as Low there.
+  $: shownEffort = usesCodex && settings.text_effort === "minimal" ? "low" : settings.text_effort;
+  $: effortChoices = usesCodex ? EFFORTS.filter((effort) => effort.value !== "minimal") : EFFORTS;
+  $: effortLabel = EFFORTS.find((effort) => effort.value === shownEffort)?.label ?? "Auto";
+  $: codexDefaultName = codexStatus.models.find((model) => model.id === codexStatus.defaultModel)?.name ?? codexStatus.defaultModel ?? "";
+  $: codexModelOptions = [
+    { value: "", label: "Auto", hint: codexDefaultName || undefined },
+    ...codexStatus.models.map((model) => ({ value: model.id, label: model.name })),
+    // A model the CLI no longer lists stays visible rather than silently replaced.
+    ...(settings.codex_model && !codexStatus.models.some((model) => model.id === settings.codex_model)
+      ? [{ value: settings.codex_model, label: settings.codex_model }] : []),
+  ];
+  $: textModelSummary = usesCodex
+    ? (codexStatus.models.find((model) => model.id === settings.codex_model)?.name ?? settings.codex_model ?? (codexDefaultName || "Auto"))
+    : settings.text_model;
   $: historyOptions = history.map((entry) => ({ value: entry.id, label: entry.title, hint: formatHistoryTime(historyTimestamp(entry), now) }));
   $: displayedTimestamp = selectedHistory ? historyTimestamp(selectedHistory) : resultTimestamp;
   $: recordingActive = phase === "recording" || phase === "paused";
@@ -1079,6 +1098,15 @@
       void refreshAutostart();
       void refreshDiagnosticsInfo();
       void refreshInputState();
+      void refreshCodexStatus();
+    }
+  }
+
+  async function refreshCodexStatus() {
+    try {
+      codexStatus = await api.codexStatus();
+    } catch {
+      /* Keep what is showing. */
     }
   }
 
@@ -1392,12 +1420,18 @@
     {:else if settingsDetail === "text-model"}
       <button class="detail-back" onclick={() => (settingsDetail = "")}>‹ AI</button>
       <h2 class="detail-title">Text model</h2>
-      <div class="setting-row"><div class="row-label"><label for="text-model">Model</label></div>
-        <input id="text-model" class="row-input" value={settings.text_model} oninput={(event) => change({ text_model: event.currentTarget.value }, TYPING_SAVE_DELAY_MS)} /></div>
+      {#if usesCodex}
+        <div class="setting-row"><div class="row-label"><span>Model</span></div>
+          <SelectMenu id="codex-model" label="ChatGPT model" compact value={settings.codex_model ?? ""} options={codexModelOptions}
+            onchange={(value) => change({ codex_model: value || null })} /></div>
+      {:else}
+        <div class="setting-row"><div class="row-label"><label for="text-model">Model</label></div>
+          <input id="text-model" class="row-input" value={settings.text_model} oninput={(event) => change({ text_model: event.currentTarget.value }, TYPING_SAVE_DELAY_MS)} /></div>
+      {/if}
       <div class="setting-row" title="Lower is faster and cheaper. Auto uses the model's default."><div class="row-label"><span>Effort</span></div>
         <div class="segmented" role="group" aria-label="Thinking effort">
-          {#each EFFORTS as effort}
-            <button class:active={settings.text_effort === effort.value} aria-pressed={settings.text_effort === effort.value} onclick={() => change({ text_effort: effort.value })}>{effort.label}</button>
+          {#each effortChoices as effort}
+            <button class:active={shownEffort === effort.value} aria-pressed={shownEffort === effort.value} onclick={() => change({ text_effort: effort.value })}>{effort.label}</button>
           {/each}
         </div></div>
     {:else if settingsDetail === "action"}
@@ -1518,9 +1552,23 @@
           {#if liveMode}<p class="row-note row-message">Live uses Plain only.</p>{/if}
         </div>
       {/if}
+      {#if shownRows.has("text-provider")}
+        <div class="setting-row" title="Who runs the actions. Transcription keeps using the OpenAI key.">{@render rowHead("text-provider", "Provider")}
+          <div class="row-control">
+            {#if usesCodex}<span class="badge" title="OpenAI does not support this for other apps and may block it.">Experimental</span>{/if}
+            <div class="segmented" role="group" aria-label="Text provider">
+              <button class:active={!usesCodex} aria-pressed={!usesCodex} onclick={() => change({ text_provider: "openai_key" })}>OpenAI key</button>
+              <button class:active={usesCodex} aria-pressed={usesCodex} title="Your ChatGPT subscription, through the Codex CLI login" onclick={() => { change({ text_provider: "codex" }); void refreshCodexStatus(); }}>ChatGPT</button>
+            </div>
+          </div>
+          {#if usesCodex && !codexStatus.signedIn}
+            <p class="setting-error row-message" role="status">Needs <code>codex login</code>. <button class="link-button" onclick={() => void api.openCodexSetup().catch(setError)}>Set up</button></p>
+          {/if}
+        </div>
+      {/if}
       {#if shownRows.has("text-model")}
         <button class="setting-row more-row" title="Used for actions other than Plain" onclick={() => openDetail("text-model")}>{@render rowHead("text-model", "Text model")}
-          <span class="row-more">{settings.text_model} · {effortLabel}</span></button>
+          <span class="row-more">{textModelSummary} · {effortLabel}</span></button>
       {/if}
 
       <!-- Output -->

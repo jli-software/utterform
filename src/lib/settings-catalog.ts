@@ -15,7 +15,7 @@ export const SETTINGS_CATEGORIES: Array<{ id: SettingsCategory; label: string }>
 export type SettingsRowId =
   | "microphone" | "shortcut" | "sounds"
   | "engine" | "api-key" | "language" | "vocabulary" | "context" | "local-model"
-  | "actions" | "text-model"
+  | "actions" | "text-provider" | "text-model"
   | "typing" | "typing-delay" | "folder" | "history"
   | "theme" | "autostart" | "diagnostics";
 
@@ -38,6 +38,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { id: "context", category: "transcription", label: "Context", keywords: ["topic", "recording context", "hint"] },
   { id: "local-model", category: "transcription", label: "Local model", keywords: ["whisper", "download", "offline", "model", "on device"] },
   { id: "actions", category: "ai", label: "Actions", keywords: ["prompts", "prompt", "clean", "polish", "summarize", "email", "custom", "rewrite"] },
+  { id: "text-provider", category: "ai", label: "Provider", keywords: ["chatgpt", "codex", "subscription", "plus", "pro", "abo", "login", "openai", "experimental"] },
   { id: "text-model", category: "ai", label: "Text model", keywords: ["model", "gpt", "effort", "thinking", "reasoning", "llm"] },
   { id: "typing", category: "output", label: "Type at cursor", keywords: ["paste", "keystrokes", "typing", "insert"] },
   { id: "typing-delay", category: "output", label: "Keystroke delay", keywords: ["delay", "milliseconds", "slow", "typing"] },
