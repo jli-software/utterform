@@ -126,6 +126,16 @@ cmp "$installed_icon" "$repo_root/src-tauri/icons/128x128@2x.png" || {
   exit 1
 }
 grep -Fxq 'Icon=utterform' "$desktop_file"
+# "Open with Utterform" for voice messages: the entry takes files and names
+# Opus among its types.
+grep -Eq '^Exec=.* %F$' "$desktop_file" || {
+  printf 'Utterform package test: desktop entry does not accept files\n' >&2
+  exit 1
+}
+grep -Eq '^MimeType=.*audio/ogg;' "$desktop_file" || {
+  printf 'Utterform package test: desktop entry does not offer to open audio files\n' >&2
+  exit 1
+}
 
 printf 'stale reinstalled logo\n' > "$installed_icon"
 UTTERFORM_VERSION=ci \

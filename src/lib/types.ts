@@ -10,6 +10,13 @@ export type TextEffort = "minimal" | "low" | "medium" | "high";
 export type TypingMethod = "paste" | "keystrokes";
 /// What a compositor hotkey or a second launch asks the running app to do.
 export type RemoteIntent = "show" | "toggle" | "start" | "stop" | "cancel";
+/// How an audio file reached Utterform; named in the log, never the path.
+export type FileSource = "drop" | "open" | "command_line";
+/// What the Open dialog offers. The backend reads the content, not the name,
+/// so a dropped file outside this list is still tried.
+export const AUDIO_FILE_EXTENSIONS = [
+  "opus", "ogg", "oga", "m4a", "mp4", "aac", "mp3", "wav", "flac", "webm", "mka", "mkv", "caf", "aif", "aiff",
+];
 
 export interface AppSettings {
   engine: Engine;

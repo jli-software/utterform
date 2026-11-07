@@ -4,6 +4,7 @@
   import { isTauri } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
   import {
+    AUDIO_FILE_EXTENSIONS,
     BUILT_IN_ACTIONS,
     DEFAULT_SETTINGS,
     FORBIDDEN_IN_KEYWORD,
@@ -18,6 +19,7 @@
     BuiltInAction,
     CloudModel,
     DownloadProgress,
+    FileSource,
     HistoryEntry,
     HotkeySupport,
     LocalModel,
@@ -159,6 +161,12 @@
   // that fails has already recorded itself natively.
   const failures = createFailureReporter(() => phase);
   let unlistenCueTest: UnlistenFn | undefined;
+  let unlistenFiles: UnlistenFn[] = [];
+  /// A file is being dragged over the window and would be taken if dropped.
+  let dragActive = false;
+  /// Files from the command line or "Open with" are waiting in the backend.
+  let filesWaiting = false;
+  let takingFiles = false;
   const apple = isApplePlatform();
   const copyShortcut = apple ? "⌘⇧C" : "Ctrl+Shift+C";
   let message = "";
@@ -237,6 +245,11 @@
   $: settingsEmpty = settingsSearching && shownRows.size === 0;
   $: todaySeconds = Math.round(history.filter((entry) => new Date(historyTimestamp(entry) ?? NaN).toDateString() === new Date(now).toDateString()).reduce((total, entry) => total + entry.durationMs, 0) / 1000);
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
+  $: canTakeFile = !controlsLocked && !showSettings && !transcriptionSaving;
+  $: fileActionLabel = actionOptions.find((option) => option.value === effectiveAction)?.label ?? "Plain";
+  // Live dictation has no file mode: a file always goes to GPT Transcribe.
+  $: fileEngineLabel = settings.engine === "open_ai" ? "GPT Transcribe" : "Local";
+  $: if (filesWaiting && canTakeFile) void takeWaitingFiles();
 
   onMount(async () => {
     applyTheme(settings.theme);
@@ -297,12 +310,25 @@
       cueTestPending = false;
       cueTestMessage = event.payload;
     });
+    unlistenFiles = await Promise.all([
+      listen("file-waiting", () => { filesWaiting = true; }),
+      listen<{ paths: string[] }>("tauri://drag-enter", (event) => {
+        dragActive = canTakeFile && event.payload.paths.length > 0;
+      }),
+      listen("tauri://drag-leave", () => { dragActive = false; }),
+      listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
+        const taken = dragActive;
+        dragActive = false;
+        if (taken) void transcribeFiles(event.payload.paths, "drop");
+      }),
+    ]);
     if (destroyed) {
       unlistenProgress?.();
       unlistenLimit?.();
       unlistenLiveFailed?.();
       unlistenIntent?.();
       unlistenCueTest?.();
+      unlistenFiles.forEach((unlisten) => unlisten());
       return;
     }
     await refreshDiagnosticsInfo();
@@ -313,6 +339,8 @@
     } catch (error) {
       setError(error);
     }
+    // A file Utterform was started with waits in the same queue.
+    filesWaiting = true;
   });
 
   onDestroy(() => {
@@ -325,6 +353,7 @@
     unlistenLiveFailed?.();
     unlistenIntent?.();
     unlistenCueTest?.();
+    unlistenFiles.forEach((unlisten) => unlisten());
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("keydown", handleKeyDown);
     window.removeEventListener("error", failures.onError);
@@ -491,6 +520,10 @@
       if (!liveMode && event.key.toLowerCase() === "t") {
         settings = { ...settings, type_at_cursor: !settings.type_at_cursor };
       }
+      if (event.key.toLowerCase() === "o" && !event.repeat) {
+        event.preventDefault();
+        void openAudioFile();
+      }
     }
   }
 
@@ -655,6 +688,80 @@
       if (liveMode) await recoverLiveText();
       setError(error);
       await refreshRetained();
+    }
+  }
+
+  /// A voice message or recording, with the action and engine shown in the
+  /// window. The text goes to history and the clipboard, never to the cursor:
+  /// no text field is waiting for it.
+  async function transcribeFile(path: string, source: FileSource): Promise<boolean> {
+    if (!canTakeFile) return false;
+    stopTimer();
+    elapsedSeconds = 0;
+    phase = "processing";
+    message = settings.engine === "open_ai" ? "Transcribing the file with GPT Transcribe…" : "Transcribing the file locally…";
+    try {
+      showResult(await api.transcribeFile(path, source, {
+        action: effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
+        customPrompt: effectiveAction.startsWith("custom:")
+          ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
+          : null,
+        copyToClipboard: true,
+        saveToFile: settings.save_to_file,
+        typeAtCursor: false,
+        outputFormat: settings.output_format,
+      }));
+      return true;
+    } catch (error) {
+      setError(error);
+      return false;
+    }
+  }
+
+  /// Several files are done one after another; the first that fails stops the
+  /// rest, so its message stays on screen.
+  async function transcribeFiles(paths: string[], source: FileSource) {
+    for (const path of paths) {
+      if (destroyed || !(await transcribeFile(path, source))) return;
+    }
+  }
+
+  async function openAudioFile() {
+    if (!canTakeFile || !isTauri()) return;
+    let selected: string | string[] | null;
+    try {
+      selected = await open({
+        multiple: false,
+        directory: false,
+        title: "Open audio file",
+        filters: [{ name: "Audio", extensions: AUDIO_FILE_EXTENSIONS }],
+      });
+    } catch (error) {
+      // The dialog plugin answers the interface alone; no command saw this.
+      void failures.report("dialog", error);
+      return;
+    }
+    if (typeof selected === "string") await transcribeFile(selected, "open");
+  }
+
+  /// Drain the files handed in from outside while nothing else is running.
+  async function takeWaitingFiles() {
+    if (takingFiles) return;
+    takingFiles = true;
+    try {
+      while (!destroyed && canTakeFile) {
+        const path = await api.takePendingFile();
+        if (!path) {
+          filesWaiting = false;
+          break;
+        }
+        if (!(await transcribeFile(path, "command_line"))) break;
+      }
+    } catch (error) {
+      filesWaiting = false;
+      setError(error);
+    } finally {
+      takingFiles = false;
     }
   }
 
@@ -1212,6 +1319,9 @@
       <strong>utterform</strong>
     </div>
     <div class="header-tools"><span class="app-version">{version}</span>
+    <button class="icon-button file-trigger" aria-label="Open audio file" title="Open audio file (O)" aria-keyshortcuts="O" disabled={!canTakeFile} onclick={() => void openAudioFile()}>
+      <svg class="line-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M12 10v6m-3-3 3 3 3-3"/></svg>
+    </button>
     <button class="icon-button settings-trigger" aria-label="Open settings" title="Settings" disabled={controlsLocked || transcriptionSaving} onclick={openSettings}>
       <svg class="settings-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m6 0h5M4 17h9m6 0h1"/><circle cx="12" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg>
     </button></div>
@@ -1332,7 +1442,14 @@
   {/if}
   {#if historyMessage}<p class="history-notice" role="status">{historyMessage}</p>{/if}
 
-  <footer><span>{recordingActive ? "P " + (phase === "paused" ? "resumes" : "pauses") + (liveMode ? " · Esc stops" : " · Esc discards") : liveMode ? "Live dictation · Plain only" : "1–6 select an action"}</span><span title="Audio duration in today’s retained history entries (up to 100 texts)">{formatTime(todaySeconds)} saved audio today</span></footer>
+  <footer><span>{recordingActive ? "P " + (phase === "paused" ? "resumes" : "pauses") + (liveMode ? " · Esc stops" : " · Esc discards") : liveMode ? "Live dictation · Plain only" : "1–6 select an action · O open audio file"}</span><span title="Audio duration in today’s retained history entries (up to 100 texts)">{formatTime(todaySeconds)} saved audio today</span></footer>
+  {#if dragActive}
+    <div class="drop-overlay" role="status" aria-live="polite">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-4-4 4 4 4-4M5 19h14"/></svg>
+      <strong>Drop to transcribe</strong>
+      <small>{fileActionLabel} · {fileEngineLabel} → Clipboard</small>
+    </div>
+  {/if}
 </main>
 
 {#snippet rowHead(id: SettingsRowId, label: string, forId: string | null = null)}

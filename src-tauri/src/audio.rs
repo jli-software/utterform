@@ -24,7 +24,7 @@ use crate::{
 use serde::Serialize;
 
 const CHANNEL_CAPACITY: usize = 64;
-const WHISPER_SAMPLE_RATE: u32 = 16_000;
+pub(crate) const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const LIVE_SAMPLE_RATE: u32 = 24_000;
 const LIVE_CHUNK_SAMPLES: usize = 480; // 20 ms, independent of microphone callbacks.
 const RECORDING_DIRECTORY: &str = "utterform";
@@ -140,7 +140,7 @@ pub struct RecordingArtifact {
     pub interrupted: bool,
 }
 
-struct TemporaryRecording {
+pub(crate) struct TemporaryRecording {
     path: Option<PathBuf>,
 }
 
@@ -149,7 +149,7 @@ impl TemporaryRecording {
         Self { path: Some(path) }
     }
 
-    fn into_path(mut self) -> Result<PathBuf, Failure> {
+    pub(crate) fn into_path(mut self) -> Result<PathBuf, Failure> {
         self.path
             .take()
             .ok_or_else(|| Failure::new("audio_writer", "Temporary recording path is unavailable"))
@@ -162,6 +162,39 @@ impl Drop for TemporaryRecording {
             remove_recording_file(path, "unfinished");
         }
     }
+}
+
+/// An empty temporary WAV in Utterform's own folder, deleted again unless it
+/// is handed on with [`TemporaryRecording::into_path`]. Named so the stale
+/// cleanup at the next start recognises it.
+pub(crate) fn new_temporary_wav() -> Result<(std::fs::File, TemporaryRecording), Failure> {
+    let directory = recording_directory();
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        Failure::io(
+            "audio_writer",
+            &error,
+            format!("Could not create the recording directory: {error}"),
+        )
+    })?;
+    let temporary = tempfile::Builder::new()
+        .prefix("utterform-")
+        .suffix(".wav")
+        .tempfile_in(directory)
+        .map_err(|error| {
+            Failure::io(
+                "audio_writer",
+                &error,
+                format!("Could not create a temporary recording: {error}"),
+            )
+        })?;
+    let (file, path) = temporary.keep().map_err(|error| {
+        Failure::io(
+            "audio_writer",
+            &error.error,
+            format!("Could not retain the temporary recording: {error}"),
+        )
+    })?;
+    Ok((file, TemporaryRecording::new(path)))
 }
 
 /// Deletes a temporary WAV. A file that stays behind holds audio, so a
@@ -185,6 +218,10 @@ impl RecordingArtifact {
         frames.saturating_mul(1_000) / u64::from(self.sample_rate.max(1))
     }
 
+    /// The audio as Whisper wants it: mono, 16 kHz, `f32`.
+    ///
+    /// Read frame by frame, so a long audio file costs one buffer of its
+    /// length and not three.
     pub fn whisper_pcm(&self) -> Result<Vec<f32>, Failure> {
         let mut reader = hound::WavReader::open(&self.path).map_err(|error| {
             Failure::new(
@@ -193,22 +230,28 @@ impl RecordingArtifact {
             )
         })?;
         let channels = usize::from(reader.spec().channels.max(1));
-        let samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-        let samples = samples.map_err(|error| {
+        let decode = |error: hound::Error| {
             Failure::new(
                 "recording_decode",
                 format!("Could not decode the recording: {error}"),
             )
-        })?;
-
-        let mono = samples
-            .chunks(channels)
-            .map(|frame| {
-                let sum = frame.iter().map(|sample| f32::from(*sample)).sum::<f32>();
-                sum / (frame.len() as f32 * f32::from(i16::MAX))
-            })
-            .collect::<Vec<_>>();
-
+        };
+        let scale = channels as f32 * f32::from(i16::MAX);
+        let mut mono = Vec::with_capacity(reader.duration() as usize);
+        let mut frame_sum = 0.0_f32;
+        let mut in_frame = 0;
+        for sample in reader.samples::<i16>() {
+            frame_sum += f32::from(sample.map_err(decode)?);
+            in_frame += 1;
+            if in_frame == channels {
+                mono.push(frame_sum / scale);
+                frame_sum = 0.0;
+                in_frame = 0;
+            }
+        }
+        if self.sample_rate == WHISPER_SAMPLE_RATE {
+            return Ok(mono);
+        }
         Ok(resample_linear(
             &mono,
             self.sample_rate,
@@ -461,33 +504,7 @@ fn start_recording_inner(
             let mut live = live_sender.map(|sender| {
                 LiveTap::new(sender, writer_config.sample_rate, writer_config.channels)
             });
-            let directory = recording_directory();
-            std::fs::create_dir_all(&directory).map_err(|error| {
-                Failure::io(
-                    "audio_writer",
-                    &error,
-                    format!("Could not create the recording directory: {error}"),
-                )
-            })?;
-            let temporary = tempfile::Builder::new()
-                .prefix("utterform-")
-                .suffix(".wav")
-                .tempfile_in(directory)
-                .map_err(|error| {
-                    Failure::io(
-                        "audio_writer",
-                        &error,
-                        format!("Could not create a temporary recording: {error}"),
-                    )
-                })?;
-            let (file, path) = temporary.keep().map_err(|error| {
-                Failure::io(
-                    "audio_writer",
-                    &error.error,
-                    format!("Could not retain the temporary recording: {error}"),
-                )
-            })?;
-            let temporary = TemporaryRecording::new(path);
+            let (file, temporary) = new_temporary_wav()?;
             let spec = hound::WavSpec {
                 channels: writer_config.channels,
                 sample_rate: writer_config.sample_rate,

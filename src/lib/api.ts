@@ -14,6 +14,7 @@ import type {
   LiveStatus,
   LiveSupport,
   OutputFormat,
+  FileSource,
   ProcessResult,
   RecordingStatus,
   RemoteIntent,
@@ -83,6 +84,17 @@ export const api = {
     typeAtCursor: boolean;
     outputFormat: OutputFormat;
   }) => invoke<ProcessResult>("finish_recording", { request }),
+  // An audio file: decoded, transcribed, then the same path as a recording.
+  transcribeFile: (path: string, source: FileSource, request: {
+    action: string;
+    customPrompt: string | null;
+    copyToClipboard: boolean;
+    saveToFile: boolean;
+    typeAtCursor: boolean;
+    outputFormat: OutputFormat;
+  }) => invoke<ProcessResult>("transcribe_file", { path, source, request }),
+  // Files handed in from the command line or "Open with", one at a time.
+  takePendingFile: () => invoke<string | null>("take_pending_file"),
   hasOpenAiApiKey: () => invoke<boolean>("has_openai_api_key"),
   setOpenAiApiKey: (apiKey: string) => invoke<void>("set_openai_api_key", { apiKey }),
   deleteOpenAiApiKey: () => invoke<void>("delete_openai_api_key"),

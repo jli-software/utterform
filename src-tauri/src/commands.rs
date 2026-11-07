@@ -11,6 +11,7 @@ use crate::{
     actions::{self, BuiltInAction},
     activation::reveal_main_window,
     audio::{self, AudioCaptureState, RecordingArtifact},
+    audio_file,
     diagnostics::{self, Failure},
     domain::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
@@ -473,7 +474,15 @@ pub async fn finish_recording(
     let artifact = artifact.map_err(|failure| {
         diagnostics::failure!("recording.failed", &failure, stage = "capture")
     })?;
-    process_recording(&app, artifact, request, current_settings, began).await
+    process_recording(
+        &app,
+        artifact,
+        request,
+        current_settings,
+        began,
+        Origin::Microphone,
+    )
+    .await
 }
 
 /// Worth one quiet second attempt: the connection dropped or the service said
@@ -510,12 +519,22 @@ async fn transcribe_with_retry(
     }
 }
 
+/// Where the audio being processed came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Microphone,
+    /// An audio file the user opened. It stays where it is, so a failed
+    /// transcription keeps no copy: opening the file again is the retry.
+    File,
+}
+
 async fn process_recording(
     app: &AppHandle,
     artifact: RecordingArtifact,
     request: ProcessRequest,
     current_settings: AppSettings,
     began: Instant,
+    origin: Origin,
 ) -> Result<ProcessResult, String> {
     let recording = artifact.recording;
     let duration_ms = artifact.duration_ms();
@@ -554,7 +573,7 @@ async fn process_recording(
                 audio_ms = duration_ms,
                 elapsed_ms = transcribing.elapsed().as_millis()
             );
-            if !worth_keeping(&failure) {
+            if !worth_keeping(&failure) || origin == Origin::File {
                 return Err(message);
             }
             app.state::<RetainedRecordings>()
@@ -676,7 +695,11 @@ async fn process_recording(
     diagnostics::info!(
         "recording.completed",
         recording = recording,
-        mode = "batch",
+        mode = if origin == Origin::File {
+            "file"
+        } else {
+            "batch"
+        },
         total_ms = began.elapsed().as_millis(),
         warnings = warnings.len(),
         done_cue = done_cue
@@ -692,6 +715,127 @@ async fn process_recording(
         duration_ms,
         engine: current_settings.engine,
     })
+}
+
+/// How an audio file reached Utterform, for the log. Anything the interface
+/// did not name is `other`, so the field stays a short closed set.
+fn file_source(source: &str) -> &'static str {
+    match source {
+        "drop" => "drop",
+        "open" => "open",
+        "command_line" => "command_line",
+        "open_with" => "open_with",
+        _ => "other",
+    }
+}
+
+/// Only one file at a time: a second request while one is decoding or being
+/// transcribed is refused rather than queued behind minutes of work.
+#[derive(Default)]
+pub struct FileBusy(AtomicBool);
+
+struct FileClaim<'a>(&'a AtomicBool);
+
+impl Drop for FileClaim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Transcribe an audio file — a voice message, a recording — the way a
+/// dictation is: same engine, same action, history first, then the clipboard.
+///
+/// Never typed at the cursor: the file was chosen in Utterform or a file
+/// manager, so no text field is waiting for it. The path is the user's and is
+/// never logged; the decoded copy is deleted like any recording.
+#[tauri::command]
+pub async fn transcribe_file(
+    app: AppHandle,
+    capture: State<'_, AudioCaptureState>,
+    busy: State<'_, FileBusy>,
+    path: String,
+    source: String,
+    request: ProcessRequest,
+) -> Result<ProcessResult, String> {
+    let source = file_source(&source);
+    let recording = diagnostics::next_recording_id();
+    let refuse = |failure: Failure| {
+        diagnostics::failure!(
+            "file.failed",
+            &failure,
+            recording = recording,
+            source = source,
+            stage = "start"
+        )
+    };
+    let capturing = app.state::<live::LiveState>().active()
+        || audio::status(&capture).is_ok_and(|status| status.recording);
+    if capturing {
+        return Err(refuse(Failure::guidance(
+            "recording_active",
+            "Finish the recording first, then open the file again.",
+        )));
+    }
+    if busy.0.swap(true, Ordering::AcqRel) {
+        return Err(refuse(Failure::guidance(
+            "file_busy",
+            "Another audio file is being transcribed. Try again when it is done.",
+        )));
+    }
+    let _claim = FileClaim(&busy.0);
+    let began = Instant::now();
+    let current_settings = settings::load(&app).map_err(|failure| {
+        diagnostics::failure!("settings.load_failed", &failure, during = "file.start")
+    })?;
+    diagnostics::info!("file.started", recording = recording, source = source);
+    tray::adopt(&app, recording);
+    let path = std::path::PathBuf::from(path);
+    let decoded =
+        tauri::async_runtime::spawn_blocking(move || audio_file::decode(&path, recording))
+            .await
+            .map_err(|error| Failure::new("worker", format!("Could not read the file: {error}")))
+            .and_then(|outcome| outcome)
+            .map_err(|failure| {
+                diagnostics::failure!(
+                    "file.failed",
+                    &failure,
+                    recording = recording,
+                    source = source,
+                    stage = "decode",
+                    elapsed_ms = began.elapsed().as_millis()
+                )
+            })?;
+    diagnostics::info!(
+        "file.decoded",
+        recording = recording,
+        codec = decoded.codec,
+        source_rate = decoded.source_rate,
+        source_channels = decoded.source_channels,
+        skipped_packets = decoded.skipped_packets,
+        audio_ms = decoded.artifact.duration_ms(),
+        decode_ms = decoded.decode_ms
+    );
+    let request = ProcessRequest {
+        type_at_cursor: false,
+        copy_to_clipboard: true,
+        ..request
+    };
+    process_recording(
+        &app,
+        decoded.artifact,
+        request,
+        current_settings,
+        began,
+        Origin::File,
+    )
+    .await
+}
+
+/// The next audio file handed in from outside, if any. A query: the request
+/// was logged when it arrived.
+#[tauri::command]
+pub fn take_pending_file(state: State<'_, crate::PendingFiles>) -> Option<String> {
+    state.take().map(|path| path.to_string_lossy().into_owned())
 }
 
 /// The kept recording next in line, if any. A query: nothing is logged.
@@ -733,7 +877,15 @@ pub async fn retry_recording(app: AppHandle) -> Result<ProcessResult, String> {
         copy_to_clipboard: true,
         ..request
     };
-    let outcome = process_recording(&app, artifact, request, current_settings, began).await;
+    let outcome = process_recording(
+        &app,
+        artifact,
+        request,
+        current_settings,
+        began,
+        Origin::Microphone,
+    )
+    .await;
     tray::set_kept(&app, app.state::<RetainedRecordings>().waiting().is_some());
     outcome
 }
@@ -889,6 +1041,14 @@ mod tests {
         for typed in ["", "my secret project notes", "gpt/5", &"x".repeat(65)] {
             assert_eq!(text_model_name(typed), "custom", "{typed}");
         }
+    }
+
+    #[test]
+    fn a_file_source_is_one_of_a_few_words() {
+        assert_eq!(file_source("drop"), "drop");
+        assert_eq!(file_source("open"), "open");
+        assert_eq!(file_source("command_line"), "command_line");
+        assert_eq!(file_source("/home/anna/Sprachnachricht.opus"), "other");
     }
 
     #[test]
