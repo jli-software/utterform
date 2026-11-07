@@ -244,7 +244,7 @@ fn client() -> Result<Client, Failure> {
 }
 
 /// What kind of transport failure a request met, without its URL or body.
-fn transport_class(error: &reqwest::Error) -> &'static str {
+pub(super) fn transport_class(error: &reqwest::Error) -> &'static str {
     if error.is_timeout() {
         "timeout"
     } else if error.is_connect() {
@@ -344,7 +344,7 @@ fn usable_keywords(vocabulary: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn action_instructions(
+pub(super) fn action_instructions(
     action: &str,
     custom_prompt: Option<&str>,
     settings: &AppSettings,

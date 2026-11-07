@@ -66,6 +66,8 @@ test.beforeEach(async ({ page }) => {
             case "get_settings": return settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
             case "has_openai_api_key": return true;
+            case "codex_status": return { signedIn: !Reflect.get(window, "__codexSignedOut"), models: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol" }, { id: "gpt-6-luna", name: "GPT-6-Luna" }], defaultModel: "gpt-6-luna" };
+            case "open_codex_setup": (Reflect.get(window, "__supportCalls") as string[]).push("codex-setup"); return;
             case "list_input_devices": return [{ id: "test-mic", name: "Studio microphone", isDefault: true }];
             case "list_local_models": return models;
             case "download_local_model": case "delete_local_model": {
@@ -883,4 +885,32 @@ test("a voice message dropped on the window goes to the clipboard", async ({ pag
   const calls = await page.evaluate(() => Reflect.get(window, "__transcribedFiles"));
   expect(calls).toEqual([{ path: "/home/tester/PTT-20261107-WA0003.opus", source: "drop", request: expect.objectContaining({ copyToClipboard: true, typeAtCursor: false }) }]);
   await page.screenshot({ path: "test-results/audio-file-done.png" });
+});
+
+test("text actions can run on the ChatGPT subscription, marked experimental", async ({ page }, testInfo) => {
+  await page.addInitScript(() => Object.assign(window, { __codexSignedOut: true }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: "AI" }).click();
+  await page.getByRole("button", { name: "ChatGPT" }).click();
+  await expect(page.getByText("Experimental", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (Reflect.get(window, "__savedSettings") as { text_provider?: string } | null)?.text_provider)).toBe("codex");
+  await page.getByRole("button", { name: "Set up" }).click();
+  expect(await page.evaluate(() => Reflect.get(window, "__supportCalls"))).toContain("codex-setup");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("ai-chatgpt-signed-out.png") });
+  await page.evaluate(() => Object.assign(window, { __codexSignedOut: false }));
+  await page.getByRole("button", { name: "OpenAI key" }).click();
+  await page.getByRole("button", { name: "ChatGPT" }).click();
+  await expect(page.getByRole("button", { name: "Set up" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Text model/ })).toContainText("GPT-6-Luna");
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("ai-chatgpt.png") });
+  await page.getByRole("button", { name: /^Text model/ }).click();
+  await page.getByRole("combobox", { name: "ChatGPT model" }).click();
+  await expect(page.getByRole("option", { name: "GPT-6.1-Sol" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("ai-chatgpt-model.png") });
 });

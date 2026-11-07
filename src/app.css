@@ -124,6 +124,9 @@ main:not(.has-result) footer { margin-top:20px; }
 .row-button:hover:not(:disabled) { background:var(--accent-soft); }
 .row-button.quiet { color:var(--muted); }
 .danger-text { color:var(--danger); }
+.badge { padding:2px 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:11px; letter-spacing:.02em; white-space:nowrap; }
+.row-message .link-button { padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; cursor:pointer; }
+.row-message code { font-size:.95em; }
 .row-path { min-width:0; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left; color:var(--muted); font-size:12px; }
 .key-state { color:#4f9a62; font-size:12px; }
 .more-row { width:100%; border:0; border-bottom:1px solid var(--line); background:transparent; text-align:left; cursor:pointer; }

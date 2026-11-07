@@ -30,7 +30,7 @@ vi.mock("./lib/api", () => ({ api: {
   takeStartupIntent: vi.fn(async () => null), getSettings: vi.fn(), listInputDevices: vi.fn(async () => []), listLocalModels: vi.fn(async () => []),
   listBuiltInActions: vi.fn(),
   liveSupport: vi.fn(), getLiveStatus: vi.fn(), typingSupport: vi.fn(async () => ({ supported: true, explanation: "" })),
-  hasOpenAiApiKey: vi.fn(async () => true), listHistory: vi.fn(), saveSettings: vi.fn(),
+  hasOpenAiApiKey: vi.fn(async () => true), codexStatus: vi.fn(), openCodexSetup: vi.fn(async () => {}), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
   autostartEnabled: vi.fn(), enableAutostart: vi.fn(), disableAutostart: vi.fn(),
@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.mocked(api.listBuiltInActions).mockResolvedValue(structuredClone(SHIPPED_ACTIONS));
   vi.mocked(api.listHistory).mockResolvedValue([latest, older]);
   vi.mocked(api.listLocalModels).mockResolvedValue([]);
+  vi.mocked(api.codexStatus).mockResolvedValue({ signedIn: false, models: [], defaultModel: null });
   let paused = false;
   const status = () => ({ recording: true, paused, limitReached: false, elapsedSeconds: 12, level: paused ? 0 : .3 });
   vi.mocked(api.getRecordingStatus).mockImplementation(async () => status());
@@ -785,6 +786,60 @@ describe("editing the prompts Utterform ships with", () => {
     await fireEvent.click(view.getByRole("button", { name: "Auto" }));
     await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ text_effort: null }),
+    ));
+  });
+});
+
+describe("text actions through ChatGPT", () => {
+  const CODEX = {
+    signedIn: true,
+    models: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol" }, { id: "gpt-6-luna", name: "GPT-6-Luna" }],
+    defaultModel: "gpt-6-luna",
+  };
+
+  async function openAi() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Open settings" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Open settings" }));
+    await showSettingsTab(view, "AI");
+    return view;
+  }
+
+  it("switches the provider at once, marked experimental, and says when the login is missing", async () => {
+    const view = await openAi();
+    expect(view.queryByText("Experimental")).toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "ChatGPT" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text_provider: "codex" }),
+    ));
+    expect(view.queryByText("Experimental")).not.toBeNull();
+    await waitFor(() => expect(view.queryByRole("button", { name: "Set up" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Set up" }));
+    expect(api.openCodexSetup).toHaveBeenCalled();
+
+    await fireEvent.click(view.getByRole("button", { name: "OpenAI key" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text_provider: "openai_key" }),
+    ));
+    expect(view.queryByText("Experimental")).toBeNull();
+  });
+
+  it("offers the models the Codex CLI lists, Auto first, and no Minimal effort", async () => {
+    vi.mocked(api.codexStatus).mockResolvedValue(structuredClone(CODEX));
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), text_provider: "codex", text_effort: "minimal" });
+    const view = await openAi();
+    await waitFor(() => expect(view.queryByRole("button", { name: /^Text model/ })?.textContent).toContain("GPT-6-Luna · Low"));
+    expect(view.queryByRole("button", { name: "Set up" })).toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: /^Text model/ }));
+    expect(view.queryByRole("button", { name: "Minimal" })).toBeNull();
+    expect(view.queryByRole("textbox", { name: "Model" })).toBeNull();
+    await fireEvent.click(view.getByRole("combobox", { name: "ChatGPT model" }));
+    const options = [...document.querySelectorAll("[role=option]")].map((node) => node.textContent?.trim());
+    expect(options[0]).toContain("Auto");
+    expect(options.slice(1)).toEqual(["GPT-6.1-Sol", "GPT-6-Luna"]);
+    await fireEvent.click(view.getByRole("option", { name: "GPT-6.1-Sol" }));
+    await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ codex_model: "gpt-6.1-sol" }),
     ));
   });
 });

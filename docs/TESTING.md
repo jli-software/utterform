@@ -10,6 +10,26 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.10.0 Text actions on ChatGPT
+
+Unit tests in `transcription/codex.rs`: renewal only near expiry, a renewal replacing the
+tokens and nothing else, the atomic 0600 write-back, the missing-login message,
+`$CODEX_HOME`, the listed models and Auto, the request body and effort mapping, the
+event-stream answer, and the refusal messages (401, 429 with reset time, others).
+Interface: switching the provider saves at once and shows *Experimental*, *Set up* when
+not signed in, the model list with Auto first and no Minimal. Playwright covers the row
+at 920×720.
+
+Live, on `asus16` with the real `codex login`:
+`dbus-run-session -- cargo test codex_live -- --ignored --nocapture` → GPT-6-Luna, 1.5 s.
+A spike with the same Clean prompt: ChatGPT 1.6–2.2 s (GPT-6-Luna, GPT-6.1-Sol, GPT-5.6-Luna,
+any effort), API `gpt-5-mini` 5.2–7.5 s. The endpoint refuses `stream: false` and a string
+`input`; `originator` and `chatgpt-account-id` are accepted as sent.
+
+Not exercised live: a real token renewal (the current access token lives about ten days;
+renewing it on purpose would rotate Jonas's refresh token). It is the path `kit` uses daily.
+To check at 1.0: an action with the installed app on Linux, Windows and macOS.
+
 ## 0.8.0 Omarchy dictation backend
 
 `scripts/test-omarchy-dictation.sh` (also in CI) installs a stripped release with the real

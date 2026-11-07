@@ -14,7 +14,7 @@ use crate::{
     audio_file,
     diagnostics::{self, Failure},
     domain::{
-        AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult,
+        AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult, TextProvider,
         TranscriptionEngine,
     },
     feedback::{self, Cue},
@@ -224,7 +224,21 @@ fn begin_recording(
             mode = "batch"
         )
     };
-    if engine == TranscriptionEngine::OpenAi || action != actions::PLAIN {
+    let current_settings = settings::load(app).map_err(|failure| {
+        diagnostics::failure!(
+            "settings.load_failed",
+            &failure,
+            during = "recording.start",
+            recording = recording
+        )
+    })?;
+    let codex_text =
+        action != actions::PLAIN && current_settings.text_provider == TextProvider::Codex;
+    if codex_text {
+        // Like a missing key: say so while nothing has been said yet.
+        transcription::codex::ensure_signed_in().map_err(rejected)?;
+    }
+    if engine == TranscriptionEngine::OpenAi || (action != actions::PLAIN && !codex_text) {
         // A missing key stops here, while nothing has been said yet. A keyring
         // that cannot answer does not: the recording is kept if it still
         // cannot answer afterwards, and the words survive the outage.
@@ -259,14 +273,6 @@ fn begin_recording(
             )));
         }
     }
-    let current_settings = settings::load(app).map_err(|failure| {
-        diagnostics::failure!(
-            "settings.load_failed",
-            &failure,
-            during = "recording.start",
-            recording = recording
-        )
-    })?;
     // The previous recording's Done cue ends here if it is still sounding,
     // before the start cue is scheduled: a chime finishing inside the next
     // dictation would confirm the wrong recording, and its tail must not be
@@ -597,12 +603,19 @@ async fn process_recording(
     let effort = current_settings
         .text_effort
         .map_or("auto", |effort| effort.as_str());
+    let provider = current_settings.text_provider.as_str();
+    let text_model = if transforms {
+        transcription::text_model(&current_settings)
+    } else {
+        String::new()
+    };
     if transforms {
         diagnostics::info!(
             "transform.started",
             recording = recording,
             action = action,
-            model = text_model_name(&current_settings.text_model),
+            provider = provider,
+            model = text_model_name(&text_model),
             effort = effort
         );
     }
@@ -635,7 +648,8 @@ async fn process_recording(
                     &failure,
                     recording = recording,
                     action = action,
-                    model = text_model_name(&current_settings.text_model),
+                    provider = provider,
+                    model = text_model_name(&text_model),
                     effort = effort,
                     elapsed_ms = transforming.elapsed().as_millis()
                 )
@@ -966,6 +980,31 @@ pub fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
             source = "manual"
         )),
     }
+}
+
+/// Whether the Codex CLI is signed in to ChatGPT, and the models it offers.
+/// Never a token or an account.
+#[tauri::command]
+pub async fn codex_status() -> transcription::codex::CodexStatus {
+    tauri::async_runtime::spawn_blocking(transcription::codex::status)
+        .await
+        .unwrap_or(transcription::codex::CodexStatus {
+            signed_in: false,
+            models: Vec::new(),
+            default_model: None,
+        })
+}
+
+/// The Codex CLI's setup page. A fixed address: the interface cannot ask the
+/// backend to open anything else.
+#[tauri::command]
+pub fn open_codex_setup() -> Result<(), String> {
+    tauri_plugin_opener::open_url(transcription::codex::SETUP_URL, None::<&str>).map_err(|error| {
+        diagnostics::failure!(
+            "codex.setup_open_failed",
+            &Failure::new("opener", "The Codex setup page could not be opened").detail(error)
+        )
+    })
 }
 
 #[tauri::command]

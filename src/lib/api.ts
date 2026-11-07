@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AudioDevice,
   BuiltInAction,
+  CodexStatus,
   CopiedDiagnostics,
   DiagnosticsInfo,
   Engine,
@@ -95,6 +96,9 @@ export const api = {
   }) => invoke<ProcessResult>("transcribe_file", { path, source, request }),
   // Files handed in from the command line or "Open with", one at a time.
   takePendingFile: () => invoke<string | null>("take_pending_file"),
+  // Whether `codex login` signed the Codex CLI in to ChatGPT, and its models.
+  codexStatus: () => invoke<CodexStatus>("codex_status"),
+  openCodexSetup: () => invoke<void>("open_codex_setup"),
   hasOpenAiApiKey: () => invoke<boolean>("has_openai_api_key"),
   setOpenAiApiKey: (apiKey: string) => invoke<void>("set_openai_api_key", { apiKey }),
   deleteOpenAiApiKey: () => invoke<void>("delete_openai_api_key"),

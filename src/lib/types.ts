@@ -5,6 +5,17 @@ export type Theme = "light" | "dark" | "system";
 /// How hard the text model thinks before rewriting a transcript. `null` sends
 /// nothing and leaves the model its own default.
 export type TextEffort = "minimal" | "low" | "medium" | "high";
+/// Who runs the text actions: the OpenAI API with the stored key, or the
+/// user's ChatGPT subscription through the Codex CLI login (experimental).
+/// Transcription is not affected.
+export type TextProvider = "openai_key" | "codex";
+
+/// What Settings may know about the Codex login. Never a token or an account.
+export interface CodexStatus {
+  signedIn: boolean;
+  models: Array<{ id: string; name: string }>;
+  defaultModel: string | null;
+}
 /// How the finished text reaches the focused window. A paste moves it whole;
 /// keystrokes travel one character at a time and can be dropped on the way.
 export type TypingMethod = "paste" | "keystrokes";
@@ -30,6 +41,9 @@ export interface AppSettings {
   local_model_id: string | null;
   language_hints: string[];
   text_model: string;
+  text_provider: TextProvider;
+  /// `null` takes the fastest model the Codex CLI lists.
+  codex_model: string | null;
   text_effort: TextEffort | null;
   vocabulary: string[];
   transcription_context: string;
@@ -145,6 +159,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   local_model_id: "base",
   language_hints: [],
   text_model: "gpt-5-mini",
+  text_provider: "openai_key",
+  codex_model: null,
   text_effort: null,
   vocabulary: [],
   transcription_context: "",

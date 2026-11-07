@@ -1,3 +1,4 @@
+pub mod codex;
 mod local;
 mod openai;
 
@@ -7,7 +8,7 @@ use crate::{
     actions,
     audio::RecordingArtifact,
     diagnostics::Failure,
-    domain::{AppSettings, TranscriptionEngine},
+    domain::{AppSettings, TextProvider, TranscriptionEngine},
 };
 
 /// Most often a key pressed by accident or a recording stopped too soon: it is
@@ -36,5 +37,22 @@ pub async fn transform(
     if action == actions::PLAIN {
         return Ok(transcript.trim().to_string());
     }
-    openai::transform(transcript, action, custom_prompt, settings).await
+    match settings.text_provider {
+        TextProvider::OpenAiKey => {
+            openai::transform(transcript, action, custom_prompt, settings).await
+        }
+        // No fallback to the API key: a failure here is ChatGPT's to report.
+        TextProvider::Codex => {
+            let instructions = openai::action_instructions(action, custom_prompt, settings)?;
+            codex::transform(&instructions, transcript, settings).await
+        }
+    }
+}
+
+/// The text model an action runs on, for diagnostic events.
+pub fn text_model(settings: &AppSettings) -> String {
+    match settings.text_provider {
+        TextProvider::OpenAiKey => settings.text_model.clone(),
+        TextProvider::Codex => codex::effective_model(settings),
+    }
 }

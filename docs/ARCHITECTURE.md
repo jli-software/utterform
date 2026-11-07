@@ -11,6 +11,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives; both show a red dot while recording and a five-second green dot after successful delivery
 - `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
+- `transcription/codex.rs` — text actions on the ChatGPT subscription through the Codex CLI login (experimental); see [Text actions on ChatGPT](#text-actions-on-chatgpt-0100)
 - `transcription/local.rs` — blocking local Whisper inference
 - `packaging/cmake/portable-cpu.cmake` — the instruction set whisper.cpp is compiled for, and why it is not the build machine's
 - `models.rs` — curated model catalog, downloads, progress events, and SHA-256 verification
@@ -104,6 +105,35 @@ Settings (since 0.9.0) is one page over the main window, using the same theme to
 `AppSettings::action_overrides` stores only what the user replaced, per action id, with `name` and `prompt` independently optional: an action that was renamed still follows a later, better default prompt. A blank replacement resolves back to the default in `actions::instructions`, so an emptied box cannot fail the recording that used it. Resolution happens in Rust with the settings a recording already loads, which is why the tray, the dictation key and `utterform --toggle` run the edited prompts without the frontend sending any prompt text.
 
 `plain` is in the same list with no prompt at all: it is shown in the editor as the action that never reaches a text model, and has nothing to edit.
+
+## Text actions on ChatGPT (0.10.0)
+
+`AppSettings::text_provider` chooses who runs a text action: `openai_key` (the Responses
+API with the keyring key) or `codex` (the user's ChatGPT subscription). Transcription is
+never affected. `transcription::transform` dispatches; the instructions resolve the same
+way for both (`openai::action_instructions`).
+
+`codex.rs` has no login of its own. It reads `auth.json` from `$CODEX_HOME` or
+`~/.codex` (`%USERPROFILE%\.codex` on Windows), sends the access token and account id to
+`https://chatgpt.com/backend-api/codex/responses` with `originator: utterform`, and reads
+the answer from the server-sent-event stream the endpoint insists on (`stream: true`,
+`input` as a message list). An access token within five minutes of its `exp`, or one the
+server answers with 401, is renewed once at `auth.openai.com/oauth/token` under the Codex
+CLI's public client id. Refresh tokens are single-use, so the renewal is written back to
+the same file — atomically, mode 0600 — or the CLI would be signed out; before renewing,
+the file is read again and a token the CLI renewed in the meantime is taken instead.
+Approach taken from `kit` (jli-software/kit).
+
+Models come from the CLI's `models_cache.json`: only `visibility: list`, in its priority
+order. `codex_model: None` means Auto: the first `…-luna`/`…-mini`, else the first listed.
+Effort `minimal` is sent as `low`, the Codex models' lowest level.
+
+Decided with Jonas on 2026-11-07: marked *Experimental* in Settings, and **no fallback to
+the API key** — a ChatGPT failure is the usual `transform.fallback` to the plain transcript
+with ChatGPT's reason. `begin_recording` checks the login like a missing key, before anything
+is said. `transform.*` events carry `provider=openai_key|codex`; nothing from `auth.json`
+is ever logged or sent to the interface, which gets only `codex_status` (signed in, model
+ids and names). `open_codex_setup` opens one fixed URL.
 
 ## What the local engine is compiled for
 
