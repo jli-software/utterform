@@ -71,6 +71,21 @@ verify_app() {
   fi
 }
 
+# The build can finish with Apple's approval but without the ticket in the app:
+# the log shows "Stapling app..." and then "does not have a ticket stapled to it".
+# Fetch it here, with time for it to become available, and let the checks below decide.
+staple_ticket() {
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if xcrun stapler validate "$app" >/dev/null 2>&1; then return 0; fi
+    xcrun stapler staple "$app" && return 0
+    echo "Stapling attempt $attempt failed" >&2
+    if [ "$attempt" -lt 10 ]; then sleep 30; fi
+  done
+  return 1
+}
+
+if [ "$expect_notarization" = 1 ]; then staple_ticket; fi
 verify_app "$app"
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
