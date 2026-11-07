@@ -19,7 +19,20 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.10.0 Codex login for text actions
+## Current handoff — 0.13.0 Audio files
+
+Stage 0.13.0 of [the roadmap](plans/v1.0-roadmap.md), branch
+`work/utterform-0.13.0-audio-files`. Voice messages and recordings are decoded by
+`audio_file.rs` (Symphonia plus bundled libopus) into a temporary 16 kHz WAV and run
+through `process_recording` with `Origin::File`; GPT Transcribe uploads longer than twelve
+minutes in parts cut at pauses. In: folder button / `O`, drop, `--file`, "Open with"
+(desktop entry, NSIS `OpenWithProgids`, macOS document types — none takes the default).
+Jonas accepted the mock-up. Design in
+[ARCHITECTURE.md → Audio files](ARCHITECTURE.md#audio-files-0130), live results and what
+is open for 1.0 (Windows/macOS "Open with", drag and drop in a real window) in
+[TESTING.md](TESTING.md). Merged into `main` without tag or release; ships with 1.0.
+
+## Previous handoff — 0.10.0 Codex login for text actions
 
 Stage 0.10.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.10.0-codex`.
 Settings → AI → Provider chooses OpenAI key or ChatGPT; with ChatGPT the text actions run

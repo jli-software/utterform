@@ -4,12 +4,21 @@ use reqwest::{Client, StatusCode, multipart};
 use serde::Deserialize;
 
 use crate::{
-    actions, audio::RecordingArtifact, diagnostics::Failure, domain::AppSettings, secrets,
+    actions,
+    audio::RecordingArtifact,
+    diagnostics::{self, Failure},
+    domain::AppSettings,
+    secrets,
 };
 
 const TRANSCRIPTIONS_URL: &str = "https://api.openai.com/v1/audio/transcriptions";
 const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 const MAX_UPLOAD_BYTES: u64 = 25 * 1024 * 1024;
+/// 16 kHz, 16-bit mono is 32 kB a second: twelve minutes are 23 MB.
+const SINGLE_UPLOAD_SAMPLES: usize = 12 * 60 * 16_000;
+const PART_SAMPLES: usize = 10 * 60 * 16_000;
+const CUT_SEARCH_SAMPLES: usize = 30 * 16_000;
+const CUT_WINDOW_SAMPLES: usize = 1_600;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 // A ten-minute recording is a ~19 MB upload that the model then has to work
 // through, so a two-minute cap on the whole exchange cut off legitimate long
@@ -56,7 +65,44 @@ pub async fn transcribe(
     artifact: &RecordingArtifact,
     settings: &AppSettings,
 ) -> Result<String, Failure> {
-    let audio = normalized_wav(artifact)?;
+    let pcm = artifact.whisper_pcm()?;
+    let parts = split_at_pauses(&pcm);
+    if parts.len() > 1 {
+        diagnostics::info!(
+            "transcription.split",
+            recording = artifact.recording,
+            parts = parts.len()
+        );
+    }
+    let mut texts = Vec::with_capacity(parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        match transcribe_part(part, settings).await {
+            Ok(text) => texts.push(text),
+            // A long file can hold minutes of silence; that part simply adds
+            // nothing. A single part that is silent is the whole answer.
+            Err(failure) if failure.class() == "empty_result" && parts.len() > 1 => {}
+            Err(failure) => {
+                if parts.len() > 1 {
+                    diagnostics::warning!(
+                        "transcription.part_failed",
+                        recording = artifact.recording,
+                        part = index + 1,
+                        parts = parts.len(),
+                        class = failure.class()
+                    );
+                }
+                return Err(failure);
+            }
+        }
+    }
+    if texts.is_empty() {
+        return Err(Failure::guidance("empty_result", super::NOTHING_HEARD));
+    }
+    Ok(texts.join(" "))
+}
+
+async fn transcribe_part(samples: &[f32], settings: &AppSettings) -> Result<String, Failure> {
+    let audio = wav_bytes(samples)?;
     if audio.len() as u64 > MAX_UPLOAD_BYTES {
         return Err(Failure::guidance(
             "upload_too_large",
@@ -214,8 +260,46 @@ pub(super) fn transport_class(error: &reqwest::Error) -> &'static str {
     }
 }
 
-fn normalized_wav(artifact: &RecordingArtifact) -> Result<Vec<u8>, Failure> {
-    let samples = artifact.whisper_pcm()?;
+/// Where a long recording is cut for upload, as `[start, end)` ranges of
+/// 16 kHz samples.
+///
+/// Anything up to [`SINGLE_UPLOAD_SAMPLES`] goes up whole, as every microphone
+/// recording does. Longer audio — a file — is cut roughly every
+/// [`PART_SAMPLES`], each cut moved to the quietest tenth of a second in the
+/// half minute before it, so a word is rarely split in two.
+fn split_at_pauses(samples: &[f32]) -> Vec<&[f32]> {
+    if samples.len() <= SINGLE_UPLOAD_SAMPLES {
+        return vec![samples];
+    }
+    let mut parts = Vec::new();
+    let mut start = 0;
+    while samples.len() - start > SINGLE_UPLOAD_SAMPLES {
+        let target = start + PART_SAMPLES;
+        let cut = quietest_window(samples, target - CUT_SEARCH_SAMPLES, target);
+        parts.push(&samples[start..cut]);
+        start = cut;
+    }
+    parts.push(&samples[start..]);
+    parts
+}
+
+/// The start of the quietest [`CUT_WINDOW_SAMPLES`] window in `from..to`.
+fn quietest_window(samples: &[f32], from: usize, to: usize) -> usize {
+    (from..to.saturating_sub(CUT_WINDOW_SAMPLES))
+        .step_by(CUT_WINDOW_SAMPLES / 2)
+        .min_by(|left, right| {
+            let energy = |at: usize| {
+                samples[at..at + CUT_WINDOW_SAMPLES]
+                    .iter()
+                    .map(|sample| sample * sample)
+                    .sum::<f32>()
+            };
+            energy(*left).total_cmp(&energy(*right))
+        })
+        .map_or(to, |at| at + CUT_WINDOW_SAMPLES / 2)
+}
+
+fn wav_bytes(samples: &[f32]) -> Result<Vec<u8>, Failure> {
     let mut cursor = Cursor::new(Vec::new());
     {
         let spec = hound::WavSpec {
@@ -298,6 +382,73 @@ async fn api_error(status: StatusCode, response: reqwest::Response) -> Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole cloud path for a real file with the stored key:
+    /// `UTTERFORM_LIVE_AUDIO=<file> cargo test --lib live_openai -- --ignored --nocapture`.
+    /// Costs a few cents per ten minutes of audio; never run by CI.
+    #[tokio::test]
+    #[ignore = "uploads audio to OpenAI with the stored key"]
+    async fn live_openai_transcribes_an_audio_file() {
+        let path = std::env::var("UTTERFORM_LIVE_AUDIO").expect("set UTTERFORM_LIVE_AUDIO");
+        let decoded = crate::audio_file::decode(std::path::Path::new(&path), 1).unwrap();
+        let settings = AppSettings {
+            language_hints: vec!["de".into()],
+            ..AppSettings::default()
+        };
+        let pcm = decoded.artifact.whisper_pcm().unwrap();
+        for (index, part) in split_at_pauses(&pcm).iter().enumerate() {
+            let began = std::time::Instant::now();
+            let text = transcribe_part(part, &settings).await.unwrap();
+            println!(
+                "part {}: {} s audio, {} ms, {} characters: {text}",
+                index + 1,
+                part.len() / 16_000,
+                began.elapsed().as_millis(),
+                text.chars().count()
+            );
+        }
+        let text = transcribe(&decoded.artifact, &settings).await.unwrap();
+        assert!(!text.trim().is_empty());
+    }
+
+    #[test]
+    fn a_microphone_recording_goes_up_whole() {
+        let ten_minutes = vec![0.1; 10 * 60 * 16_000];
+        assert_eq!(split_at_pauses(&ten_minutes).len(), 1);
+        let twelve_minutes = vec![0.1; SINGLE_UPLOAD_SAMPLES];
+        assert_eq!(split_at_pauses(&twelve_minutes).len(), 1);
+    }
+
+    #[test]
+    fn a_long_file_is_cut_into_parts_that_each_fit_one_upload() {
+        let half_hour = vec![0.1; 30 * 60 * 16_000 + 123];
+        let parts = split_at_pauses(&half_hour);
+        assert_eq!(parts.len(), 3);
+        assert_eq!(
+            parts.iter().map(|part| part.len()).sum::<usize>(),
+            half_hour.len()
+        );
+        for part in &parts {
+            assert!(part.len() <= SINGLE_UPLOAD_SAMPLES);
+            assert!(wav_bytes(part).unwrap().len() as u64 <= MAX_UPLOAD_BYTES);
+        }
+    }
+
+    #[test]
+    fn a_cut_lands_in_the_pause_before_the_ten_minute_mark() {
+        let mut audio = vec![0.4; 25 * 60 * 16_000];
+        // A second of silence twenty seconds before the mark.
+        let pause = PART_SAMPLES - 20 * 16_000;
+        audio[pause..pause + 16_000].fill(0.0);
+        let parts = split_at_pauses(&audio);
+        let cut = parts[0].len();
+        assert!(cut > pause && cut < pause + 16_000, "cut at {cut}");
+        assert!(
+            audio[cut - 400..cut + 400]
+                .iter()
+                .all(|sample| *sample == 0.0)
+        );
+    }
 
     #[test]
     fn plain_is_not_a_transform_action() {

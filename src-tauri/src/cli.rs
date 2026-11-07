@@ -6,9 +6,14 @@
 //! already running app. `utterform --toggle` from a compositor binding is
 //! therefore a real global hotkey, with no extra permissions or daemon.
 
+use std::path::{Path, PathBuf};
+
 /// The argument the operating system's autostart entry carries. Internal: it
 /// exists so a start nobody asked for can be told apart from one that was.
 pub const AUTOSTART_FLAG: &str = "--autostart";
+
+/// `utterform --file <path>` transcribes an audio file.
+pub const FILE_FLAG: &str = "--file";
 
 /// A request that arrives from a second process, or from the command line the
 /// app itself was started with.
@@ -83,6 +88,84 @@ where
             _ => None,
         })
         .unwrap_or_default()
+}
+
+/// The audio files a command line asks Utterform to transcribe, resolved
+/// against the directory it was given in.
+///
+/// `--file <path>` (or `--file=<path>`) is the documented form. A bare
+/// argument counts too, but only when it names an existing file: that is how
+/// a file manager's "Open with" and Windows' file association hand a file
+/// over, and it keeps `utterform toggle` meaning what it always did.
+pub fn files_from<I, S>(args: I, cwd: &Path) -> Vec<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let resolve = |value: &str| {
+        let path = PathBuf::from(value);
+        if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        }
+    };
+    let mut files = Vec::new();
+    let mut args = args.into_iter().skip(1);
+    while let Some(arg) = args.next() {
+        let arg = arg.as_ref();
+        if arg == FILE_FLAG {
+            if let Some(value) = args.next() {
+                files.push(resolve(value.as_ref()));
+            }
+        } else if let Some(value) = arg.strip_prefix("--file=") {
+            files.push(resolve(value));
+        } else if let Some(url) = arg.strip_prefix("file://") {
+            // Some file managers pass a URL even for `%f`.
+            if let Some(path) = file_url_path(url) {
+                files.push(path);
+            }
+        } else if !arg.starts_with('-') && !arg.is_empty() {
+            let path = resolve(arg);
+            if path.is_file() {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+/// The path of a `file://` URL's remainder, percent-decoded. A host other
+/// than none or `localhost` is not a local file.
+pub fn file_url_path(rest: &str) -> Option<PathBuf> {
+    let path = rest.strip_prefix("localhost").unwrap_or(rest);
+    if !path.starts_with('/') {
+        return None;
+    }
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && let Some(hex) = path.get(index + 1..index + 3)
+            && let Ok(byte) = u8::from_str_radix(hex, 16)
+        {
+            decoded.push(byte);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    let text = String::from_utf8(decoded).ok()?;
+    // `file:///C:/Users/...` on Windows.
+    #[cfg(windows)]
+    let text = text
+        .strip_prefix('/')
+        .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
+        .map(str::to_string)
+        .unwrap_or(text);
+    Some(PathBuf::from(text))
 }
 
 #[cfg(test)]
@@ -163,5 +246,58 @@ mod tests {
         ] {
             assert!(intent.reaches_the_interface(), "{intent:?}");
         }
+    }
+
+    #[test]
+    fn a_file_flag_names_a_file_relative_to_where_it_was_typed() {
+        let cwd = Path::new("/home/anna/Downloads");
+        assert_eq!(
+            files_from(["utterform", "--file", "voice.opus"], cwd),
+            vec![PathBuf::from("/home/anna/Downloads/voice.opus")]
+        );
+        assert_eq!(
+            files_from(["utterform", "--file=/tmp/a b.m4a"], cwd),
+            vec![PathBuf::from("/tmp/a b.m4a")]
+        );
+        assert!(files_from(["utterform", "--file"], cwd).is_empty());
+    }
+
+    #[test]
+    fn a_file_is_not_a_recording_action() {
+        assert_eq!(
+            intent_from(["utterform", "--file", "voice.opus"]),
+            Intent::Show
+        );
+    }
+
+    #[test]
+    fn a_bare_argument_is_a_file_only_when_one_exists() {
+        let directory = tempfile::tempdir().unwrap();
+        let voice = directory.path().join("Sprachnachricht.opus");
+        std::fs::write(&voice, b"OggS").unwrap();
+        assert_eq!(
+            files_from(["utterform", "Sprachnachricht.opus"], directory.path()),
+            vec![voice.clone()]
+        );
+        assert!(files_from(["utterform", "toggle"], directory.path()).is_empty());
+        assert!(files_from(["utterform", "--toggle"], directory.path()).is_empty());
+        // The executable itself is never taken for a file.
+        assert!(files_from([voice.to_str().unwrap()], directory.path()).is_empty());
+    }
+
+    #[test]
+    fn a_file_url_becomes_a_path() {
+        assert_eq!(
+            files_from(
+                ["utterform", "file:///home/anna/Voice%20note.ogg"],
+                Path::new("/")
+            ),
+            vec![PathBuf::from("/home/anna/Voice note.ogg")]
+        );
+        assert_eq!(
+            file_url_path("localhost/tmp/x.opus"),
+            Some(PathBuf::from("/tmp/x.opus"))
+        );
+        assert_eq!(file_url_path("server/share/x.opus"), None);
     }
 }

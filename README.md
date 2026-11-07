@@ -258,6 +258,12 @@ Under **Settings → AI → Text model**: the model that runs these prompts (`gp
 
 OpenAI does not officially support other apps on this path and may block it, which is why it is marked *Experimental*. Utterform does not quietly fall back to your API key: if ChatGPT refuses, the reason is shown and the plain transcript is delivered.
 
+## Voice messages and recordings
+
+Drop an audio file on the window, open one with the folder button next to Settings (or `O`), run `utterform --file <path>`, or choose **Open with → Utterform** in your file manager. The text goes to the history and the clipboard — and to a file when File is on — with the chosen action applied, the same as a dictation; it is never typed at the cursor.
+
+WhatsApp and Telegram voice messages (`.opus`, `.ogg`), phone recordings (`.m4a`), MP3, WAV, FLAC, WebM and AIFF work, up to two hours. With GPT Transcribe, audio longer than twelve minutes is sent in parts of about ten minutes, cut at pauses, so OpenAI's 25 MB upload limit does not stop it. Utterform only adds itself to "Open with"; your default player stays as it is.
+
 ## Vocabulary
 
 Names, products and spellings a model would otherwise guess at go under **Settings → Transcription → Vocabulary**, one word at a time: type it and press Enter, remove it with ×. A pasted list keeps its lines. Write *Careum* there and it stops coming back as *Kareum*.
@@ -277,6 +283,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 ## Features
 
 - Batch transcription with `gpt-transcribe` — no realtime session required
+- Audio files: voice messages and recordings by drop, Open, `--file` or "Open with"
 - Offline transcription through `whisper.cpp`, built for every supported desktop rather than for the machine that compiled it
 - One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
 - Plain, Clean, Polish, Summarize, Prompt, Email, and user-defined actions — every shipped prompt can be rewritten
@@ -312,13 +319,14 @@ Shortcuts work while the Utterform window is focused.
 | `1`–`6` | Select Plain, Clean, Polish, Summarize, Prompt, or Email |
 | `C` | Toggle clipboard output |
 | `F` | Toggle file output |
+| `O` | Open an audio file to transcribe |
 | `Ctrl+Shift+C` / `Cmd+Shift+C` | Copy the displayed text again (latest by default) |
 
 Global dictation is separate from these: see [Dictate from anywhere](#dictate-from-anywhere). **An already-started recording continues when you switch apps, minimize, or close the window to tray** (including Omarchy's `Super+W`). Reopen from the tray to pause or finish it, or let the ten-minute active-recording limit stop capture. A paused recording remains paused across app switches and close-to-tray. Paused audio is discarded, not stored or sent; the microphone device stays open so resuming works consistently across platforms. Processing resumes when the WebView is available. Tray **Quit** discards active audio and exits; simply launching Utterform does not start recording.
 
 ## Privacy model
 
-- **GPT Transcribe:** the temporary audio recording is sent to OpenAI.
+- **GPT Transcribe:** the temporary audio recording is sent to OpenAI — for an opened audio file, a decoded copy of its audio.
 - **Local Whisper + Plain:** audio and text stay on the device.
 - **Local Whisper + transformed action:** audio stays local; transcribed text is sent to OpenAI.
 - Temporary recordings are deleted after processing or cancellation.
