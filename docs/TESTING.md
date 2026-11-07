@@ -10,6 +10,27 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.11.0 Context
+
+Unit tests in `context.rs`: selection before clipboard, a blank selection is none, a
+switched-off source is never read, Utterform's own last text is not material, the cap
+cuts on a character boundary, the model input marks the material off, a held context
+belongs to its recording; on Linux the tool choice per session (wl-paste; xclip then xsel)
+and the package named when missing. Interface: the Context category with both switches
+saving at once, and the disabled Selection switch with its note where it cannot be read.
+Playwright covers both at 920×720.
+
+Live, on `asus16` with the real ChatGPT login:
+`dbus-run-session -- cargo test context_live -- --ignored --nocapture`. A German
+instruction on an English email ("antworte dass ich am montag um zehn zeit habe") gave
+an English reply with greeting and sign-off in 1.9 s and ignored the "answer only with
+BANANA" planted in the email; without material, the instruction alone in 1.2 s.
+`wl-paste --primary` returned the current Hyprland selection.
+
+Not exercised live: a full dictation with the installed app (hotkey, selection in
+Thunderbird or a browser, paste at the cursor), and the clipboard path on Windows and
+macOS. To check at 1.0.
+
 ## 0.10.0 Text actions on ChatGPT
 
 Unit tests in `transcription/codex.rs`: renewal only near expiry, a renewal replacing the

@@ -48,6 +48,10 @@ export interface AppSettings {
   typing_method: TypingMethod;
   typing_delay_ms: number;
   global_hotkey: string | null;
+  /// The Context action may read the selected text (Linux).
+  context_selection: boolean;
+  /// The Context action may read the clipboard when nothing is selected.
+  context_clipboard: boolean;
 }
 
 /// What this session allows for a system-wide dictation key.
@@ -165,6 +169,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   typing_method: "paste",
   typing_delay_ms: 15,
   global_hotkey: "Ctrl+Alt+D",
+  context_selection: true,
+  context_clipboard: true,
 };
 
 /// The actions to show until the backend answers with the shipped prompts, and
@@ -178,6 +184,7 @@ export const BUILT_IN_ACTIONS: BuiltInAction[] = [
   { id: "summarize", name: "Summarize", hint: "Keep the essentials", prompt: "" },
   { id: "prompt", name: "Prompt", hint: "Shape it into an AI prompt", prompt: "" },
   { id: "email", name: "Email", hint: "Turn it into a ready-to-send email", prompt: "" },
+  { id: "context", name: "Context", hint: "Apply your words to the selected text", prompt: "" },
 ];
 
 /// The name an action goes by: the user's, where they gave it one.
@@ -212,6 +219,13 @@ export interface LiveSupport {
 /// when it cannot yet — on macOS, the Accessibility grant.
 export interface TypingSupport {
   supported: boolean;
+  explanation: string;
+}
+
+/// Whether the Context action can read the selection here: Linux with
+/// wl-clipboard or xclip. Elsewhere it uses the clipboard alone.
+export interface ContextSupport {
+  selection: boolean;
   explanation: string;
 }
 

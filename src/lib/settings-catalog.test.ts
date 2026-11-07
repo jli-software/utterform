@@ -19,6 +19,12 @@ describe("the settings catalog", () => {
     expect(visibleRows("app", "xylophone").size).toBe(0);
     expect([...visibleRows("app", "chatgpt")]).toEqual(["text-provider"]);
     expect([...visibleRows("app", "codex")]).toEqual(["text-provider"]);
+    expect([...visibleRows("app", "selected")]).toEqual(["context-selection"]);
+  });
+
+  it("gives the Context action's sources a category of their own", () => {
+    expect([...visibleRows("context", "")]).toEqual(["context-selection", "context-clipboard"]);
+    expect([...visibleRows("app", "topic")]).toEqual(["context"]);
   });
 
   it("needs every word of a search", () => {

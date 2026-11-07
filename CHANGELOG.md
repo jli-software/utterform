@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0 · Say what to do with the selected text (on `main`, ships with 1.0)
+
+- Add the **Context** action. Select an email, start dictating with Context, say "reply that Monday at ten works", and the reply arrives at the cursor. What you say is the instruction; the selected text is the material. The material is treated as data, so an instruction hidden in it is not followed.
+- Read the selection the moment the recording starts. On Linux that is the selected text itself (`wl-paste --primary` on Wayland, `xclip` or `xsel` on X11) — nothing is pressed in the other window. Windows and macOS use the clipboard: copy the text first.
+- Fall back to the clipboard when nothing is selected, but never to Utterform's own last text. Without either, the instruction runs on its own and a note says so. Material is capped at 20,000 characters, also with a note.
+- Add **Settings → Context** with two switches, **Selection** and **Clipboard**, both on. The transcription row formerly named *Context* is now **Topic**.
+- Plain dictation and every other action never read the selection or the clipboard. The material goes to the text model only; the diagnostic log records where it came from and its length, never the text.
+
+See [0.11.0 release notes](docs/releases/v0.11.0.md).
+
 ## 0.10.0 · Text actions on your ChatGPT subscription (on `main`, ships with 1.0)
 
 - Add **Settings → AI → Provider**: OpenAI key or **ChatGPT**. With ChatGPT, Clean, Polish, Summarize, Prompt, Email and your own actions run on your ChatGPT subscription through the Codex CLI login (`codex login`) at no extra cost. Transcription keeps using the OpenAI key or the local model.

@@ -11,6 +11,7 @@ Utterform uses Tauri 2 as its desktop shell, Rust for all privileged or compute-
 - `tray.rs` — Tauri's native tray on Windows/macOS, an own StatusNotifierItem on Linux so a left click arrives; both show a red dot while recording and a five-second green dot after successful delivery
 - `actions.rs` — the prompts Utterform ships with, and how a user's replacement resolves against them
 - `transcription/openai.rs` — GPT Transcribe and Responses API calls
+- `context.rs` — what the Context action reads: the selection (Linux), else the clipboard; see [Context](#context-selected-text-and-clipboard-0110)
 - `transcription/codex.rs` — text actions on the ChatGPT subscription through the Codex CLI login (experimental); see [Text actions on ChatGPT](#text-actions-on-chatgpt-0100)
 - `transcription/local.rs` — blocking local Whisper inference
 - `packaging/cmake/portable-cpu.cmake` — the instruction set whisper.cpp is compiled for, and why it is not the build machine's
@@ -135,6 +136,40 @@ is said. `transform.*` events carry `provider=openai_key|codex`; nothing from `a
 is ever logged or sent to the interface, which gets only `codex_status` (signed in, model
 ids and names). `open_codex_setup` opens one fixed URL.
 
+## Context: selected text and clipboard (0.11.0)
+
+The built-in action `context` (`actions::CONTEXT`) turns the transcript into an
+instruction and the selected or copied text into its material. Decided with Jonas on
+2026-11-07: a separate action, no per-action switch; plain dictation and every other
+action never read context. Linux reads the selection; Windows and macOS use the clipboard
+only, because reaching the selection there means a simulated Ctrl+C / Cmd+C, which
+interrupts a terminal's running program.
+
+**When.** `begin_recording` captures once the microphone is open and before the command
+returns, so a stop cannot overtake it. `context::capture` tries the selection
+(`context_selection`) and then the clipboard (`context_clipboard`); blank text is none,
+and a clipboard whose text matches the fingerprint of Utterform's last delivered text
+(`remember_own_output`, a hash held in memory) is skipped. The result waits in
+`CapturedContext` keyed by recording id; `finish_recording` moves it into the request
+(`ProcessRequest::context`, `serde(skip)`), so a kept recording retries with the same
+material. `cancel_recording` and the next start clear it.
+
+**Linux selection.** `wl-paste --primary --no-newline --type text` under Wayland,
+`xclip -o -selection primary` or `xsel --output --primary` under X11, with stdout read on
+a thread and the child killed after 800 ms, so an unresponsive selection owner cannot
+hold the recording. A non-zero exit ("No selection") is none. `context_support` tells
+Settings whether a tool is there and which package to install otherwise.
+
+**Model input.** `transcription::transform` hands the Context action
+`<instruction>…</instruction>` and `<material source="selection|clipboard">…</material>`
+(or `<material/>`) to whichever provider is set; the shipped prompt says the material is
+data and never instructions. The material is capped at `context::MAX_CHARS` (20,000
+characters, cut on a character boundary). A missing or cut material adds a delivery
+warning; neither stops the run.
+
+**Diagnostics.** `context.captured` (source, characters, truncated) or `context.none`
+(which sources were on). The text itself is never logged, like a transcript.
+
 ## What the local engine is compiled for
 
 whisper.cpp is built from source by `whisper-rs-sys`, and ggml's CMake targets the machine doing the compiling unless told otherwise. For a release built on someone else's server that is a trap rather than an optimization: the 0.7.2 Linux binary carried the runner's AVX-512 and AMX instructions and was stopped with SIGILL on an Intel N300 while loading a model — inside `ggml_backend_cpu_device_get_extra_buffers_type`, plain C++ frame code, which is before ggml's own runtime dispatch can choose a kernel and therefore beyond its help. The bug had been there since the first release; only the pairing of build machine and user machine decided whether it fired.
@@ -203,7 +238,7 @@ Diagnostics are local, bounded and free of user content, and `diagnostics.rs` is
 
 **Failures and references.** Low-level code returns a `diagnostics::Failure`: the message the user reads, kept apart from a closed-vocabulary `class`, an optional HTTP `status` and an optional `detail` (an `io::ErrorKind`, a keyring variant, an audio backend's error). `Failure` has no `Display`, so its message — which can quote an OpenAI error body — cannot become a log field by accident. The code that knows the context owns the one event: `failure!` logs `ERROR`, `fallback!` logs `WARN` for work that continued without that part, and both append `(ref <run>-<n>)` to the message; the same reference is the event's `ref` field. Guidance the user acts on (add a key, choose an output, a model not yet downloaded, install `wtype`, grant Accessibility, start Live from another application's text field) is logged at `INFO` with `outcome=guidance` and no reference; `typing::is_guidance` and `typing::is_capture_guidance` recognise the platform modules' own refusal sentences for that. Commands that only pass a failure on do not log it again.
 
-**Privacy.** Allowed: version, OS/architecture, desktop and session kind, run/recording/reference ids, durations, counts, enabled modes, model and action ids (a custom action is only `custom`), HTTP statuses, microphone and output device names, program/application names, window classes and bundle ids, error classes, and the platform typing modules' own refusal sentences, which name tools, programs and counts. The text model is named only when it looks like a model id; anything else typed into that field is `custom`. Never: API keys or authorization material, transcripts, history, clipboard or output-file contents, audio, prompts and prompt overrides, vocabulary, language hints, recording context, window titles, request/response bodies, WebSocket deltas, raw third-party errors, full settings or history JSON, output folders (a saved file is named by its basename). Linux Live focus events keep their existing rendering: event name, window address, workspace id. Every record is still normalized by `redact::line` — one physical line, no control or direction-override characters, home directories reduced to `$HOME`, `sk-…` keys, bearer tokens and `Authorization:` values replaced — and bounded to 16 KiB; a copied report applies the same again, legacy lines included. The sanitizer cannot recognise dictated prose; the protection is that it never reaches diagnostics.
+**Privacy.** Allowed: version, OS/architecture, desktop and session kind, run/recording/reference ids, durations, counts, enabled modes, model and action ids (a custom action is only `custom`), HTTP statuses, microphone and output device names, program/application names, window classes and bundle ids, error classes, and the platform typing modules' own refusal sentences, which name tools, programs and counts. The text model is named only when it looks like a model id; anything else typed into that field is `custom`. Never: API keys or authorization material, transcripts, history, clipboard, selection or output-file contents, audio, prompts and prompt overrides, vocabulary, language hints, recording context, window titles, request/response bodies, WebSocket deltas, raw third-party errors, full settings or history JSON, output folders (a saved file is named by its basename). Linux Live focus events keep their existing rendering: event name, window address, workspace id. Every record is still normalized by `redact::line` — one physical line, no control or direction-override characters, home directories reduced to `$HOME`, `sk-…` keys, bearer tokens and `Authorization:` values replaced — and bounded to 16 KiB; a copied report applies the same again, legacy lines included. The sanitizer cannot recognise dictated prose; the protection is that it never reaches diagnostics.
 
 **Bounds.** Nothing is logged from the audio callback, the writer loop, per delta, per keystroke, per animation frame or per status poll: glitches, delivered chunks, WebSocket events and audio bytes are counted and reported once. `Limiter` keeps Linux Live focus events at 200 per session and reports `live.focus_events_suppressed`; the frontend bridge admits 50 reports per run (20 per mounted interface on its own side); a failing `get_recording_status` is reported once per run; undelivered model-download progress events are counted and reported once.
 

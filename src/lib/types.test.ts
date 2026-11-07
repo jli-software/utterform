@@ -25,6 +25,12 @@ describe("default product configuration", () => {
     expect(new Set(BUILT_IN_ACTIONS.map((action) => action.id)).size).toBe(BUILT_IN_ACTIONS.length);
     expect(BUILT_IN_ACTIONS.map((action) => action.id)).toContain("email");
   });
+
+  it("lets the Context action read the selection, then the clipboard, until switched off", () => {
+    expect(BUILT_IN_ACTIONS.map((action) => action.id)).toContain("context");
+    expect(DEFAULT_SETTINGS.context_selection).toBe(true);
+    expect(DEFAULT_SETTINGS.context_clipboard).toBe(true);
+  });
 });
 
 describe("resolving an action against the user's edits", () => {

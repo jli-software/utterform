@@ -11,6 +11,7 @@ use crate::{
     actions::{self, BuiltInAction},
     activation::reveal_main_window,
     audio::{self, AudioCaptureState, RecordingArtifact},
+    context,
     diagnostics::{self, Failure},
     domain::{
         AppSettings, AudioDeviceInfo, LocalModelInfo, ProcessRequest, ProcessResult, TextProvider,
@@ -286,6 +287,15 @@ fn begin_recording(
     .map_err(rejected)?;
     let session = started.session;
     tray::set_recording(app, true, recording);
+    // Read now, while the selection is still where the user left it; by the
+    // time the recording stops they may have clicked elsewhere.
+    let context_state = app.state::<context::CapturedContext>();
+    context_state.clear();
+    if action == actions::CONTEXT
+        && let Some(captured) = context::capture(app, &current_settings, recording)
+    {
+        context_state.hold(recording, captured);
+    }
     // Off this thread too: the wait is a speaker resuming from idle, which a
     // Bluetooth headset can take a few hundred milliseconds over, and the
     // interface should hear "recording" before that.
@@ -431,6 +441,11 @@ pub fn typing_support() -> crate::typing::Support {
 }
 
 #[tauri::command]
+pub fn context_support() -> context::Support {
+    context::support()
+}
+
+#[tauri::command]
 pub fn set_recording_paused(
     state: State<'_, AudioCaptureState>,
     paused: bool,
@@ -447,6 +462,7 @@ pub async fn cancel_recording(
 ) -> Result<(), String> {
     live::cancel(&app).await?;
     tray::clear(&app);
+    app.state::<context::CapturedContext>().clear();
     audio::cancel_recording(&state)
         .map_err(|failure| diagnostics::failure!("recording.cancel_failed", &failure))
 }
@@ -457,7 +473,7 @@ pub async fn cancel_recording(
 pub async fn finish_recording(
     app: AppHandle,
     state: State<'_, AudioCaptureState>,
-    request: ProcessRequest,
+    mut request: ProcessRequest,
 ) -> Result<ProcessResult, String> {
     if app.state::<live::LiveState>().active() {
         return live::finish(app, request).await;
@@ -479,6 +495,9 @@ pub async fn finish_recording(
     let artifact = artifact.map_err(|failure| {
         diagnostics::failure!("recording.failed", &failure, stage = "capture")
     })?;
+    request.context = app
+        .state::<context::CapturedContext>()
+        .take(artifact.recording);
     process_recording(&app, artifact, request, current_settings, began).await
 }
 
@@ -600,11 +619,25 @@ async fn process_recording(
             effort = effort
         );
     }
+    if request.action == actions::CONTEXT {
+        match &request.context {
+            None => warnings.push(
+                "Nothing was selected or copied, so your words were used on their own.".into(),
+            ),
+            Some(context) if context.truncated => warnings.push(format!(
+                "Only the first {} characters of the {} were used.",
+                context::MAX_CHARS,
+                context.source.as_str()
+            )),
+            Some(_) => {}
+        }
+    }
     let transforming = Instant::now();
     let text = match transcription::transform(
         &transcript,
         &request.action,
         request.custom_prompt.as_deref(),
+        request.context.as_ref(),
         &current_settings,
     )
     .await
@@ -669,6 +702,7 @@ async fn process_recording(
     // then happens at the clipboard or the cursor reports for itself: the Done
     // cue stays reserved for everything having worked.
     tray::set_arrived(app, recording);
+    context::remember_own_output(&text);
     let delivery =
         output::deliver(app, &text, &request, &current_settings, recording).map_err(|failure| {
             diagnostics::failure!("delivery.rejected", &failure, recording = recording)
