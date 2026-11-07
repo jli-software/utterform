@@ -2,7 +2,7 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v0.7.13}"
+version="${UTTERFORM_VERSION:-v0.8.0}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
 asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
@@ -118,9 +118,57 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f -t "$icon_theme_dir" >/dev/null 2>&1 || true
 fi
 
+# Omarchy 4.5 chooses a dictation backend in Setup > Defaults > Dictation and
+# binds Alt + Space and Right Alt to it. Offer Utterform there: the backend's
+# commands go next to the launcher, and the menu row into the user's own menu
+# extension, which Omarchy keeps for exactly that.
+omarchy_scripts="${install_root}/share/omarchy"
+omarchy_ready=false
+if command -v omarchy-dictation-use >/dev/null 2>&1 && [ -d "$omarchy_scripts" ]; then
+  for script in "$omarchy_scripts"/omarchy-*; do
+    [ -f "$script" ] || continue
+    name="$(basename "$script")"
+    script_tmp="${bin_dir}/.${name}.tmp.$$"
+    cp "$script" "$script_tmp"
+    chmod 755 "$script_tmp"
+    mv "$script_tmp" "${bin_dir}/${name}"
+  done
+
+  menu="${XDG_CONFIG_HOME:-${HOME}/.config}/omarchy/extensions/omarchy-menu.jsonc"
+  menu_id='"setup.default.dictation.utterform"'
+  # Omarchy's own dictation icon; the row reuses the id scheme of its menu.
+  menu_row="$(printf '  %s: {"icon":"\356\260\222","label":"Utterform","checked":"[[ \\"$(omarchy-default-dictation)\\" == \\"utterform\\" ]]","action":"omarchy-default-dictation utterform"},' "$menu_id")"
+  if [ ! -e "$menu" ]; then
+    mkdir -p "$(dirname "$menu")"
+    printf '{\n%s\n}\n' "$menu_row" > "$menu"
+    omarchy_ready=true
+  elif grep -qF "$menu_id" "$menu"; then
+    omarchy_ready=true
+  elif grep -Eq '^[[:space:]]*[{][[:space:]]*$' "$menu"; then
+    # The user's file has their own entries and comments: back it up, then add
+    # one line right after the opening brace. Omarchy accepts the trailing
+    # comma, and nothing else in the file is touched.
+    cp -p "$menu" "${menu}.bak.$(date +%s)"
+    menu_tmp="${menu}.tmp.$$"
+    # Through the environment: awk -v would interpret the row's backslashes.
+    UTTERFORM_MENU_ROW="$menu_row" awk '
+      !done && /^[[:space:]]*[{][[:space:]]*$/ { print; print ENVIRON["UTTERFORM_MENU_ROW"]; done = 1; next }
+      { print }
+    ' "$menu" > "$menu_tmp"
+    chmod --reference="$menu" "$menu_tmp" 2>/dev/null || true
+    mv "$menu_tmp" "$menu"
+    omarchy_ready=true
+  else
+    printf 'Utterform installer: %s has an unexpected layout; add this line inside its braces to list Utterform under Setup > Defaults > Dictation:\n%s\n' "$menu" "$menu_row" >&2
+  fi
+fi
+
 printf '\nUtterform %s was installed successfully.\n' "$version"
 printf 'Launch it from your app menu or run: %s\n' "$launcher"
 case ":${PATH}:" in
   *":${bin_dir}:"*) ;;
   *) printf 'Add %s to PATH to run it as: utterform\n' "$bin_dir" ;;
 esac
+if [ "$omarchy_ready" = true ]; then
+  printf '%s\n' 'Omarchy: choose Utterform in Setup > Defaults > Dictation to dictate with Alt + Space or by holding Right Alt.'
+fi

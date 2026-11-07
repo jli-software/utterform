@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.7.13 — Nothing said is lost** keeps a recording when transcription fails, with Try again and Discard, and reports failures even when the window is hidden. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.7.13.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.7.13).
+> Utterform is under active development. **0.8.0 — Omarchy's dictation key** makes Utterform a dictation backend for Omarchy: choose it in Setup → Defaults → Dictation, then press Alt + Space or hold Right Alt. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.8.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.8.0).
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.7.13 — Nothing said is lost](https://github.com/jli-software/utterform/releases/tag/v0.7.13)**.
+**[0.8.0 — Omarchy's dictation key](https://github.com/jli-software/utterform/releases/tag/v0.8.0)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.7.13 release notes](docs/releases/v0.7.13.md) for the current changes.
+See the [0.8.0 release notes](docs/releases/v0.8.0.md) for the current changes.
 
 ### Windows — one-line install or update
 
@@ -165,6 +165,17 @@ The new mark is included in the executable, tray, Windows setup/uninstaller, Lin
 Press one key, speak, press it again. The window never comes forward, so you stay in whatever you were typing in. How the key reaches Utterform depends on who owns the keyboard.
 
 **Windows, macOS and X11 — a reserved key combination.** `Ctrl+Alt+D` by default. To change it, open **Settings → General → Dictation shortcut**, click the shortcut field and press the combination you want — there is nothing to spell out. The key is read by its position on the keyboard, so the same physical key gives the same shortcut whatever your layout types; `Escape` keeps the current one and leaves Settings open. A key without `Ctrl`, `Alt`, `Shift` or `Super`/`Cmd` is refused, because reserving a bare key system-wide would stop it typing everywhere else, and a combination another application already holds is reported where you pressed it. On a Mac, `Cmd` is the key stored as `Super`. The same switch turns the key off entirely. Nothing to configure elsewhere.
+
+**Omarchy 4.5 and later — Omarchy's own dictation keys.** On Omarchy the installer
+also registers Utterform as a dictation backend. Choose **Utterform** in the Omarchy menu
+under **Setup → Defaults → Dictation**; Omarchy then binds **Alt + Space** to start and
+finish, and **holding Right Alt** records while the key is held. A short press is not
+lost: letting go while the start sound still plays finishes the recording as soon as it
+runs. Choosing another backend there hands the keys back. The installer adds one row to
+`~/.config/omarchy/extensions/omarchy-menu.jsonc` (a backup is kept next to it) and puts
+three `omarchy-*-dictation-utterform` commands next to `~/.local/bin/utterform`.
+`omarchy-remove-dictation-utterform` removes exactly these again and leaves Utterform
+installed.
 
 **Wayland (Hyprland, Omarchy) — a compositor binding.** Wayland gives no application the right to grab a global shortcut, so Utterform takes its orders from the command line instead and the single running instance receives them. Add one line to `~/.config/hypr/hyprland.conf`:
 

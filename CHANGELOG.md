@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — v0.8.0 · Omarchy's dictation key
+
+- Register Utterform as an Omarchy dictation backend when the Linux installer runs on Omarchy 4.5 or later. **Setup → Defaults → Dictation → Utterform** then binds Alt + Space to start and finish and Right Alt to push-to-talk. The installer adds one row to the user's Omarchy menu extension, with a backup, and three `omarchy-*-dictation-utterform` commands next to the launcher; `omarchy-remove-dictation-utterform` takes them away again.
+- Keep a stop that arrives while a recording is still starting — the microphone opening and the start sound playing — and finish the recording as soon as it runs. Previously a short push-to-talk press left the recording running. A toggle in that moment is still ignored, so a bouncing key cannot start and stop at once.
+- A stop request never starts Utterform, and a request that has to start it no longer keeps Omarchy's dictation lock while the app runs.
+
+See [0.8.0 release notes](docs/releases/v0.8.0.md).
+
 ## 0.7.13 — v0.7.13 · Nothing said is lost
 
 - Keep a recording whose transcription failed, with **Try again** and **Discard** in the main window. A dropped connection or a busy service is first retried once on its own. Up to five recordings wait, in order; they are removed on success, on Discard or when Utterform quits.

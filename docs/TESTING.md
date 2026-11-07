@@ -10,6 +10,35 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.8.0 Omarchy dictation backend
+
+`scripts/test-omarchy-dictation.sh` (also in CI) installs a stripped release with the real
+`install-linux.sh` into a temporary prefix and config home. Every Omarchy command, `uwsm`,
+`pgrep` and `utterform` are stand-ins that record their calls, and the PATH is rebuilt
+without the machine's own `omarchy-*` commands, so a real Omarchy desktop is never touched.
+It covers: nothing installed without Omarchy's dictation layer; a new menu file; a user's
+menu with comments and no trailing comma getting exactly one row and a backup, every other
+line unchanged, parsed the way Omarchy's shell parses it; a reinstall changing nothing; an
+unknown layout left alone with the line printed; the adapter handing start/stop/toggle to a
+running app, `stop` doing nothing without one, start/toggle launching detached through
+`uwsm-app` or `setsid`; choosing the backend; and removal clearing only Utterform's choice,
+row and own commands. `test-linux-system-package.sh` checks that the package carries them.
+
+Interface: a `stop` while the recording is starting is kept and finishes it once it runs,
+a `toggle` then is still dropped, and a start that fails forgets the kept stop.
+
+Latency on `asus16` (Ryzen AI 9 HX 370): `utterform --stop` to a running app returns in
+48–54 ms. The start cue holds `start_recording` for about 450 ms, which is the window the
+kept stop covers.
+
+Not yet exercised on the real desktop: choosing Utterform in Omarchy's menu, Alt + Space,
+holding Right Alt, a very short press, switching back to another backend, and Super + D
+alongside.
+
+Known limit: when push-to-talk has to start Utterform itself, a release that comes before
+the window has started listening is not seen, and that first recording runs until the next
+press. With Utterform already running (autostart) this does not arise.
+
 ## 0.7.13 keeping recordings through failures
 
 `scripts/test-keyring-restart.sh` runs a real `gnome-keyring-daemon` on a private bus
