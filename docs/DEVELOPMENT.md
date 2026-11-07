@@ -29,7 +29,25 @@ delivered. Of the 15 failures, 12 were `empty_result` (ten under two seconds), t
 keyring and one an empty capture. Eight of eleven starts report `previous_run_unclean`,
 probably because a shutdown never reaches `app.exiting`; that is unverified and still open.
 
-## Current handoff — 0.7.12
+## Current handoff — 0.9.0 Settings from scratch
+
+Stage 0.9.0 of the 1.0 roadmap (`docs/plans/v1.0-roadmap.md` on `plan/utterform-1.0`).
+Branch `work/utterform-0.9.0-settings`, worktree `~/git/utterform-settings` on `asus16`.
+It is based on main/v0.7.13; 0.8.0 (Omarchy dictation backend) is developed in parallel
+and merges first, so rebase this branch on main after that and keep both changelog entries.
+
+Jonas accepted the mock-up on 2026-11-07: search field on top, categories as tabs below,
+one row per setting. Built to the roadmap rules: no Save/Cancel, every change applies at
+once (text fields after 500 ms), minimal text with tooltips, technical details one level
+down. Design and code map in [ARCHITECTURE.md → Shared visual identity](ARCHITECTURE.md#shared-visual-identity).
+The "Context" category of the roadmap proposal is left out until 0.11.0 gives it rows;
+0.10.0 adds the Codex provider to the AI category. Reused from the rejected 0.7.14
+branch: vocabulary as chips, local model chosen in its list. Not its layout.
+
+Settings schema and backend are unchanged; existing preferences carry over. Not yet done:
+Linux preview build and Jonas's acceptance; no merge, tag or release.
+
+## Previous handoff — 0.7.12
 
 `work/utterform-0.7.12-tray-success` is based on main/v0.7.11. The requested
 Linux and Windows previews add five-second green success feedback in `tray.rs`.
@@ -364,9 +382,9 @@ Untested on real hardware other than Jonas's: the fix is platform-independent Ru
 
 **Vocabulary is one field feeding two engines.** GPT Transcribe takes it as `keywords[]`; local Whisper takes it joined as `initial_prompt`. The API refuses a keyword containing `<`, `>`, CR or LF and refuses the whole request with it, so the interface names a term it would drop and `usable_keywords` filters again before sending. `text_effort` becomes `reasoning.effort` and is sent only when chosen — Auto keeps 0.4.1 behaviour and cannot be rejected by a model that does not offer the level.
 
-**Settings is a tablist now** — General, Recording, AI & Models, Actions, Output. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
+**Settings is a tablist now** — since 0.9.0 Recording, Transcription, AI, Output, App. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
 
-**`gpt-transcribe` has no effort parameter.** Jonas asked for one alongside the vocabulary; the current API gives transcription `keywords`, `prompt` and `languages` and nothing else. Effort is `reasoning.effort` on the Responses call that runs Clean/Polish/Summarize/Prompt/Email, which is where it now sits — under **AI & Models → Text model**, not under the microphone. Do not move it back without re-reading the transcription reference.
+**`gpt-transcribe` has no effort parameter.** Jonas asked for one alongside the vocabulary; the current API gives transcription `keywords`, `prompt` and `languages` and nothing else. Effort is `reasoning.effort` on the Responses call that runs Clean/Polish/Summarize/Prompt/Email, which is where it now sits — under **AI → Text model**, not under the microphone. Do not move it back without re-reading the transcription reference.
 
 **[v0.4.2](https://github.com/jli-software/utterform/releases/tag/v0.4.2) is published and its assets independently verified** ([release run 34138984113](https://github.com/jli-software/utterform/actions/runs/34138984113), all three platforms, from `d1461a5`). This is the state to build on and debug from; the next session starts here.
 

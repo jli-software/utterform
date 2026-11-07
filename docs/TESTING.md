@@ -423,6 +423,21 @@ shortcut capture, typing delay and history retention. Per-panel dark/light scree
 are written to the ignored `test-results/` directory for visual inspection. Desktop IPC
 is mocked: native WebKit/WebView rendering and physical audio/input remain manual checks.
 
+## 0.9.0 — Settings without Save
+
+Run `npm run check`, `npm test`, `npm run build` and `npx playwright test`.
+Unit tests cover the row catalog and search (`settings-catalog.test.ts`), immediate
+writes, the 500 ms text delay and its flush on close, a failed write, the dictation key
+registered at once (including a taken key), the autostart switch reading the entry back,
+vocabulary chips (Enter, pasted lists, ×, refused and flagged terms), action detail pages
+and search across categories. Production-browser coverage writes every category at
+920×720 and 360×400 without Save, searches across categories, chooses a local model one
+level down, edits and resets a prompt, and checks that the header and tabs stay in place
+at four window sizes. Per-category dark/light screenshots are written to `test-results/`.
+Manual on Linux before acceptance: change each control and restart — the value must be
+there; type in Context, close at once — it must be saved; a taken shortcut reports at its
+field.
+
 ## 0.7.12 — tray confirmation
 
 Native tests cover green/red geometry at 16/32 px, unchanged idle bytes, five-second

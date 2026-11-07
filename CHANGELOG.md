@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 — v0.9.0 · Settings, found at once
+
+- Rebuild Settings as one page: a search field that finds a setting in any category, five categories (Recording, Transcription, AI, Output, App) and one row per setting.
+- Remove Save and Cancel: every change applies at once, text fields after a short pause in typing, and closing Settings writes what is still waiting. A short "✓ Saved" confirms it; a failed write says so.
+- Refuse a vocabulary word with `<` or `>` or a language that is not a code at its field, and mark such entries stored by earlier versions.
+- Register a new dictation key and write the start-at-login entry the moment they change; a key another application holds is reported at its field.
+- Move explanations into tooltips and technical details (local model list, text model and effort, prompt text) one level down.
+
+See [0.9.0 release notes](docs/releases/v0.9.0.md).
+
 ## 0.7.13 — v0.7.13 · Nothing said is lost
 
 - Keep a recording whose transcription failed, with **Try again** and **Discard** in the main window. A dropped connection or a busy service is first retried once on its own. Up to five recordings wait, in order; they are removed on success, on Discard or when Utterform quits.
