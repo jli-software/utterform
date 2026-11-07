@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 · Settings, found at once (on `main`, ships with 1.0)
+
+- Rebuild Settings as one page: a search field that finds a setting in any category, five categories (Recording, Transcription, AI, Output, App) and one row per setting.
+- Remove Save and Cancel: every change applies at once, text fields after a short pause in typing, and closing Settings writes what is still waiting. A short "✓ Saved" confirms it; a failed write says so.
+- Refuse a vocabulary word with `<` or `>` or a language that is not a code at its field, and mark such entries stored by earlier versions.
+- Register a new dictation key and write the start-at-login entry the moment they change; a key another application holds is reported at its field.
+- Move explanations into tooltips and technical details (local model list, text model and effort, prompt text) one level down.
+
+See [0.9.0 release notes](docs/releases/v0.9.0.md).
+
 ## 0.8.0 — v0.8.0 · Omarchy's dictation key
 
 - Register Utterform as an Omarchy dictation backend when the Linux installer runs on Omarchy 4.5 or later. **Setup → Defaults → Dictation → Utterform** then binds Alt + Space to start and finish and Right Alt to push-to-talk. The installer adds one row to the user's Omarchy menu extension, with a backup, and three `omarchy-*-dictation-utterform` commands next to the launcher; `omarchy-remove-dictation-utterform` takes them away again.

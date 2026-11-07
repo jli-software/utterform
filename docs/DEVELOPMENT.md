@@ -4,7 +4,7 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Merge and release at once (Jonas, 2026-11-07; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged and tagged straight away for the full Linux/Windows/macOS release. Jonas tests the installed release afterwards; nothing waits for a preview. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
+- **Until 1.0: merge only, no previews, no releases (Jonas, 2026-11-07, after 0.8.0 was released; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged into `main` straight away. No `Desktop builds` preview, no tag, no release: Jonas tests everything once, at 1.0, and that is the next release. The installers, the README and the app version (`package.json`, `Cargo.toml`, `tauri.conf.json`) stay at the last real release, 0.8.0, which the release-metadata test requires; stage numbers such as 0.9.0 name roadmap stages and changelog entries only. 1.0 bumps everything at once. Style samples (mock-ups, images) and occasional questions still go to Jonas. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
 - *Superseded:* **Test one platform before release:** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
@@ -19,7 +19,24 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.8.0
+## Current handoff — 0.9.0 Settings from scratch
+
+Stage 0.9.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.9.0-settings`
+(worktree `~/git/utterform-settings` on `asus16`), rebased on main/v0.8.0.
+
+Jonas accepted the mock-up on 2026-11-07: search field on top, categories as tabs below,
+one row per setting. Built to the roadmap rules: no Save/Cancel, every change applies at
+once (text fields after 500 ms), minimal text with tooltips, technical details one level
+down. Design and code map in [ARCHITECTURE.md → Shared visual identity](ARCHITECTURE.md#shared-visual-identity).
+The "Context" category of the roadmap proposal is left out until 0.11.0 gives it rows;
+0.10.0 adds the Codex provider to the AI category. Reused from the rejected 0.7.14
+branch: vocabulary as chips, local model chosen in its list. Not its layout.
+
+Settings schema and backend are unchanged; existing preferences carry over. A Linux
+preview (run 42369624453) was built before the release rule changed and Jonas called it
+"super". Per the rule above it is merged into `main` without tag or release; it ships with 1.0.
+
+## Previous handoff — 0.8.0
 
 Stage 0.8.0 of [the roadmap](plans/v1.0-roadmap.md), branch
 `work/utterform-0.8.0-omarchy-dictation` (based on `plan/utterform-1.0`, so it also carries
@@ -372,9 +389,9 @@ Untested on real hardware other than Jonas's: the fix is platform-independent Ru
 
 **Vocabulary is one field feeding two engines.** GPT Transcribe takes it as `keywords[]`; local Whisper takes it joined as `initial_prompt`. The API refuses a keyword containing `<`, `>`, CR or LF and refuses the whole request with it, so the interface names a term it would drop and `usable_keywords` filters again before sending. `text_effort` becomes `reasoning.effort` and is sent only when chosen — Auto keeps 0.4.1 behaviour and cannot be rejected by a model that does not offer the level.
 
-**Settings is a tablist now** — General, Recording, AI & Models, Actions, Output. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
+**Settings is a tablist now** — since 0.9.0 Recording, Transcription, AI, Output, App. Tests reach a control by clicking its tab first; `showSettingsTab` in `src/App.test.ts` is the way in.
 
-**`gpt-transcribe` has no effort parameter.** Jonas asked for one alongside the vocabulary; the current API gives transcription `keywords`, `prompt` and `languages` and nothing else. Effort is `reasoning.effort` on the Responses call that runs Clean/Polish/Summarize/Prompt/Email, which is where it now sits — under **AI & Models → Text model**, not under the microphone. Do not move it back without re-reading the transcription reference.
+**`gpt-transcribe` has no effort parameter.** Jonas asked for one alongside the vocabulary; the current API gives transcription `keywords`, `prompt` and `languages` and nothing else. Effort is `reasoning.effort` on the Responses call that runs Clean/Polish/Summarize/Prompt/Email, which is where it now sits — under **AI → Text model**, not under the microphone. Do not move it back without re-reading the transcription reference.
 
 **[v0.4.2](https://github.com/jli-software/utterform/releases/tag/v0.4.2) is published and its assets independently verified** ([release run 34138984113](https://github.com/jli-software/utterform/actions/runs/34138984113), all three platforms, from `d1461a5`). This is the state to build on and debug from; the next session starts here.
 
