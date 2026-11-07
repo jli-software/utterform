@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.9.0 — Settings, found at once** rebuilds Settings: a search field, five categories, one row per setting, and every change applies at once — there is no Save button. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.9.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.9.0).
+> Utterform is under active development. **0.8.0 — Omarchy's dictation key** makes Utterform a dictation backend for Omarchy: choose it in Setup → Defaults → Dictation, then press Alt + Space or hold Right Alt. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.8.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.8.0). Settings were rebuilt on `main` since (search, no Save button) and ship with 1.0.
 
 ## How it works
 
@@ -49,7 +49,7 @@ whole flow.
 ## Download
 
 The current stable release is
-**[0.9.0 — Settings, found at once](https://github.com/jli-software/utterform/releases/tag/v0.9.0)**.
+**[0.8.0 — Omarchy's dictation key](https://github.com/jli-software/utterform/releases/tag/v0.8.0)**.
 
 | Platform | Download | Notes |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The current stable release is
 
 Verify downloads with
 [`SHA256SUMS.txt`](https://github.com/jli-software/utterform/releases/latest/download/SHA256SUMS.txt).
-See the [0.9.0 release notes](docs/releases/v0.9.0.md) for the current changes.
+See the [0.8.0 release notes](docs/releases/v0.8.0.md) for the current changes.
 
 ### Windows — one-line install or update
 

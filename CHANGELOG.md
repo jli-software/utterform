@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 — v0.9.0 · Settings, found at once
+## 0.9.0 · Settings, found at once (on `main`, ships with 1.0)
 
 - Rebuild Settings as one page: a search field that finds a setting in any category, five categories (Recording, Transcription, AI, Output, App) and one row per setting.
 - Remove Save and Cancel: every change applies at once, text fields after a short pause in typing, and closing Settings writes what is still waiting. A short "✓ Saved" confirms it; a failed write says so.

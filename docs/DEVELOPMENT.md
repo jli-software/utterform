@@ -4,7 +4,7 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Merge and release at once (Jonas, 2026-11-07; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged and tagged straight away for the full Linux/Windows/macOS release. Jonas tests the installed release afterwards; nothing waits for a preview. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
+- **Until 1.0: merge only, no previews, no releases (Jonas, 2026-11-07, after 0.8.0 was released; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged into `main` straight away. No `Desktop builds` preview, no tag, no release: Jonas tests everything once, at 1.0, and that is the next release. The installers and the README keep pointing at the last real release (0.8.0); `package.json` and friends carry the stage version. Style samples (mock-ups, images) and occasional questions still go to Jonas. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
 - *Superseded:* **Test one platform before release:** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
@@ -34,7 +34,7 @@ branch: vocabulary as chips, local model chosen in its list. Not its layout.
 
 Settings schema and backend are unchanged; existing preferences carry over. A Linux
 preview (run 42369624453) was built before the release rule changed and Jonas called it
-"super"; per the rule above it is released at once.
+"super". Per the rule above it is merged into `main` without tag or release; it ships with 1.0.
 
 ## Previous handoff — 0.8.0
 
