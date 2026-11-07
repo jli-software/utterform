@@ -4,7 +4,8 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Test one platform before release (supersedes the earlier automatic-release rule):** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
+- **Merge and release at once (Jonas, 2026-11-07; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged and tagged straight away for the full Linux/Windows/macOS release. Jonas tests the installed release afterwards; nothing waits for a preview. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
+- *Superseded:* **Test one platform before release:** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
 - GitHub Actions builds the downloadable binaries. Releases must include platform assets, not just source archives.
@@ -29,12 +30,12 @@ row in `~/.config/omarchy/extensions/omarchy-menu.jsonc`. `App.svelte` keeps a `
 arrives while a recording is starting. Design in [ARCHITECTURE.md → Global
 dictation](ARCHITECTURE.md#global-dictation), validation in [TESTING.md](TESTING.md).
 
-The preview has to go through the installer, because the integration is what it installs.
-From the extracted `Desktop builds` Linux artifact:
+Released directly as 0.8.0; the Linux preview build 42369068585 (`5aee9d1`) passed its package
+checks. To test a branch build of the integration, go through its installer, from the
+extracted `Desktop builds` Linux artifact:
 `UTTERFORM_VERSION=preview UTTERFORM_RELEASE_BASE_URL="file://$PWD" sh install-linux.sh`.
-That replaces the installed Utterform with the preview; rerunning the stable one-liner
-goes back. Acceptance on `asus16`: Utterform in Setup → Defaults → Dictation, Alt + Space,
-Right Alt held, Super + D still working.
+Still to be checked on `asus16` after the release: Utterform in Setup → Defaults → Dictation,
+Alt + Space, Right Alt held (also briefly), Super + D still working.
 
 ## Previous handoff — 0.7.12
 
