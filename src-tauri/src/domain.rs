@@ -181,6 +181,27 @@ pub struct AppSettings {
     pub context_selection: bool,
     /// The Context action may read the clipboard when nothing is selected.
     pub context_clipboard: bool,
+    /// The action a dictation key press takes in a given application. Empty
+    /// means the action chosen in the window applies everywhere.
+    pub app_actions: Vec<AppAction>,
+    /// The applications dictated into lately, newest first, to choose from
+    /// when adding one of the above. Kept on this device only.
+    pub recent_apps: Vec<KnownApp>,
+}
+
+/// An application as Settings knows it: the id rules match, and its name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KnownApp {
+    pub id: String,
+    pub name: String,
+}
+
+/// "In this application, take this action." `action` is a built-in id or
+/// `custom:<id>`; a rule whose action no longer exists is ignored.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppAction {
+    pub app: KnownApp,
+    pub action: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +240,8 @@ impl Default for AppSettings {
             global_hotkey: Some(crate::hotkey::DEFAULT.to_string()),
             context_selection: true,
             context_clipboard: true,
+            app_actions: Vec::new(),
+            recent_apps: Vec::new(),
         }
     }
 }

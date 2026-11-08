@@ -22,8 +22,9 @@ describe("the settings catalog", () => {
     expect([...visibleRows("app", "selected")]).toEqual(["context-selection"]);
   });
 
-  it("gives the Context action's sources a category of their own", () => {
-    expect([...visibleRows("context", "")]).toEqual(["context-selection", "context-clipboard"]);
+  it("gives the Context action's sources and the actions per app a category of their own", () => {
+    expect([...visibleRows("context", "")]).toEqual(["context-selection", "context-clipboard", "app-actions"]);
+    expect([...visibleRows("app", "per app")]).toEqual(["app-actions"]);
     expect([...visibleRows("app", "topic")]).toEqual(["context"]);
   });
 

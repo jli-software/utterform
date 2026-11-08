@@ -10,6 +10,28 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.12.0 Action per application
+
+Unit tests in `foreground.rs`: display names from classes and program names, Utterform's
+own process is never the answer, the compositor before X11 (none on GNOME/KDE Wayland),
+the Hyprland answer (class, `initialClass`, an empty object), the focused Sway leaf also
+among floating windows, and `xprop` output. `settings.rs`: a file without the new fields
+gets none, rules and recent apps survive a reload. `lib/app-actions.test.ts`: matching by
+id or typed name, a removed action ignored, recent apps newest first and capped, one rule
+per app. `App.test.ts`: the key in a ruled app starts and finishes with the rule's custom
+action and prompt, announces it and remembers the app; the window's own button asks
+nothing and keeps Plain. Playwright: the rule taking over and handing back the window's
+action, the notification only when it differs, recent apps saved; adding from the recent
+list, choosing the action, typing a name, removing, all saved at once, at 920×720.
+
+Live on `asus16` (Hyprland), through
+`dbus-run-session -- cargo test print_the_application_in_front -- --ignored --nocapture`:
+the focused Herdr window was named `herdr-app`, supported, in a few milliseconds.
+
+Not exercised, to check at 1.0: the installed app with a rule (Thunderbird → Email via
+Alt+Space, the notification), Sway and X11, the foreground program on Windows and the
+frontmost app on macOS.
+
 ## 0.13.0 Audio files
 
 Unit tests in `audio_file.rs`: the resampler (48 kHz averaged by three, odd ratios keep the

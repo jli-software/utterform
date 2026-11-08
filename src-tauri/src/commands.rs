@@ -446,6 +446,51 @@ pub fn context_support() -> context::Support {
 }
 
 #[tauri::command]
+pub fn foreground_support() -> crate::foreground::Support {
+    crate::foreground::support()
+}
+
+/// The application in front as the dictation key is pressed. Off the main
+/// thread: the compositor is asked, and a slow answer must not freeze the
+/// window.
+#[tauri::command]
+pub async fn foreground_app() -> Option<crate::foreground::ForegroundApp> {
+    let began = Instant::now();
+    let app = tauri::async_runtime::spawn_blocking(crate::foreground::current)
+        .await
+        .ok()
+        .flatten();
+    // Whether an app was named and how long it took — never which one.
+    diagnostics::info!(
+        "foreground.read",
+        source = crate::foreground::source(),
+        found = app.is_some(),
+        elapsed_ms = began.elapsed().as_millis() as u64
+    );
+    app
+}
+
+/// Say that an application's own action is taking this dictation, so an
+/// email where plain text was expected never comes as a surprise. Only the
+/// action is logged, never the application.
+#[tauri::command]
+pub fn announce_app_action(app: AppHandle, action: String, action_name: String, app_name: String) {
+    diagnostics::info!(
+        "recording.app_action",
+        action = actions::diagnostic_id(&action)
+    );
+    let shown = app
+        .notification()
+        .builder()
+        .title(format!("Utterform · {}", action_name.trim()))
+        .body(format!("for {}", app_name.trim()))
+        .show();
+    if shown.is_err() {
+        diagnostics::warning!("recording.app_action_notification_failed");
+    }
+}
+
+#[tauri::command]
 pub fn set_recording_paused(
     state: State<'_, AudioCaptureState>,
     paused: bool,

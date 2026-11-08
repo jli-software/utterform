@@ -164,6 +164,29 @@ mod tests {
             settings.global_hotkey.as_deref(),
             Some(crate::hotkey::DEFAULT)
         );
+        assert!(
+            settings.app_actions.is_empty(),
+            "no application takes its own action until one is chosen"
+        );
+        assert!(settings.recent_apps.is_empty());
+    }
+
+    #[test]
+    fn an_action_per_application_survives_a_save_and_a_reload() {
+        let mut settings = AppSettings::default();
+        let thunderbird = crate::domain::KnownApp {
+            id: "thunderbird".into(),
+            name: "Thunderbird".into(),
+        };
+        settings.app_actions.push(crate::domain::AppAction {
+            app: thunderbird.clone(),
+            action: "email".into(),
+        });
+        settings.recent_apps.push(thunderbird);
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(restored.app_actions, settings.app_actions);
+        assert_eq!(restored.recent_apps, settings.recent_apps);
     }
 
     #[test]

@@ -59,6 +59,29 @@ export interface AppSettings {
   context_selection: boolean;
   /// The Context action may read the clipboard when nothing is selected.
   context_clipboard: boolean;
+  /// The action a dictation key press takes in a given application.
+  app_actions: AppAction[];
+  /// Applications dictated into lately, newest first. Kept on this device.
+  recent_apps: KnownApp[];
+}
+
+/// An application as the platform names it: `id` is what rules match (class,
+/// program file, bundle id), `name` what Settings shows.
+export interface KnownApp {
+  id: string;
+  name: string;
+}
+
+/// `action` is a built-in id or `custom:<id>`.
+export interface AppAction {
+  app: KnownApp;
+  action: string;
+}
+
+/// Whether this desktop says which application is in front.
+export interface ForegroundSupport {
+  supported: boolean;
+  explanation: string;
 }
 
 /// What this session allows for a system-wide dictation key.
@@ -178,6 +201,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   global_hotkey: "Ctrl+Alt+D",
   context_selection: true,
   context_clipboard: true,
+  app_actions: [],
+  recent_apps: [],
 };
 
 /// The actions to show until the backend answers with the shipped prompts, and

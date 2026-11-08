@@ -19,7 +19,20 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.11.0 Context: selected text and clipboard
+## Current handoff — 0.12.0 Action per application
+
+Stage 0.12.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.12.0-per-app`.
+Jonas decided to build it small and accepted the mock-up: **Settings → Context → Per app**,
+empty by default; **+ App** offers the apps dictated into lately (`settings.recent_apps`) or
+a typed name; a rule applies only when the dictation key starts the recording; a
+notification names the action and app only when a rule changes the action. `foreground.rs`
+names the app in front (Hyprland, Sway, X11, Windows, macOS; none on GNOME/KDE Wayland),
+`lib/app-actions.ts` matches the rule. Design in
+[ARCHITECTURE.md → Action per application](ARCHITECTURE.md#action-per-application-0120),
+validation in [TESTING.md](TESTING.md). Merged into `main` without tag or release; ships
+with 1.0. Next stage: 0.14.0 first-run assistant.
+
+## Previous handoff — 0.11.0 Context: selected text and clipboard
 
 Stage 0.11.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.11.0-context`.
 A new built-in action **Context**: the transcript is the instruction, the selected text

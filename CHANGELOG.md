@@ -9,6 +9,17 @@
 - Offer Utterform in "Open with" on Linux, Windows and macOS without becoming the default player for any audio type.
 
 See [0.13.0 release notes](docs/releases/v0.13.0.md).
+
+## 0.12.0 · The right action in every app (on `main`, ships with 1.0)
+
+- Add **Settings → Context → Per app**: give an application its own action — Email in Thunderbird, Plain in the terminal. Pressing the dictation key there takes that action for this one dictation; everywhere else the action chosen in the window applies. The list starts empty, so nothing changes until you add an app.
+- Add an app with **+ App**, which lists the apps you dictated into lately, or type its name. Each app has its action menu and × to remove it.
+- Say when an app's action takes over: a short notification "Utterform · Email — for Thunderbird", and the window shows the action with the app's name while it records. A recording started from Utterform's own window, and live dictation, never follow an app's action.
+- Know the app in front on Linux under Hyprland and Sway (and X11 through `xprop`), on Windows and on macOS. GNOME and KDE on Wayland do not tell applications which window is focused; there the row says so.
+- The app names are kept in `settings.json` on this device. The diagnostic log records only that an app was found and which action ran, never the app.
+
+See [0.12.0 release notes](docs/releases/v0.12.0.md).
+
 ## 0.11.0 · Say what to do with the selected text (on `main`, ships with 1.0)
 
 - Add the **Context** action. Select an email, start dictating with Context, say "reply that Monday at ten works", and the reply arrives at the cursor. What you say is the instruction; the selected text is the material. The material is treated as data, so an instruction hidden in it is not followed.

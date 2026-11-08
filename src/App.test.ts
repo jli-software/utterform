@@ -31,6 +31,8 @@ vi.mock("./lib/api", () => ({ api: {
   listBuiltInActions: vi.fn(),
   liveSupport: vi.fn(), getLiveStatus: vi.fn(), typingSupport: vi.fn(async () => ({ supported: true, explanation: "" })),
   contextSupport: vi.fn(async () => ({ selection: true, explanation: "" })),
+  foregroundSupport: vi.fn(async () => ({ supported: true, explanation: "" })),
+  foregroundApp: vi.fn(async () => null), announceAppAction: vi.fn(async () => {}),
   hasOpenAiApiKey: vi.fn(async () => true), codexStatus: vi.fn(), openCodexSetup: vi.fn(async () => {}), listHistory: vi.fn(), saveSettings: vi.fn(),
   globalHotkeySupport: vi.fn(async () => ({ supported: true, default: "Ctrl+Alt+D", explanation: "", failure: null })),
   applyGlobalHotkey: vi.fn(),
@@ -367,6 +369,34 @@ describe("dictation hotkey", () => {
     await remoteIntent("cancel");
     expect(api.finishRecording).not.toHaveBeenCalled();
     expect(api.cancelRecording).not.toHaveBeenCalled();
+  });
+
+  it("takes the action chosen for the app in front, with its prompt, and only from the key", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({
+      ...structuredClone(DEFAULT_SETTINGS),
+      custom_actions: [{ id: "a", name: "Notes", prompt: "Bullets only" }],
+      app_actions: [{ app: { id: "thunderbird", name: "Thunderbird" }, action: "custom:a" }],
+    });
+    vi.mocked(api.foregroundApp).mockResolvedValue({ id: "thunderbird", name: "Thunderbird" });
+    vi.mocked(api.finishRecording).mockResolvedValue({ historyEntry: null, text: "- Bullet", savedPath: null,
+      copiedToClipboard: true, typedAtCursor: false, deliveryWarnings: [], durationMs: 900, engine: "open_ai" });
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledWith(null, "open_ai", "base", "custom"));
+    expect(api.announceAppAction).toHaveBeenCalledWith("custom", "Notes", "Thunderbird");
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.finishRecording).toHaveBeenCalledWith(expect.objectContaining({ action: "custom", customPrompt: "Bullets only" })));
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].recent_apps).toEqual([{ id: "thunderbird", name: "Thunderbird" }]);
+
+    // From the window itself the window's own action applies; nothing is asked.
+    await waitFor(() => expect(view.queryByRole("button", { name: "Start recording" })).not.toBeNull());
+    await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.startRecording).mock.calls[1][3]).toBe("plain");
+    expect(api.foregroundApp).toHaveBeenCalledOnce();
+    expect(api.announceAppAction).toHaveBeenCalledOnce();
   });
 
   it("records straight away when the hotkey had to start the app first", async () => {
@@ -1400,7 +1430,8 @@ describe("the ready boundary after processing", () => {
     listeners.get("remote-intent")!({ payload: "start" });
     await fireEvent.keyDown(window, { code: "Space" });
     await fireEvent.click(view.getByRole("button", { name: "Start recording" }));
-    expect(api.startRecording).toHaveBeenCalledTimes(2);
+    // The key press first asks which app is in front; the start follows.
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledTimes(2));
     started();
     await waitFor(() => expect(view.queryByRole("button", { name: "Stop recording" })).not.toBeNull());
     expect(api.startRecording).toHaveBeenCalledTimes(2);

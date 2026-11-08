@@ -21,6 +21,8 @@ import type {
   RemoteIntent,
   TypingSupport,
   ContextSupport,
+  ForegroundSupport,
+  KnownApp,
 } from "./types";
 
 export const api = {
@@ -29,6 +31,12 @@ export const api = {
   // grant before the first delivery has to fail over it.
   typingSupport: () => invoke<TypingSupport>("typing_support"),
   contextSupport: () => invoke<ContextSupport>("context_support"),
+  foregroundSupport: () => invoke<ForegroundSupport>("foreground_support"),
+  // The application in front as the dictation key is pressed; `null` for
+  // Utterform itself or a desktop that does not say.
+  foregroundApp: () => invoke<KnownApp | null>("foreground_app"),
+  announceAppAction: (action: string, actionName: string, appName: string) =>
+    invoke<void>("announce_app_action", { action, actionName, appName }),
   getLiveStatus: () => invoke<LiveStatus | null>("get_live_status"),
   // Delivered once: the intent Utterform was launched with, for a hotkey that
   // had to start the app first.

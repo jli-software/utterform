@@ -29,6 +29,9 @@ test.beforeEach(async ({ page }) => {
       __emitRemoteIntent: (intent: string) => callbacks.get(eventHandlers.get("remote-intent") ?? -1)?.({ payload: intent }),
       __emit: (event: string, payload: unknown) => callbacks.get(eventHandlers.get(event) ?? -1)?.({ payload }),
       __transcribedFiles: [] as unknown[],
+      __startedActions: [] as unknown[],
+      __finishRequests: [] as unknown[],
+      __announced: [] as unknown[],
       __finishCount: 0,
       __savedSettings: null,
       __appliedHotkey: undefined,
@@ -65,7 +68,11 @@ test.beforeEach(async ({ page }) => {
               { id: "context", name: "Context", hint: "Apply your words to the selected text", prompt: "Carry out the spoken instruction on the material. Return only the resulting text." },
             ];
             case "context_support": return Reflect.get(window, "__contextSupport") ?? { selection: true, explanation: "" };
-            case "get_settings": return settings;
+            case "foreground_support": return { supported: true, explanation: "" };
+            // The application in front when the dictation key is pressed.
+            case "foreground_app": return Reflect.get(window, "__foreground") ?? null;
+            case "announce_app_action": (Reflect.get(window, "__announced") as unknown[]).push(args); return;
+            case "get_settings": return Reflect.get(window, "__settings") ?? settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
             case "has_openai_api_key": return true;
             case "codex_status": return { signedIn: !Reflect.get(window, "__codexSignedOut"), models: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol" }, { id: "gpt-6-luna", name: "GPT-6-Luna" }], defaultModel: "gpt-6-luna" };
@@ -80,14 +87,14 @@ test.beforeEach(async ({ page }) => {
             case "list_history": return history;
             case "clear_history": history = []; return;
             case "copy_text": Object.assign(window, { __copiedText: args.text }); return;
-            case "start_recording": started = Date.now(); pausedAt = 0; pausedMs = 0; return;
+            case "start_recording": (Reflect.get(window, "__startedActions") as unknown[]).push(args.action); started = Date.now(); pausedAt = 0; pausedMs = 0; return;
             case "set_recording_paused":
               if (args.paused && !pausedAt) pausedAt = Date.now();
               else if (!args.paused && pausedAt) { pausedMs += Date.now() - pausedAt; pausedAt = 0; }
               return recordingStatus();
             case "cancel_recording": started = 0; pausedAt = 0; return;
             case "get_recording_status": return recordingStatus();
-            case "finish_recording": started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
+            case "finish_recording": (Reflect.get(window, "__finishRequests") as unknown[]).push(args.request); started = 0; Object.assign(window, { __finishCount: Reflect.get(window, "__finishCount") + 1 }); return { ...latest, historyEntry: latest, savedPath: null, copiedToClipboard: true, deliveryWarnings: [] };
             case "retained_recording": return Reflect.get(window, "__retained") ?? null;
             case "take_pending_file": return null;
             case "transcribe_file": {
@@ -947,4 +954,70 @@ test("without a way to read the selection, Context says what to do and keeps the
   await page.mouse.move(0, 0);
   await page.waitForTimeout(300);
   await page.screenshot({ path: testInfo.outputPath("context-elsewhere.png") });
+});
+
+test("the dictation key takes the action chosen for the app in front, and says so", async ({ page }, testInfo) => {
+  await page.addInitScript((settings) => Object.assign(window, {
+    __settings: settings,
+    __foreground: { id: "org.mozilla.Thunderbird", name: "Thunderbird" },
+  }), { ...DEFAULT_SETTINGS, theme: "dark", app_actions: [{ app: { id: "org.mozilla.Thunderbird", name: "Thunderbird" }, action: "email" }] });
+  await page.goto("/");
+  await expect(page.getByRole("combobox", { name: "Action" })).toContainText("Plain");
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+  await expect(page.getByRole("button", { name: "Pause recording" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Action" })).toContainText("Email");
+  await expect(page.locator(".action-control .control-label")).toHaveText("Action · Thunderbird");
+  await page.screenshot({ path: testInfo.outputPath("app-action-recording.png") });
+  expect(await page.evaluate(() => Reflect.get(window, "__startedActions"))).toEqual(["email"]);
+  expect(await page.evaluate(() => Reflect.get(window, "__announced"))).toEqual([{ action: "email", actionName: "Email", appName: "Thunderbird" }]);
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+  await expect(page.locator(".copy-button")).toContainText("Copied");
+  expect(await page.evaluate(() => (Reflect.get(window, "__finishRequests") as Array<{ action: string }>).map((request) => request.action))).toEqual(["email"]);
+  // Over: the window's own choice is back.
+  await expect(page.getByRole("combobox", { name: "Action" })).toContainText("Plain");
+  await expect(page.locator(".action-control .control-label")).toHaveText("Action");
+
+  // Elsewhere, and from the window itself, the window's action applies, quietly.
+  await page.evaluate(() => Object.assign(window, { __foreground: { id: "chromium", name: "Chromium" } }));
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+  await expect(page.getByRole("button", { name: "Pause recording" })).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+  await expect(page.locator(".copy-button")).toContainText("Copied");
+  expect(await page.evaluate(() => Reflect.get(window, "__startedActions"))).toEqual(["email", "plain"]);
+  expect(await page.evaluate(() => (Reflect.get(window, "__announced") as unknown[]).length)).toBe(1);
+  const recent = await page.evaluate(() => (Reflect.get(window, "__savedSettings") as { recent_apps: Array<{ name: string }> }).recent_apps.map((app) => app.name));
+  expect(recent).toEqual(["Chromium", "Thunderbird"]);
+});
+
+test("an app dictated into is added in Settings with its own action, at once", async ({ page }, testInfo) => {
+  await page.addInitScript((settings) => Object.assign(window, { __settings: settings }), {
+    ...DEFAULT_SETTINGS, theme: "dark",
+    recent_apps: [{ id: "org.mozilla.Thunderbird", name: "Thunderbird" }, { id: "com.mitchellh.ghostty", name: "Ghostty" }],
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("tab", { name: "Context", exact: true }).click();
+  const saved = () => page.evaluate(() => (Reflect.get(window, "__savedSettings") as { app_actions?: unknown } | null)?.app_actions);
+  await page.getByRole("button", { name: "+ App" }).click();
+  await expect(page.getByRole("group", { name: "Add an app" })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300); // The menu has settled.
+  await page.screenshot({ path: testInfo.outputPath("app-actions-add.png") });
+  await page.getByRole("button", { name: "Thunderbird" }).click();
+  await expect.poll(saved).toEqual([{ app: { id: "org.mozilla.Thunderbird", name: "Thunderbird" }, action: "plain" }]);
+  await page.getByRole("combobox", { name: "Action in Thunderbird" }).click();
+  await page.getByRole("option", { name: /Email/ }).click();
+  await expect.poll(saved).toEqual([{ app: { id: "org.mozilla.Thunderbird", name: "Thunderbird" }, action: "email" }]);
+  // One already chosen is not offered again; a name can be typed instead.
+  await page.getByRole("button", { name: "+ App" }).click();
+  await expect(page.getByRole("group", { name: "Add an app" }).getByRole("button", { name: "Thunderbird" })).toHaveCount(0);
+  await page.getByRole("textbox", { name: "App name" }).fill("Obsidian");
+  await page.getByRole("textbox", { name: "App name" }).press("Enter");
+  await expect.poll(saved).toHaveLength(2);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("app-actions.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "Remove Thunderbird" }).click();
+  await expect.poll(saved).toEqual([{ app: { id: "Obsidian", name: "Obsidian" }, action: "plain" }]);
 });

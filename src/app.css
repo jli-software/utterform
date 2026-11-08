@@ -317,3 +317,17 @@ button:focus-visible, .transcript:focus-visible { outline:2px solid var(--accent
 /* A dropdown inside a settings row is as tall as the other row controls. */
 .setting-row .select-trigger { min-height:34px; padding:6px 10px; }
 .setting-row .select-options { left:auto; right:0; }
+/* Actions per application: one line per app, its action, and remove. */
+.app-actions-row .row-label { align-self:flex-start; padding-top:8px; }
+.app-actions { flex:1; display:flex; flex-direction:column; align-items:flex-end; gap:8px; min-width:0; }
+.app-action { display:flex; align-items:center; justify-content:flex-end; gap:8px; max-width:100%; }
+.app-name { min-width:0; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; text-align:right; }
+.app-action .select-menu { width:150px; flex-shrink:0; }
+.app-remove { width:24px; height:24px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--muted); line-height:1; }
+.app-remove:hover { background:var(--accent-soft); color:var(--text); }
+.app-add { position:relative; }
+.app-add-button { border-style:dashed; color:var(--muted); }
+.app-add-button[aria-expanded="true"] { border-style:solid; color:var(--text); }
+.app-picker { left:auto; right:0; width:240px; }
+.app-picker-head { display:block; padding:6px 10px 4px; color:var(--muted); font:10px ui-monospace,monospace; text-transform:uppercase; letter-spacing:.1em; }
+.app-picker-input { width:100%; min-height:36px; margin-top:4px; font-size:12px; }
