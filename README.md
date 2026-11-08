@@ -102,7 +102,7 @@ and the matching rows from every category appear, ready to change right there.
 | Recording | Microphone, shortcut, sounds |
 | Transcription | Engine (Cloud, Live, Local), OpenAI key, language, vocabulary, topic, local model |
 | AI | Actions (built-in and your own prompts), provider (OpenAI key or ChatGPT), text model and thinking effort |
-| Context | What the Context action may read: selection, clipboard |
+| Context | What the Context action may read: selection, clipboard; an action per app |
 | Output | Typing method, keystroke delay, file folder, history |
 | App | Theme, start at login, diagnostics |
 
@@ -283,6 +283,19 @@ Only the Context action reads the selection or the clipboard, never plain dictat
 another action. On Linux the primary selection is whatever you selected last, even in
 another window, so check what is selected before you use Context for something private.
 
+## An action per app
+
+Under **Settings → Context → Per app** an app can have its own action: *Email* in
+Thunderbird, *Plain* in the terminal. The dictation key then takes that action in that
+app; everywhere else the action chosen in the window applies. **+ App** lists the apps
+you dictated into lately, or type a name. When an app's action takes over, a short
+notification says which, and the window shows it while recording. A recording started
+from Utterform's own window, and live dictation, never follow an app's action.
+
+Utterform knows the app in front on Linux under Hyprland, Sway and X11 (`xprop`), on
+Windows and on macOS. GNOME and KDE on Wayland do not say which window is focused, so
+there the feature stays off.
+
 ## Vocabulary
 
 Names, products and spellings a model would otherwise guess at go under **Settings → Transcription → Vocabulary**, one word at a time: type it and press Enter, remove it with ×. A pasted list keeps its lines. Write *Careum* there and it stops coming back as *Kareum*.
@@ -306,6 +319,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - Offline transcription through `whisper.cpp`, built for every supported desktop rather than for the machine that compiled it
 - One-click, SHA-256-verified downloads for Tiny, Base, and Small multilingual models
 - Plain, Clean, Polish, Summarize, Prompt, Email, and user-defined actions — every shipped prompt can be rewritten
+- An action per app for the dictation key: Email in the mail client, Plain in the terminal
 - A vocabulary of your own terms, and a reasoning effort for the text step
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback
@@ -349,6 +363,7 @@ Global dictation is separate from these: see [Dictate from anywhere](#dictate-fr
 - **Local Whisper + Plain:** audio and text stay on the device.
 - **Local Whisper + transformed action:** audio stays local; transcribed text is sent to OpenAI.
 - **Context action:** the selected or copied text (up to 20,000 characters) is sent to the text model with your instruction. No other action reads the selection or the clipboard.
+- **Action per app:** the names of up to eight apps you dictated into are kept in `settings.json` on this device, to choose from in Settings. They are not logged.
 - Temporary recordings are deleted after processing or cancellation.
 - The OpenAI API key is never written to `settings.json`; it is stored through the native OS keyring.
 - The last 100 completed texts are stored unencrypted on this device in `history.json`, including clipboard-only output. Titles are generated locally, without an AI call. Disable future storage or clear existing history in Settings; exported files and clipboard contents are not cleared.

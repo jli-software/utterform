@@ -9,6 +9,7 @@ mod context;
 mod diagnostics;
 mod domain;
 mod feedback;
+mod foreground;
 mod history;
 mod hotkey;
 mod live;
@@ -304,6 +305,9 @@ pub fn run() {
             commands::list_built_in_actions,
             commands::typing_support,
             commands::context_support,
+            commands::foreground_support,
+            commands::foreground_app,
+            commands::announce_app_action,
             commands::get_settings,
             commands::save_settings,
             commands::list_input_devices,

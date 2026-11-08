@@ -28,6 +28,8 @@
     LiveSupport,
     TypingSupport,
     ContextSupport,
+    ForegroundSupport,
+    KnownApp,
     ProcessResult,
     RemoteIntent,
     TextEffort,
@@ -44,6 +46,7 @@
   import { modalFocus } from "./lib/modal-focus";
   import ChipInput from "./lib/ChipInput.svelte";
   import { SETTINGS_CATEGORIES, categoryLabel, visibleRows } from "./lib/settings-catalog";
+  import { actionFor, addable, rememberApp, removeRule, setRule, typedApp } from "./lib/app-actions";
   import type { SettingsCategory, SettingsRowId } from "./lib/settings-catalog";
   import { copiedSummary, createFailureReporter } from "./lib/diagnostics";
 
@@ -135,6 +138,12 @@
   let liveSupport: LiveSupport = { supported: false, explanation: "Live dictation requires the Windows or Omarchy desktop app." };
   let typingSupport: TypingSupport = { supported: true, explanation: "" };
   let contextSupport: ContextSupport = { selection: true, explanation: "" };
+  let foregroundSupport: ForegroundSupport = { supported: false, explanation: "" };
+  /// The action an application's rule chose for the recording under way, shown
+  /// in place of the window's own choice until the recording is over.
+  let appAction: { action: string; app: KnownApp } | null = null;
+  let addingApp = false;
+  let typedAppName = "";
   let liveStatusError = "";
   let liveFailurePending = false;
   let polling = false;
@@ -208,7 +217,7 @@
     { value: "gpt_live_transcribe", label: "GPT Live Transcribe", hint: "Live at cursor · Windows and Omarchy" },
     { value: "local_whisper", label: "Local Whisper", hint: localModelHint },
   ];
-  $: effectiveAction = liveMode ? "plain" : selectedAction;
+  $: effectiveAction = liveMode ? "plain" : appAction?.action ?? selectedAction;
   $: liveStartHint = !liveSupport.supported ? liveSupport.explanation
     : hotkeySupport.supported && settings.global_hotkey && !hotkeyMessage
       ? `Place the cursor in your text field, then press ${settings.global_hotkey} to start and finish live dictation.`
@@ -286,7 +295,7 @@
       return;
     }
     try {
-      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport, typingSupport, contextSupport] = await Promise.all([
+      [settings, devices, models, hasApiKey, hotkeySupport, builtInActions, liveSupport, typingSupport, contextSupport, foregroundSupport] = await Promise.all([
         api.getSettings(),
         api.listInputDevices(),
         api.listLocalModels(),
@@ -296,6 +305,7 @@
         api.liveSupport().catch(() => ({ supported: false, explanation: "Live dictation support could not be checked. Restart Utterform to try again." })),
         api.typingSupport().catch(() => ({ supported: true, explanation: "" })),
         api.contextSupport().catch(() => ({ selection: false, explanation: "Could not be checked." })),
+        api.foregroundSupport().catch(() => ({ supported: false, explanation: "Could not be checked." })),
       ]);
       settings = { ...DEFAULT_SETTINGS, ...settings, cloud_model: settings.cloud_model ?? "gpt_transcribe" };
       applyTheme(settings.theme);
@@ -621,6 +631,8 @@
       stopRequested = false;
       phase = "starting";
       message = liveMode ? "Connecting GPT Live Transcribe…" : "Preparing the microphone…";
+      // A dictation key press: the application in front may have its own action.
+      appAction = fromTarget ? await readForegroundApp() : null;
       // After `phase` is set, so a second press meanwhile is turned away; a
       // transcription choice still being written settles before this
       // recording is configured from it.
@@ -634,6 +646,10 @@
         settings.local_model_id,
         effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
       );
+      if (appAction) {
+        const label = actionOptions.find((option) => option.value === appAction?.action)?.label ?? appAction.action;
+        void api.announceAppAction(appAction.action.startsWith("custom:") ? "custom" : appAction.action, label, appAction.app.name).catch(() => {});
+      }
       elapsedSeconds = 0;
       phase = "recording";
       message = "";
@@ -651,6 +667,20 @@
       stopRequested = false;
       setError(error);
     }
+  }
+
+  /// Remember the application for Settings' "+ App", and take its action when
+  /// a rule names one other than the window's. Live dictation stays Plain.
+  async function readForegroundApp(): Promise<{ action: string; app: KnownApp } | null> {
+    if (!foregroundSupport.supported) return null;
+    const app = await api.foregroundApp().catch(() => null);
+    if (!app) return null;
+    const recent = rememberApp(settings.recent_apps, app);
+    // Written by the settings save that follows in startRecording.
+    if (JSON.stringify(recent) !== JSON.stringify(settings.recent_apps)) settings = { ...settings, recent_apps: recent };
+    if (liveMode) return null;
+    const rule = actionFor(settings.app_actions, app, (action) => actionOptions.some((option) => option.value === action));
+    return rule && rule.action !== selectedAction ? { action: rule.action, app: rule.app } : null;
   }
 
   function handleVisibilityChange() {
@@ -695,7 +725,7 @@
       const finished = await api.finishRecording({
         action: effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
         customPrompt: effectiveAction.startsWith("custom:")
-          ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
+          ? settings.custom_actions.find((action) => `custom:${action.id}` === effectiveAction)?.prompt ?? null
           : null,
         copyToClipboard: settings.copy_to_clipboard,
         saveToFile: settings.save_to_file,
@@ -726,7 +756,7 @@
       showResult(await api.transcribeFile(path, source, {
         action: effectiveAction.startsWith("custom:") ? "custom" : effectiveAction,
         customPrompt: effectiveAction.startsWith("custom:")
-          ? settings.custom_actions.find((action) => `custom:${action.id}` === selectedAction)?.prompt ?? null
+          ? settings.custom_actions.find((action) => `custom:${action.id}` === effectiveAction)?.prompt ?? null
           : null,
         copyToClipboard: true,
         saveToFile: settings.save_to_file,
@@ -788,6 +818,7 @@
   }
 
   function showResult(value: ProcessResult) {
+    appAction = null;
     result = value;
     now = Date.now();
     resultTimestamp = now;
@@ -844,6 +875,7 @@
     if ((phase !== "recording" && phase !== "paused") || changingPause) return;
     stopTimer();
     phase = "starting";
+    appAction = null;
     try {
       await api.cancelRecording();
       if (liveMode) await recoverLiveText();
@@ -879,6 +911,7 @@
   }
 
   function setError(error: unknown) {
+    appAction = null;
     stopTimer();
     phase = "error";
     message = error instanceof Error ? error.message : String(error);
@@ -1333,8 +1366,18 @@
     }, TYPING_SAVE_DELAY_MS);
   }
 
+  /// A new rule starts as Plain; its menu sits right next to it.
+  function addApp(app: KnownApp) {
+    change({ app_actions: setRule(settings.app_actions, app, "plain") });
+    addingApp = false;
+    typedAppName = "";
+  }
+
   function removeCustomAction(id: string) {
-    change({ custom_actions: settings.custom_actions.filter((action) => action.id !== id) });
+    change({
+      custom_actions: settings.custom_actions.filter((action) => action.id !== id),
+      app_actions: settings.app_actions.filter((rule) => rule.action !== `custom:${id}`),
+    });
     if (selectedAction === `custom:${id}`) selectedAction = "plain";
     if (selectedPrompt === `custom:${id}`) selectPrompt(firstEditablePrompt());
     settingsDetail = "";
@@ -1360,8 +1403,9 @@
 
   <section class="controls" aria-label="Transcription settings">
     <div class="action-control">
-      <span class="control-label">Action</span>
+      <span class="control-label">Action{#if appAction}{` · ${appAction.app.name}`}{/if}</span>
       {#if liveMode}<div class="engine-chip">Plain</div>
+      {:else if appAction}<SelectMenu id="action" label="Action" value={appAction.action} options={actionOptions} disabled />
       {:else}<SelectMenu id="action" label="Action" bind:value={selectedAction} options={actionOptions} disabled={controlsLocked} />{/if}
     </div>
     <div class="engine-control" title={settings.engine === "open_ai" ? "Audio is sent to OpenAI" : "Audio stays on this device"}><span class="control-label">Transcription</span>
@@ -1707,6 +1751,38 @@
             <input type="checkbox" role="switch" class="switch" aria-label="Read the clipboard" checked={settings.context_clipboard}
               onchange={(event) => change({ context_clipboard: event.currentTarget.checked })} />
           </div>
+        </div>
+      {/if}
+
+      {#if shownRows.has("app-actions")}
+        <div class="setting-row app-actions-row" title="The dictation key takes this action in these apps. Everywhere else the action in the window applies.">{@render rowHead("app-actions", "Per app")}
+          <div class="app-actions">
+            {#each settings.app_actions as rule, index (rule.app.id)}
+              <div class="app-action">
+                <span class="app-name" title={rule.app.id}>{rule.app.name}</span>
+                <SelectMenu id={`app-action-${index}`} label={`Action in ${rule.app.name}`} compact value={rule.action} options={actionOptions}
+                  onchange={(action) => change({ app_actions: setRule(settings.app_actions, rule.app, action) })} />
+                <button class="app-remove" aria-label={`Remove ${rule.app.name}`} onclick={() => change({ app_actions: removeRule(settings.app_actions, rule.app) })}>×</button>
+              </div>
+            {/each}
+            <div class="app-add">
+              <button class="action-chip app-add-button" aria-expanded={addingApp} disabled={!foregroundSupport.supported}
+                onclick={() => { addingApp = !addingApp; typedAppName = ""; }}>+ App</button>
+              {#if addingApp}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -- Escape from any of its buttons closes the picker, not Settings. -->
+                <div class="select-options app-picker" role="group" aria-label="Add an app"
+                  onkeydown={(event) => { if (event.key === "Escape") { event.stopPropagation(); addingApp = false; } }}>
+                  {#if addable(settings.recent_apps, settings.app_actions).length}<small class="app-picker-head">Recently dictated in</small>{/if}
+                  {#each addable(settings.recent_apps, settings.app_actions) as app (app.id)}
+                    <button title={app.id} onclick={() => addApp(app)}><span><strong>{app.name}</strong></span></button>
+                  {/each}
+                  <input class="app-picker-input" placeholder="Type a name…" aria-label="App name" bind:value={typedAppName}
+                    onkeydown={(event) => { if (event.key === "Enter") { const app = typedApp(typedAppName); if (app) addApp(app); } }} />
+                </div>
+              {/if}
+            </div>
+          </div>
+          {#if foregroundSupport.explanation}<p class="row-note row-message" role="status">{foregroundSupport.explanation}</p>{/if}
         </div>
       {/if}
 

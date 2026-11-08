@@ -224,6 +224,48 @@ as Plain with a note: it has no spoken instruction and nothing was read at its s
 **Diagnostics.** `context.captured` (source, characters, truncated) or `context.none`
 (which sources were on). The text itself is never logged, like a transcript.
 
+## Action per application (0.12.0)
+
+**Rule.** `settings.app_actions` holds `{ app: { id, name }, action }` pairs, empty by
+default. `action` is a built-in id or `custom:<id>`. When the dictation key starts a
+recording (`applyIntent` → `startRecording(true)`), the interface asks
+`foreground_app` for the application in front, adds it to `settings.recent_apps` (newest
+first, eight at most, written by the settings save the start already does) and looks for a
+rule (`lib/app-actions.ts`: matched on the id or the name, case-insensitive, so a name
+typed by hand matches as well; a rule whose action was removed is ignored). A match whose
+action differs from the window's sets `appAction` for this one recording:
+`effectiveAction` follows it for `start_recording`, `finish_recording` and a custom
+action's prompt, the action menu shows it disabled, its label names the app, and
+`announce_app_action` shows a notification. `showResult`, `setError` and
+`cancelRecording` clear it. A start from the window's button or Space never asks, so the
+window's choice holds there; live dictation stays Plain and only remembers the app.
+Removing a custom action removes the rules that pointed at it.
+
+**Timing.** The query runs after `phase` is `starting`, so the existing guards against
+double starts still hold, and before the microphone opens. On Hyprland it is one request
+on the command socket (a few milliseconds); `spawn_blocking` keeps it off the main thread.
+
+**Which application** (`foreground.rs`). Utterform itself is never the answer: a window
+whose process id is Utterform's own yields none.
+
+| Platform | Source | `id` |
+| --- | --- | --- |
+| Hyprland | command socket `j/activewindow` | `class`, else `initialClass` |
+| Sway | `swaymsg -t get_tree -r`, the focused leaf | `app_id`, else X11 `class` |
+| X11 | `xprop -root _NET_ACTIVE_WINDOW`, then `WM_CLASS` and `_NET_WM_PID` | class (second `WM_CLASS` string) |
+| Windows | `GetForegroundWindow` → process → `QueryFullProcessImageNameW` | file name without `.exe` |
+| macOS | `NSWorkspace.frontmostApplication` | bundle identifier |
+
+The compositor is asked before X11: on Wayland, `xprop` only sees XWayland windows. GNOME
+and KDE on Wayland offer no such query; `foreground_support` says so and Settings disables
+**+ App**. Child processes are killed after 400 ms. `display_name` turns an id into what
+Settings shows (`org.mozilla.Thunderbird` → Thunderbird, `com.mitchellh.ghostty` →
+Ghostty); macOS uses the localized name.
+
+**Diagnostics.** `foreground.read` (source, found, elapsed_ms) for every query and
+`recording.app_action` (action) when a rule takes over. The application is never logged:
+which program someone dictates into says as much as a window title.
+
 ## What the local engine is compiled for
 
 whisper.cpp is built from source by `whisper-rs-sys`, and ggml's CMake targets the machine doing the compiling unless told otherwise. For a release built on someone else's server that is a trap rather than an optimization: the 0.7.2 Linux binary carried the runner's AVX-512 and AMX instructions and was stopped with SIGILL on an Intel N300 while loading a model — inside `ggml_backend_cpu_device_get_extra_buffers_type`, plain C++ frame code, which is before ggml's own runtime dispatch can choose a kernel and therefore beyond its help. The bug had been there since the first release; only the pairing of build machine and user machine decided whether it fired.

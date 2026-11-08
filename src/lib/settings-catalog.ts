@@ -17,7 +17,7 @@ export type SettingsRowId =
   | "microphone" | "shortcut" | "sounds"
   | "engine" | "api-key" | "language" | "vocabulary" | "context" | "local-model"
   | "actions" | "text-provider" | "text-model"
-  | "context-selection" | "context-clipboard"
+  | "context-selection" | "context-clipboard" | "app-actions"
   | "typing" | "typing-delay" | "folder" | "history"
   | "theme" | "autostart" | "diagnostics";
 
@@ -44,6 +44,7 @@ export const SETTINGS_ROWS: SettingsRow[] = [
   { id: "text-model", category: "ai", label: "Text model", keywords: ["model", "gpt", "effort", "thinking", "reasoning", "llm"] },
   { id: "context-selection", category: "context", label: "Selection", keywords: ["selected", "highlighted", "marked", "primary", "reply", "material"] },
   { id: "context-clipboard", category: "context", label: "Clipboard", keywords: ["copied", "copy", "paste", "material"] },
+  { id: "app-actions", category: "context", label: "Per app", keywords: ["application", "apps", "program", "window", "mail", "terminal", "automatic", "rule"] },
   { id: "typing", category: "output", label: "Type at cursor", keywords: ["paste", "keystrokes", "typing", "insert"] },
   { id: "typing-delay", category: "output", label: "Keystroke delay", keywords: ["delay", "milliseconds", "slow", "typing"] },
   { id: "folder", category: "output", label: "Folder", keywords: ["file", "directory", "save", "export", "output"] },
