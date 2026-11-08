@@ -266,6 +266,47 @@ Ghostty); macOS uses the localized name.
 `recording.app_action` (action) when a rule takes over. The application is never logged:
 which program someone dictates into says as much as a window title.
 
+## First-run assistant (0.14.0)
+
+**Who sees it.** `settings.onboarding_completed`. `AppSettings::default()` — what `load`
+returns when there is no settings file — has `false`; a stored file without the field
+deserializes it as `true` (`#[serde(default = "already_set_up")]`), so an upgrade never
+shows the assistant. An unreadable settings file stays an error, not a new user. The
+interface's `DEFAULT_SETTINGS` say `true`: the backend alone decides who is new.
+
+**One decision for intents.** `setup` loads the settings once and sets the managed
+`Onboarding` flag; `save_settings` and `complete_onboarding` keep it current.
+`cli::Intent::route(setting_up)` decides for the launch intent, the second instance and the
+global hotkey (`deliver_intent`): while setting up, every intent — including `--toggle`,
+the hotkey and a stale autostart entry — reveals the window and none is forwarded or kept
+as the startup intent, so nothing records afterwards out of nowhere. Otherwise the earlier
+matrix holds (only `Show` reveals; `Autostart` reaches nothing). The interface also ignores
+`remote-intent`, its keyboard shortcuts and audio files while the assistant is open, and
+`main` is `inert` beneath it.
+
+**Draft, then Finish.** `lib/OnboardingAssistant.svelte` keeps an `OnboardingDraft`
+(`lib/onboarding.ts`): mode, key text, local model, one language code, vocabulary, ChatGPT,
+dictation key, autostart. Moving between the four steps calls nothing that changes state.
+`applyDraft` maps it onto the loaded settings, touching only those fields; a cloud model
+chosen earlier survives a local choice. Finish then runs, in order: `save_settings` with
+`onboarding_completed: false` (a crash resumes setup), `set_openai_api_key` if one was
+typed for the cloud, `download_local_model` if the chosen model is missing (progress from
+the window's existing listener), `apply_global_hotkey` if the key changed,
+enable/disable autostart if the switch changed (read back, believed over the request), and
+`complete_onboarding`. A failing stage returns to its step with the message; what already
+succeeded is remembered and not repeated, and setup stays incomplete. **Skip** calls only
+`complete_onboarding(loaded settings, skipped: true)`.
+
+**Links.** `open_openai_api_keys` opens the compiled-in `https://platform.openai.com/api-keys`
+and takes no argument, like `open_codex_setup`; no opener permission reaches the WebView.
+
+**Diagnostics.** `onboarding.shown` (source `first_launch` or `startup_intent`),
+`onboarding.intent_consumed` (source, intent), `onboarding.skipped`,
+`onboarding.completed` (engine, cloud model, local model id, text provider, language and
+vocabulary counts, hotkey on/off), `onboarding.finish_failed` (stage `settings`) and
+`onboarding.key_page_open_failed`. The other stages fail inside their existing commands,
+which log their own events. Never the key, the language, the words or a typed draft.
+
 ## What the local engine is compiled for
 
 whisper.cpp is built from source by `whisper-rs-sys`, and ggml's CMake targets the machine doing the compiling unless told otherwise. For a release built on someone else's server that is a trap rather than an optimization: the 0.7.2 Linux binary carried the runner's AVX-512 and AMX instructions and was stopped with SIGILL on an Intel N300 while loading a model — inside `ggml_backend_cpu_device_get_extra_buffers_type`, plain C++ frame code, which is before ggml's own runtime dispatch can choose a kernel and therefore beyond its help. The bug had been there since the first release; only the pairing of build machine and user machine decided whether it fired.

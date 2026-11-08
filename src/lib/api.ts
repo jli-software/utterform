@@ -109,6 +109,11 @@ export const api = {
   // Whether `codex login` signed the Codex CLI in to ChatGPT, and its models.
   codexStatus: () => invoke<CodexStatus>("codex_status"),
   openCodexSetup: () => invoke<void>("open_codex_setup"),
+  // The page where an OpenAI key is made; the backend knows the address.
+  openOpenAiApiKeys: () => invoke<void>("open_openai_api_keys"),
+  // Marks setup done for good; a skip passes the settings as they were loaded.
+  completeOnboarding: (value: AppSettings, skipped: boolean) =>
+    invoke<void>("complete_onboarding", { value, skipped }),
   hasOpenAiApiKey: () => invoke<boolean>("has_openai_api_key"),
   setOpenAiApiKey: (apiKey: string) => invoke<void>("set_openai_api_key", { apiKey }),
   deleteOpenAiApiKey: () => invoke<void>("delete_openai_api_key"),

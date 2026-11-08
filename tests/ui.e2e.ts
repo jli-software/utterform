@@ -74,7 +74,10 @@ test.beforeEach(async ({ page }) => {
             case "announce_app_action": (Reflect.get(window, "__announced") as unknown[]).push(args); return;
             case "get_settings": return Reflect.get(window, "__settings") ?? settings;
             case "save_settings": Object.assign(window, { __savedSettings: args.value }); return;
-            case "has_openai_api_key": return true;
+            case "has_openai_api_key": return !Reflect.get(window, "__noKey");
+            case "set_openai_api_key": Object.assign(window, { __storedKey: args.apiKey }); return;
+            case "open_openai_api_keys": (Reflect.get(window, "__supportCalls") as string[]).push("openai-keys"); return;
+            case "complete_onboarding": Object.assign(window, { __onboarding: { value: args.value, skipped: args.skipped } }); return;
             case "codex_status": return { signedIn: !Reflect.get(window, "__codexSignedOut"), models: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol" }, { id: "gpt-6-luna", name: "GPT-6-Luna" }], defaultModel: "gpt-6-luna" };
             case "open_codex_setup": (Reflect.get(window, "__supportCalls") as string[]).push("codex-setup"); return;
             case "list_input_devices": return [{ id: "test-mic", name: "Studio microphone", isDefault: true }];
@@ -1020,4 +1023,77 @@ test("an app dictated into is added in Settings with its own action, at once", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Remove Thunderbird" }).click();
   await expect.poll(saved).toEqual([{ app: { id: "Obsidian", name: "Obsidian" }, action: "plain" }]);
+});
+
+for (const viewport of [{ width: 920, height: 720 }, { width: 360, height: 400 }]) {
+  test(`a new installation is set up in four steps at ${viewport.width}×${viewport.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.addInitScript(({ settings }) => Object.assign(window, { __settings: settings, __noKey: true }), { settings: { ...DEFAULT_SETTINGS, theme: "dark", onboarding_completed: false } });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/");
+    const dialog = page.getByRole("dialog", { name: "How should Utterform transcribe?" });
+    await expect(dialog).toBeVisible();
+    // Reachable without scrolling sideways, Skip and Next always in view.
+    const fits = async () => {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      for (const name of ["Skip setup", /^(Next|Finish)$/]) {
+        const box = await page.getByRole("button", { name }).boundingBox();
+        expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+      }
+    };
+    await fits();
+    await page.waitForTimeout(250); // Let the entry transition settle for the visual artifact.
+    await page.screenshot({ path: testInfo.outputPath("onboarding-1.png") });
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+    await page.getByLabel("OpenAI key", { exact: true }).fill("sk-test");
+    await fits();
+    await page.screenshot({ path: testInfo.outputPath("onboarding-2-cloud.png") });
+    await page.getByRole("button", { name: "Create key ↗" }).click();
+    expect(await page.evaluate(() => Reflect.get(window, "__supportCalls"))).toContain("openai-keys");
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("radio", { name: /On this device/ }).click();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("radio", { name: /Base/ })).toHaveAttribute("aria-checked", "true");
+    await fits();
+    await page.screenshot({ path: testInfo.outputPath("onboarding-2-local.png") });
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByLabel("Language").fill("de");
+    await expect(page.getByText("Deutsch")).toBeVisible();
+    await page.getByRole("textbox", { name: "Words" }).fill("Careum");
+    await page.keyboard.press("Enter");
+    await fits();
+    await page.screenshot({ path: testInfo.outputPath("onboarding-3.png") });
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("switch", { name: "Use my ChatGPT subscription" })).toBeEnabled();
+    await fits();
+    await page.screenshot({ path: testInfo.outputPath("onboarding-4.png") });
+    // Nothing recorded beneath it.
+    await page.evaluate(() => Reflect.get(window, "__emitRemoteIntent")("toggle"));
+    expect(await page.evaluate(() => (Reflect.get(window, "__startedActions") as unknown[]).length)).toBe(0);
+    await page.getByRole("button", { name: "Finish" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("Setup complete")).toBeVisible();
+    const done = await page.evaluate(() => Reflect.get(window, "__onboarding"));
+    expect(done).toMatchObject({ skipped: false, value: { engine: "local_whisper", local_model_id: "base", language_hints: ["de"], vocabulary: ["Careum"], onboarding_completed: true } });
+    // The cloud key typed before switching to local is not stored.
+    expect(await page.evaluate(() => Reflect.get(window, "__storedKey"))).toBeUndefined();
+    expect(errors).toEqual([]);
+  });
+}
+
+test("Skip setup leaves everything as it was and opens the main window", async ({ page }) => {
+  await page.addInitScript(({ settings }) => Object.assign(window, { __settings: settings }), { settings: { ...DEFAULT_SETTINGS, theme: "light", onboarding_completed: false } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByLabel("Language").fill("fr");
+  await page.getByRole("button", { name: "Skip setup" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start recording", exact: true })).toBeVisible();
+  const done = await page.evaluate(() => Reflect.get(window, "__onboarding"));
+  expect(done).toMatchObject({ skipped: true, value: { language_hints: [], onboarding_completed: true } });
+  expect(await page.evaluate(() => Reflect.get(window, "__savedSettings"))).toBeNull();
+  expect(await page.evaluate(() => Reflect.get(window, "__autostartWrites"))).toEqual([]);
 });

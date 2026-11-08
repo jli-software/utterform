@@ -10,6 +10,29 @@
   `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`.
 - `cmake` is needed for whisper.cpp. Without root, `mise exec cmake@latest -- cargo test` works.
 
+## 0.14.0 First-run assistant
+
+Rust: `settings.rs` — no file means not set up, a file without the field means set up,
+explicit `false`/`true` survive a save and reload; `cli.rs` — while setting up every intent
+reveals and none is forwarded, afterwards the dictation key leaves the window alone.
+`lib/onboarding.test.ts`: system language, language names and typos, the starting draft,
+`applyDraft` writing only its fields and keeping the cloud model, what holds Next back.
+`App.test.ts`: never shown to someone set up; Skip from step 3 saves only completion and
+calls no key, model, hotkey or autostart command; cloud needs a key, opens the key page,
+stores the key only on Finish and before completion; a failed download returns to the
+model step, stays incomplete and succeeds on retry; ChatGPT only with a Codex login; key
+and autostart changes applied on Finish only; no hotkey intent or Space records beneath it.
+Playwright, at 920×720 and 360×400: all four steps with screenshots, nothing sideways,
+Skip and Next/Finish in view on every step, a toggle beneath it ignored, Finish writes the
+local choice and does not store a key typed before switching to local; Skip in the light
+theme leaves settings and the startup entry untouched.
+
+Not exercised, to check at 1.0: the installed app on a clean profile (first launch,
+first launch through `utterform --toggle` and Alt+Space, second launch while the assistant
+is open, launch after Skip), a real model download and keyring write from the assistant,
+the key page opening in the browser, and an upgrade from real 0.8.0 settings on Linux,
+Windows and macOS.
+
 ## 0.12.0 Action per application
 
 Unit tests in `foreground.rs`: display names from classes and program names, Utterform's

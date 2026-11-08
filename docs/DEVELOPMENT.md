@@ -19,7 +19,21 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.12.0 Action per application
+## Current handoff — 0.14.0 First-run assistant
+
+Stage 0.14.0 of [the roadmap](plans/v1.0-roadmap.md), branch
+`work/utterform-0.14.0-assistant`. Jonas accepted the mock-up on 2026-11-08: four steps
+(where to transcribe · key or model · language and words · ChatGPT, dictation key, start
+at login), Skip on every step, nothing applied before Finish. Built on the contract of
+Draft PR #39, adapted: no Live choice and no recording topic in the assistant (both stay in
+Settings), and issue #40 stays with 1.0. `settings.onboarding_completed` (legacy files read
+as done), `cli::Intent::route` holds every intent back while setting up,
+`lib/OnboardingAssistant.svelte` with `lib/onboarding.ts`. Design in
+[ARCHITECTURE.md → First-run assistant](ARCHITECTURE.md#first-run-assistant-0140),
+validation and what is open for 1.0 in [TESTING.md](TESTING.md). Merged into `main` without
+tag or release; ships with 1.0. Next stage: 1.0.0.
+
+## Previous handoff — 0.12.0 Action per application
 
 Stage 0.12.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-0.12.0-per-app`.
 Jonas decided to build it small and accepted the mock-up: **Settings → Context → Per app**,

@@ -66,6 +66,33 @@ impl Intent {
     pub fn reaches_the_interface(self) -> bool {
         self != Intent::Autostart
     }
+
+    /// What to do with this intent, given whether the first-run assistant is
+    /// still open. Until setup is finished or skipped, every way of starting
+    /// or reaching Utterform shows the assistant and nothing records: a
+    /// dictation key pressed before there is a key or a model would only fail,
+    /// and a request kept for later would start a recording out of nowhere
+    /// the moment setup ends.
+    pub fn route(self, setting_up: bool) -> Route {
+        if setting_up {
+            return Route {
+                reveal: true,
+                forward: false,
+            };
+        }
+        Route {
+            reveal: self.raises_window(),
+            forward: self.reaches_the_interface(),
+        }
+    }
+}
+
+/// Where an intent goes: whether the window comes to the front, and whether
+/// the interface is asked to act on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Route {
+    pub reveal: bool,
+    pub forward: bool,
 }
 
 /// Read the intent from a command line, ignoring the executable path and any
@@ -299,5 +326,51 @@ mod tests {
             Some(PathBuf::from("/tmp/x.opus"))
         );
         assert_eq!(file_url_path("server/share/x.opus"), None);
+    }
+
+    #[test]
+    fn while_setting_up_every_intent_shows_the_assistant_and_none_records() {
+        for intent in [
+            Intent::Show,
+            Intent::Toggle,
+            Intent::Start,
+            Intent::Stop,
+            Intent::Cancel,
+            Intent::Autostart,
+        ] {
+            assert_eq!(
+                intent.route(true),
+                Route {
+                    reveal: true,
+                    forward: false
+                },
+                "{intent:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn once_set_up_the_dictation_key_leaves_the_window_where_it_is() {
+        assert_eq!(
+            Intent::Toggle.route(false),
+            Route {
+                reveal: false,
+                forward: true
+            }
+        );
+        assert_eq!(
+            Intent::Show.route(false),
+            Route {
+                reveal: true,
+                forward: true
+            }
+        );
+        assert_eq!(
+            Intent::Autostart.route(false),
+            Route {
+                reveal: false,
+                forward: false
+            }
+        );
     }
 }

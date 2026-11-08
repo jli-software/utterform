@@ -238,4 +238,33 @@ mod tests {
         assert_eq!(settings.global_hotkey, None);
         assert_eq!(settings.typing_method, TypingMethod::Keystrokes);
     }
+
+    #[test]
+    fn a_new_installation_has_not_been_set_up() {
+        // `load` hands out exactly this when there is no settings file at all.
+        assert!(!AppSettings::default().onboarding_completed);
+    }
+
+    #[test]
+    fn someone_upgrading_never_meets_the_first_run_assistant() {
+        // Every file written before the assistant lacks the field: whoever
+        // wrote it already uses Utterform.
+        let earlier = r#"{ "engine": "local_whisper", "language_hints": ["de"] }"#;
+        let settings: AppSettings = serde_json::from_str(earlier).unwrap();
+        assert!(settings.onboarding_completed);
+        assert_eq!(settings.language_hints, vec!["de".to_string()]);
+    }
+
+    #[test]
+    fn an_unfinished_setup_stays_unfinished_across_a_save_and_a_reload() {
+        for completed in [false, true] {
+            let settings = AppSettings {
+                onboarding_completed: completed,
+                ..AppSettings::default()
+            };
+            let restored: AppSettings =
+                serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(restored.onboarding_completed, completed);
+        }
+    }
 }

@@ -63,6 +63,9 @@ export interface AppSettings {
   app_actions: AppAction[];
   /// Applications dictated into lately, newest first. Kept on this device.
   recent_apps: KnownApp[];
+  /// The first-run assistant was finished or skipped. The backend says
+  /// `false` for a new installation only.
+  onboarding_completed: boolean;
 }
 
 /// An application as the platform names it: `id` is what rules match (class,
@@ -203,6 +206,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   context_clipboard: true,
   app_actions: [],
   recent_apps: [],
+  // `true` here: the backend decides who is new, and a settings object without
+  // the field comes from an installation that predates the assistant.
+  onboarding_completed: true,
 };
 
 /// The actions to show until the backend answers with the shipped prompts, and
@@ -241,6 +247,9 @@ export function isActionEdited(id: string, overrides: Record<string, ActionOverr
 /// A keyword carrying one of these is refused by the transcription API, and the
 /// whole request goes with it, so Settings never lets one through.
 export const FORBIDDEN_IN_KEYWORD = /[<>]/;
+
+/// A language hint as transcription accepts it: `de`, `en`, `pt-br`.
+export const LANGUAGE_CODE = /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/i;
 
 export interface LiveSupport {
   supported: boolean;
