@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-rc.1 — v1.0.0-rc.1 · Say it, it's done (prerelease)
+
+- First installed build of everything since 0.8.0: the stages 0.9.0 to 0.14.0 below — Settings with search and no Save button, text actions on the ChatGPT subscription, the Context action, an action per application, audio files and the first-run assistant.
+- Published as a prerelease for acceptance on Linux, Windows and macOS; the stable download stays 0.8.0. The installers of this candidate install it by default. The checks are in [docs/plans/v1.0-acceptance.md](docs/plans/v1.0-acceptance.md).
+- App version 1.0.0 in `package.json`, `Cargo.toml` and `tauri.conf.json`.
+
+See [1.0.0-rc.1 release notes](docs/releases/v1.0.0-rc.1.md).
+
 ## 0.14.0 · Set up in a minute (on `main`, ships with 1.0)
 
 - Add a first-run assistant. A new installation opens on four short screens: where to transcribe (Cloud, recommended, or on this device), then the OpenAI key — with **Create key ↗** to OpenAI's key page — or the local model (Base recommended), then the language as a code such as `de`, suggested from the system language, and optional words, and last the ChatGPT subscription for text actions (experimental, only with a Codex login), the dictation key and start at login.
