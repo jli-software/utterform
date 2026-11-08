@@ -4,7 +4,7 @@
 
 - Canonical repository: https://github.com/jli-software/utterform
 - Fetch `main` before starting; work on a dedicated branch and preserve other contributors' changes. Commit and push validated work; integrate through a pull request only when authorized. Never force-push.
-- **Until 1.0: merge only, no previews, no releases (Jonas, 2026-11-07, after 0.8.0 was released; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged into `main` straight away. No `Desktop builds` preview, no tag, no release: Jonas tests everything once, at 1.0, and that is the next release. The installers, the README and the app version (`package.json`, `Cargo.toml`, `tauri.conf.json`) stay at the last real release, 0.8.0, which the release-metadata test requires; stage numbers such as 0.9.0 name roadmap stages and changelog entries only. 1.0 bumps everything at once. Style samples (mock-ups, images) and occasional questions still go to Jonas. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
+- **Until 1.0: merge only, no previews, no releases (Jonas, 2026-11-07, after 0.8.0 was released; supersedes the preview gate below):** a finished stage whose validation and PR CI pass is merged into `main` straight away. No `Desktop builds` preview, no tag, no release: Jonas tests everything once, at 1.0, and that is the next release. The installers, the README and the app version (`package.json`, `Cargo.toml`, `tauri.conf.json`) stay at the last real release, 0.8.0, which the release-metadata test requires; stage numbers such as 0.9.0 name roadmap stages and changelog entries only. 1.0 bumps everything at once. **Since 2026-11-08 (stage 1.0.0):** the app is at 1.0.0 and the installers and README point to the prerelease `v1.0.0-rc.1` that Jonas accepts; `releases/latest` still serves 0.8.0. Style samples (mock-ups, images) and occasional questions still go to Jonas. Never move a published tag or publish failing/partial work. Other open pull requests are merged only when Jonas says so.
 - *Superseded:* **Test one platform before release:** finish the change on a branch/PR, run validation, then build only the first-test platform chosen by Jonas with `Desktop builds`. For 0.7.8 that platform is Linux. Share the exact commit and downloadable Actions artifact; leave `main`, release tags and the stable release unchanged while Jonas evaluates it. Iterate on that branch if needed. Only after his acceptance and authorization to finalize, merge and tag for the complete Linux/Windows/macOS release. An explicit “release everything at once” request may skip the manual preview gate. Platform-specific changes still need their relevant native checks before final release. Default to a patch increment unless a version or minor increment is requested. Never move a published tag or publish failing/partial work.
 - Development is shared across machines and coding assistants. Keep architecture, decisions, release notes, and the current handoff in this repository, not only in chat history.
 - Keep credentials, recordings, local transcript history, dependencies, and machine-specific configuration out of Git.
@@ -19,7 +19,21 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 0.14.0 First-run assistant
+## Current handoff — 1.0.0 Finish
+
+Stage 1.0.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-1.0.0-finish`.
+Jonas decided on 2026-11-08 to accept a real signed prerelease: the app is 1.0.0, the
+installers default to `v1.0.0-rc.1`, and the tag publishes it as a prerelease, so
+`releases/latest` keeps serving 0.8.0. What he checks is in
+[plans/v1.0-acceptance.md](plans/v1.0-acceptance.md) (upgrade, clean profile and assistant,
+dictation and tray, ChatGPT, Context, per-app, audio files, start at login with issue #40,
+Omarchy keys, macOS Gatekeeper). Stages 0.9.0–0.14.0 had only Linux CI; the full
+Desktop-builds run on this branch was the first Windows and macOS build of them.
+Next: Jonas's results. A fix → `v1.0.0-rc.2`; acceptance → installers, README and notes to
+`v1.0.0`, tag, verify assets and macOS signing, then a new WinGet submission (PR #27 is the
+last one, at 0.7.11).
+
+## Previous handoff — 0.14.0 First-run assistant
 
 Stage 0.14.0 of [the roadmap](plans/v1.0-roadmap.md), branch
 `work/utterform-0.14.0-assistant`. Jonas accepted the mock-up on 2026-11-08: four steps

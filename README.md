@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.8.0 — Omarchy's dictation key** makes Utterform a dictation backend for Omarchy: choose it in Setup → Defaults → Dictation, then press Alt + Space or hold Right Alt. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.8.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.8.0). Settings were rebuilt on `main` since (search, no Save button) and ship with 1.0.
+> Utterform is under active development. **0.8.0 — Omarchy's dictation key** makes Utterform a dictation backend for Omarchy: choose it in Setup → Defaults → Dictation, then press Alt + Space or hold Right Alt. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.8.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.8.0). **1.0.0 release candidate 1** brings everything since — first-run assistant, Settings with search, ChatGPT text actions, Context, an action per app and audio files — and waits for acceptance on all three platforms: [release notes](docs/releases/v1.0.0-rc.1.md), [downloads](https://github.com/jli-software/utterform/releases/tag/v1.0.0-rc.1).
 
 ## How it works
 
