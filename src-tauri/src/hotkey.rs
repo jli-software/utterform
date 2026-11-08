@@ -208,7 +208,8 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), diagnostics::Failur
                 );
                 // Deliberately not revealing the window: the point of the key
                 // is to dictate into whatever the user is already typing in.
-                diagnostics::notify_interface(app, "remote-intent", Intent::Toggle);
+                // Only an unfinished setup brings it forward instead.
+                crate::deliver_intent(app, Intent::Toggle, "hotkey");
             }
         })
         .build();

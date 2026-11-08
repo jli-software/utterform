@@ -46,6 +46,7 @@ vi.mock("./lib/api", () => ({ api: {
   diagnosticsInfo: vi.fn(), copyDiagnostics: vi.fn(), openLogFile: vi.fn(), openLogFolder: vi.fn(),
   reportFrontendError: vi.fn(),
   transcribeFile: vi.fn(), takePendingFile: vi.fn(async () => null),
+  openOpenAiApiKeys: vi.fn(), completeOnboarding: vi.fn(), setOpenAiApiKey: vi.fn(), downloadLocalModel: vi.fn(),
 } }));
 
 // What the backend answers with: the prompts live in Rust, so the interface
@@ -1786,5 +1787,157 @@ describe("an audio file", () => {
     await fireEvent.click(view.getByRole("button", { name: "Open audio file" }));
     await waitFor(() => expect(view.queryByText(/cannot read this file/)).not.toBeNull());
     expect(api.notifyIfUnattended).toHaveBeenCalledWith("Utterform cannot read this file. (ref 0a1b2c3d-9)", true);
+  });
+});
+
+describe("first-run assistant", () => {
+  const MODELS = [
+    { id: "tiny", name: "Whisper Tiny", description: "Fastest", sizeBytes: 75 * 1024 * 1024, downloaded: false },
+    { id: "base", name: "Whisper Base", description: "Balanced", sizeBytes: 142 * 1024 * 1024, downloaded: false },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), onboarding_completed: false });
+    vi.mocked(api.hasOpenAiApiKey).mockResolvedValue(false);
+    vi.mocked(api.listLocalModels).mockResolvedValue(structuredClone(MODELS));
+    vi.mocked(api.completeOnboarding).mockReset().mockResolvedValue(undefined);
+    vi.mocked(api.setOpenAiApiKey).mockReset().mockResolvedValue(undefined);
+    vi.mocked(api.openOpenAiApiKeys).mockReset().mockResolvedValue(undefined);
+    vi.mocked(api.downloadLocalModel).mockReset().mockImplementation(async (id: string) => {
+      vi.mocked(api.listLocalModels).mockResolvedValue(MODELS.map((model) => ({ ...model, downloaded: model.id === id })));
+    });
+    Object.defineProperty(navigator, "languages", { value: ["de-CH", "en"], configurable: true });
+  });
+  afterEach(() => { Reflect.deleteProperty(navigator, "languages"); });
+
+  async function assistant() {
+    const view = render(App);
+    await waitFor(() => expect(view.queryByRole("dialog", { name: "How should Utterform transcribe?" })).not.toBeNull());
+    return view;
+  }
+
+  /// Everything the assistant may only do on Finish.
+  function expectNoSideEffects() {
+    expect(api.setOpenAiApiKey).not.toHaveBeenCalled();
+    expect(api.downloadLocalModel).not.toHaveBeenCalled();
+    expect(api.applyGlobalHotkey).not.toHaveBeenCalled();
+    expect(api.enableAutostart).not.toHaveBeenCalled();
+    expect(api.disableAutostart).not.toHaveBeenCalled();
+  }
+
+  it("never appears for someone already set up", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(structuredClone(DEFAULT_SETTINGS));
+    const view = render(App);
+    await waitFor(() => expect(api.takeStartupIntent).toHaveBeenCalled());
+    expect(view.queryByText("How should Utterform transcribe?")).toBeNull();
+  });
+
+  it("skips in one click from any step, applying nothing it was told", async () => {
+    const view = await assistant();
+    await fireEvent.click(view.getByRole("radio", { name: /On this device/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("radio", { name: /Tiny/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    expect(view.queryByText("You can change all of this later in Settings.")).not.toBeNull();
+    await fireEvent.click(view.getByRole("button", { name: "Skip setup" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.completeOnboarding).toHaveBeenCalledTimes(1);
+    const [stored, skipped] = vi.mocked(api.completeOnboarding).mock.calls[0];
+    expect(skipped).toBe(true);
+    expect(stored).toEqual({ ...DEFAULT_SETTINGS, onboarding_completed: true });
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expectNoSideEffects();
+  });
+
+  it("needs a key for the cloud, stores it only on Finish, and ends in the main window", async () => {
+    const view = await assistant();
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    const next = view.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+    expect(next.disabled).toBe(true);
+    await fireEvent.input(view.getByLabelText("OpenAI key", { selector: "input" }), { target: { value: " sk-test " } });
+    expect(next.disabled).toBe(false);
+    await fireEvent.click(view.getByRole("button", { name: "Create key ↗" }));
+    expect(api.openOpenAiApiKeys).toHaveBeenCalledWith();
+    await fireEvent.click(next);
+    // The system language is suggested, and a typo holds Next back.
+    const language = view.getByLabelText("Language") as HTMLInputElement;
+    expect(language.value).toBe("de");
+    await fireEvent.input(language, { target: { value: "deutsch!" } });
+    expect((view.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.input(language, { target: { value: "de" } });
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    expect(view.queryByRole("switch", { name: "Use my ChatGPT subscription" })).not.toBeNull();
+    expectNoSideEffects();
+
+    await fireEvent.click(view.getByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.setOpenAiApiKey).toHaveBeenCalledWith("sk-test");
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0]).toMatchObject({ onboarding_completed: false, engine: "open_ai", language_hints: ["de"] });
+    const [stored, skipped] = vi.mocked(api.completeOnboarding).mock.calls[0];
+    expect(skipped).toBe(false);
+    expect(stored).toMatchObject({ onboarding_completed: true, engine: "open_ai", language_hints: ["de"], text_provider: "openai_key" });
+    // Stored before setup counts as done.
+    expect(vi.mocked(api.setOpenAiApiKey).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.completeOnboarding).mock.invocationCallOrder[0]);
+    expect(view.queryByText("Setup complete")).not.toBeNull();
+    expect(api.downloadLocalModel).not.toHaveBeenCalled();
+  });
+
+  it("downloads the local model on Finish and keeps setup open when that fails", async () => {
+    vi.mocked(api.downloadLocalModel).mockRejectedValueOnce("The download was interrupted.");
+    const view = await assistant();
+    await fireEvent.click(view.getByRole("radio", { name: /On this device/ }));
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    expect(view.getByRole("radio", { name: /Base/ }).getAttribute("aria-checked")).toBe("true");
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("button", { name: "Finish" }));
+    // Back where the model is chosen, with the reason, and still not done.
+    await waitFor(() => expect(view.queryByText("The download was interrupted.")).not.toBeNull());
+    expect(view.queryByRole("heading", { name: "Which model?" })).not.toBeNull();
+    expect(api.completeOnboarding).not.toHaveBeenCalled();
+
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.downloadLocalModel).toHaveBeenLastCalledWith("base");
+    expect(vi.mocked(api.completeOnboarding).mock.calls[0][0]).toMatchObject({ engine: "local_whisper", local_model_id: "base" });
+    expect(api.setOpenAiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("offers ChatGPT only with a Codex login", async () => {
+    vi.mocked(api.hasOpenAiApiKey).mockResolvedValue(true);
+    vi.mocked(api.codexStatus).mockResolvedValue({ signedIn: true, models: [], defaultModel: null });
+    const view = await assistant();
+    for (let step = 0; step < 3; step += 1) await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    const chatGpt = view.getByRole("switch", { name: "Use my ChatGPT subscription" }) as HTMLInputElement;
+    await waitFor(() => expect(chatGpt.disabled).toBe(false));
+    await fireEvent.click(chatGpt);
+    await fireEvent.click(view.getByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(api.completeOnboarding).toHaveBeenCalled());
+    expect(vi.mocked(api.completeOnboarding).mock.calls[0][0]).toMatchObject({ text_provider: "codex" });
+    expect(api.setOpenAiApiKey).not.toHaveBeenCalled();
+  });
+
+  it("applies a changed dictation key and start at login on Finish only", async () => {
+    vi.mocked(api.hasOpenAiApiKey).mockResolvedValue(true);
+    const view = await assistant();
+    for (let step = 0; step < 3; step += 1) await fireEvent.click(view.getByRole("button", { name: "Next" }));
+    await fireEvent.click(view.getByRole("switch", { name: "Dictation key" }));
+    await fireEvent.click(view.getByRole("switch", { name: "Start Utterform when I sign in" }));
+    expectNoSideEffects();
+    await fireEvent.click(view.getByRole("button", { name: "Finish" }));
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(api.applyGlobalHotkey).toHaveBeenCalledWith(null);
+    expect(api.enableAutostart).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.completeOnboarding).mock.calls[0][0]).toMatchObject({ global_hotkey: null });
+  });
+
+  it("lets no dictation key or keyboard shortcut record beneath it", async () => {
+    const view = await assistant();
+    await remoteIntent("toggle");
+    await fireEvent.keyDown(window, { code: "Space", key: " " });
+    expect(api.startRecording).not.toHaveBeenCalled();
+    expect(view.queryByRole("dialog")).not.toBeNull();
   });
 });

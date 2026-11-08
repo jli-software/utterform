@@ -111,6 +111,8 @@ pub fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 pub fn save_settings(app: AppHandle, value: AppSettings) -> Result<(), String> {
     match settings::save(&app, &value) {
         Ok(()) => {
+            app.state::<crate::Onboarding>()
+                .set(!value.onboarding_completed);
             diagnostics::info!(
                 "settings.saved",
                 engine = value.engine.as_str(),
@@ -127,6 +129,42 @@ pub fn save_settings(app: AppHandle, value: AppSettings) -> Result<(), String> {
         }
         Err(failure) => Err(diagnostics::failure!("settings.save_failed", &failure)),
     }
+}
+
+/// End the first-run assistant for good: `value` is written with setup marked
+/// done, and dictation intents reach the interface again. A skip hands back
+/// the settings as they were loaded, so nothing of the assistant is applied.
+/// Only modes and switches are logged, never what was typed.
+#[tauri::command]
+pub fn complete_onboarding(
+    app: AppHandle,
+    mut value: AppSettings,
+    skipped: bool,
+) -> Result<(), String> {
+    value.onboarding_completed = true;
+    if let Err(failure) = settings::save(&app, &value) {
+        return Err(diagnostics::failure!(
+            "onboarding.finish_failed",
+            &failure,
+            stage = "settings"
+        ));
+    }
+    app.state::<crate::Onboarding>().set(false);
+    if skipped {
+        diagnostics::info!("onboarding.skipped");
+    } else {
+        diagnostics::info!(
+            "onboarding.completed",
+            engine = value.engine.as_str(),
+            cloud_model = value.cloud_model.as_str(),
+            local_model = value.local_model_id.as_deref().unwrap_or("none"),
+            text_provider = value.text_provider.as_str(),
+            languages = value.language_hints.len(),
+            vocabulary = value.vocabulary.len(),
+            hotkey = value.global_hotkey.is_some(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1090,6 +1128,20 @@ pub fn open_codex_setup() -> Result<(), String> {
         diagnostics::failure!(
             "codex.setup_open_failed",
             &Failure::new("opener", "The Codex setup page could not be opened").detail(error)
+        )
+    })
+}
+
+/// Where an OpenAI key is made. A fixed address, like the Codex page above:
+/// the first-run assistant asks for this page and can name no other.
+pub const OPENAI_API_KEYS_URL: &str = "https://platform.openai.com/api-keys";
+
+#[tauri::command]
+pub fn open_openai_api_keys() -> Result<(), String> {
+    tauri_plugin_opener::open_url(OPENAI_API_KEYS_URL, None::<&str>).map_err(|error| {
+        diagnostics::failure!(
+            "onboarding.key_page_open_failed",
+            &Failure::new("opener", "The OpenAI key page could not be opened").detail(error)
         )
     })
 }

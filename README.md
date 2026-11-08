@@ -89,6 +89,16 @@ Required runtime packages:
 sudo pacman -S --needed webkit2gtk-4.1 gtk3 alsa-lib libayatana-appindicator
 ```
 
+## Set up in a minute
+
+The first start asks four short questions: cloud or on this device, then the OpenAI key
+(**Create key ↗** opens OpenAI's key page) or the local model, then your language as a code
+such as `de` and any names to spell right, and last whether text actions may use your
+ChatGPT subscription (experimental), plus the dictation key and start at login.
+**Skip setup** ends it at once and changes nothing. Nothing is stored, downloaded or
+registered before **Finish**, and everything can be changed later in Settings. An upgrade
+from an earlier version does not show it.
+
 ## Tune it once, then stay in flow
 
 Settings has a search field on top and five categories below it. Each setting is one

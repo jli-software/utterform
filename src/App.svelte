@@ -8,6 +8,7 @@
     BUILT_IN_ACTIONS,
     DEFAULT_SETTINGS,
     FORBIDDEN_IN_KEYWORD,
+    LANGUAGE_CODE,
     actionName,
     actionPrompt,
     isActionEdited,
@@ -45,6 +46,7 @@
   import { formatHistoryTime, fullHistoryDate, historyTimestamp } from "./lib/history-time";
   import { modalFocus } from "./lib/modal-focus";
   import ChipInput from "./lib/ChipInput.svelte";
+  import OnboardingAssistant from "./lib/OnboardingAssistant.svelte";
   import { SETTINGS_CATEGORIES, categoryLabel, visibleRows } from "./lib/settings-catalog";
   import { actionFor, addable, rememberApp, removeRule, setRule, typedApp } from "./lib/app-actions";
   import type { SettingsCategory, SettingsRowId } from "./lib/settings-catalog";
@@ -68,7 +70,6 @@
     { mode: "local_whisper", label: "Local", title: "Local Whisper: audio stays on this device" },
   ];
   /// Short codes such as de, en or pt-BR, the way the transcription API takes them.
-  const LANGUAGE_CODE = /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/i;
   const EFFORTS: Array<{ value: TextEffort | null; label: string }> = [
     { value: null, label: "Auto" },
     { value: "minimal", label: "Minimal" },
@@ -275,7 +276,10 @@
   $: settingsEmpty = settingsSearching && shownRows.size === 0;
   $: todaySeconds = Math.round(history.filter((entry) => new Date(historyTimestamp(entry) ?? NaN).toDateString() === new Date(now).toDateString()).reduce((total, entry) => total + entry.durationMs, 0) / 1000);
   $: controlsLocked = phase === "starting" || recordingActive || phase === "processing";
-  $: canTakeFile = !controlsLocked && !showSettings && !transcriptionSaving;
+  /// A new installation opens on the first-run assistant; the backend decides
+  /// who is new, and until setup is finished or skipped nothing records.
+  $: onboarding = !settings.onboarding_completed;
+  $: canTakeFile = !controlsLocked && !showSettings && !onboarding && !transcriptionSaving;
   $: fileActionLabel = actionOptions.find((option) => option.value === effectiveAction)?.label ?? "Plain";
   // Live dictation has no file mode: a file always goes to GPT Transcribe.
   $: fileEngineLabel = settings.engine === "open_ai" ? "GPT Transcribe" : "Local";
@@ -481,6 +485,9 @@
     // released it for the moment; a compositor binding still arrives, and is
     // what this turns away.
     if (hotkeyCapturing) return;
+    // The backend already holds these back during setup; this covers one
+    // that was on its way as setup began.
+    if (onboarding) return;
     switch (intent) {
       case "toggle":
         if (recordingActive) await finishRecording();
@@ -512,6 +519,7 @@
   }
 
   function handleKeyDown(event: KeyboardEvent) {
+    if (onboarding) return;
     if (!showSettings && (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.code === "KeyC") {
       event.preventDefault();
       if (!event.repeat) void copyDisplayedText();
@@ -1224,6 +1232,21 @@
     scheduleSave();
   }
 
+  /// The assistant is done: what it chose is now what the window runs with.
+  function finishOnboarding(result: { settings: AppSettings; hasApiKey: boolean; models: LocalModel[]; hotkeyApplied: boolean; skipped: boolean }) {
+    settings = result.settings;
+    hasApiKey = result.hasApiKey;
+    models = result.models;
+    if (result.hotkeyApplied) {
+      hotkeyError = "";
+      hotkeySupport = { ...hotkeySupport, failure: null };
+    }
+    if (!result.skipped) {
+      phase = "idle";
+      message = "Setup complete";
+    }
+  }
+
   function openSettings() {
     confirmClear = false;
     settingsQuery = "";
@@ -1386,7 +1409,7 @@
 
 <svelte:head><meta name="theme-color" content={settings.theme === "dark" ? "#121516" : "#fcfcfa"} /></svelte:head>
 
-<main inert={showSettings} class:result-expanded={resultExpanded} class:has-result={!!displayedText} class:paused={phase === "paused"} class:recording={phase === "recording"} class:processing={phase === "processing"}>
+<main inert={showSettings || onboarding} class:result-expanded={resultExpanded} class:has-result={!!displayedText} class:paused={phase === "paused"} class:recording={phase === "recording"} class:processing={phase === "processing"}>
   <header>
     <div class="brand">
       <Brand />
@@ -1534,7 +1557,12 @@
   </div>
 {/snippet}
 
-{#if showSettings}
+{#if onboarding}
+  <OnboardingAssistant {settings} {hasApiKey} {models} {hotkeySupport} {downloadProgress}
+    oncapture={captureHotkey} ondone={finishOnboarding} />
+{/if}
+
+{#if showSettings && !onboarding}
   <div class="settings-page" use:modalFocus role="dialog" tabindex="-1" aria-modal="true" aria-label="Settings"
     onkeydown={(event) => {
       if (event.key !== "Escape" || hotkeyCapturing) return;

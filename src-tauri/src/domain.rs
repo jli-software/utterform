@@ -187,6 +187,16 @@ pub struct AppSettings {
     /// The applications dictated into lately, newest first, to choose from
     /// when adding one of the above. Kept on this device only.
     pub recent_apps: Vec<KnownApp>,
+    /// The first-run assistant was finished or skipped. A new installation
+    /// starts with `false`; a settings file from before the assistant has no
+    /// such field and means someone already uses Utterform, so it reads as
+    /// `true` and an upgrade never shows the assistant.
+    #[serde(default = "already_set_up")]
+    pub onboarding_completed: bool,
+}
+
+fn already_set_up() -> bool {
+    true
 }
 
 /// An application as Settings knows it: the id rules match, and its name.
@@ -242,6 +252,7 @@ impl Default for AppSettings {
             context_clipboard: true,
             app_actions: Vec::new(),
             recent_apps: Vec::new(),
+            onboarding_completed: false,
         }
     }
 }

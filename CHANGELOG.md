@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0 · Set up in a minute (on `main`, ships with 1.0)
+
+- Add a first-run assistant. A new installation opens on four short screens: where to transcribe (Cloud, recommended, or on this device), then the OpenAI key — with **Create key ↗** to OpenAI's key page — or the local model (Base recommended), then the language as a code such as `de`, suggested from the system language, and optional words, and last the ChatGPT subscription for text actions (experimental, only with a Codex login), the dictation key and start at login.
+- **Skip setup** on every screen closes the assistant for good in one click and applies nothing of it. Every screen says that all of it can be changed later in Settings.
+- Nothing happens until **Finish**: only then is the key stored, the model downloaded, the dictation key registered and start at login written, in that order. A step that fails returns to the screen where it is chosen, with the reason; what already worked is kept, and setup is marked done only after the last step.
+- Anyone already using Utterform never sees the assistant: a settings file from before it counts as set up.
+- While the assistant is open, the dictation key, `utterform --toggle` and a second launch bring it to the front instead of recording, and nothing is held back to record afterwards.
+
+See [0.14.0 release notes](docs/releases/v0.14.0.md).
+
 ## 0.13.0 · Voice messages and recordings (on `main`, ships with 1.0)
 
 - Transcribe an audio file: the new folder button next to Settings or `O` opens one, dropping it on the window shows **Drop to transcribe** with the action and engine it will use, `utterform --file <path>` and **Open with → Utterform** in the file manager hand one over. Several files are done one after another.

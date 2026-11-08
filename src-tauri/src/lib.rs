@@ -53,6 +53,46 @@ impl StartupIntent {
     }
 }
 
+/// Whether the first-run assistant is open. Read from the settings at startup
+/// and kept current by every save, so the single decision about intents
+/// (`cli::Intent::route`) never guesses from anything else.
+#[derive(Default)]
+pub struct Onboarding(std::sync::atomic::AtomicBool);
+
+impl Onboarding {
+    pub fn active(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn set(&self, active: bool) {
+        self.0.store(active, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Hand a request from outside — a second launch, the dictation key — to the
+/// window and the interface, as `cli::Intent::route` decides.
+pub fn deliver_intent<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    intent: Intent,
+    source: &'static str,
+) {
+    let setting_up = app.state::<Onboarding>().active();
+    let route = intent.route(setting_up);
+    if setting_up {
+        diagnostics::info!(
+            "onboarding.intent_consumed",
+            source = source,
+            intent = intent.as_str()
+        );
+    }
+    if route.reveal {
+        reveal_main_window(app, source);
+    }
+    if route.forward {
+        diagnostics::notify_interface(app, "remote-intent", intent);
+    }
+}
+
 /// Audio files handed to Utterform from outside — the command line, a file
 /// manager's "Open with", macOS' open event — waiting for the interface to
 /// transcribe them one after another. The interface is told with a
@@ -151,16 +191,36 @@ fn setup(app: &mut tauri::App, startup_intent: Intent) -> Result<(), Box<dyn std
             diagnostics::failure!("app.setup_failed", &failure, stage = "stale_recordings");
         return Err(std::io::Error::other(message).into());
     }
-    app.state::<StartupIntent>().set(startup_intent);
+    let handle = app.handle().clone();
+    let loaded = settings::load(&handle);
+    // A settings file that cannot be read is not a new user: the existing
+    // error path reports it, and nothing here turns it into a setup.
+    let setting_up = loaded
+        .as_ref()
+        .is_ok_and(|settings| !settings.onboarding_completed);
+    app.state::<Onboarding>().set(setting_up);
+    let route = startup_intent.route(setting_up);
+    if route.forward {
+        app.state::<StartupIntent>().set(startup_intent);
+    }
     diagnostics::info!("app.startup_intent", intent = startup_intent.as_str());
+    if setting_up {
+        diagnostics::info!(
+            "onboarding.shown",
+            source = if startup_intent == Intent::Show {
+                "first_launch"
+            } else {
+                "startup_intent"
+            }
+        );
+    }
     // Best-effort on purpose: a session that will not grant a global
     // shortcut, or a key another application already holds, must cost
     // the dictation key and not the application. The reason is kept so
     // Settings can report it when the user next looks.
-    let handle = app.handle().clone();
     match hotkey::install(&handle) {
         Ok(()) => {
-            let configured = match settings::load(&handle) {
+            let configured = match loaded {
                 Ok(settings) => settings.global_hotkey,
                 Err(failure) => {
                     diagnostics::fallback!(
@@ -195,7 +255,7 @@ fn setup(app: &mut tauri::App, startup_intent: Intent) -> Result<(), Box<dyn std
                 .set_decorations(false)
                 .map_err(setup_stage("decorations"))?;
         }
-        if startup_intent.raises_window() {
+        if route.reveal {
             // macOS does not bring an accessory application to the
             // front for being launched, so a launch that asks for the
             // window takes the same path as a tray click.
@@ -230,15 +290,10 @@ pub fn run() {
             let files = cli::files_from(&args, std::path::Path::new(&cwd));
             let intent = cli::intent_from(args);
             diagnostics::info!("app.second_instance", intent = intent.as_str());
-            if intent.raises_window() {
-                reveal_main_window(app, "second_instance");
-            }
             // The interface owns the recording state machine, so a hotkey is
             // routed to it rather than reimplemented here. An autostart entry
             // that meets the running app asks it for nothing at all.
-            if intent.reaches_the_interface() {
-                diagnostics::notify_interface(app, "remote-intent", intent);
-            }
+            deliver_intent(app, intent, "second_instance");
             app.state::<PendingFiles>()
                 .offer(app, files, "command_line");
         }))
@@ -263,6 +318,7 @@ pub fn run() {
         .manage(tray::TrayState::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
+        .manage(Onboarding::default())
         .manage(PendingFiles::default())
         .manage(history::HistoryState::default())
         .manage(hotkey::Failure::default())
@@ -310,6 +366,7 @@ pub fn run() {
             commands::announce_app_action,
             commands::get_settings,
             commands::save_settings,
+            commands::complete_onboarding,
             commands::list_input_devices,
             commands::start_recording,
             commands::get_recording_status,
@@ -335,6 +392,7 @@ pub fn run() {
             commands::copy_text,
             commands::codex_status,
             commands::open_codex_setup,
+            commands::open_openai_api_keys,
             commands::has_openai_api_key,
             commands::set_openai_api_key,
             commands::delete_openai_api_key,
