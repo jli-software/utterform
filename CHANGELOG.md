@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 — v1.2.0 · The microphone stays where you put it
+
+- Add **Level** to Settings → Recording. Switched on, it starts at the level the microphone has now; the slider sets it from 0 to 100 %. While Utterform runs it looks every two seconds and sets the level back when Teams, Zoom, Chrome or anything else has changed it. Switched off, Utterform never touches the level.
+- Windows: the microphone chosen for recordings, else the default one — the same slider as in Sound settings. Linux: the default input of PipeWire (`wpctl`) or PulseAudio (`pactl`). macOS: the default input.
+- Choosing another microphone in the tray moves the held level to it.
+- Where the level cannot be read, the switch stays off and says why.
+- App version 1.2.0; the installers install v1.2.0 by default.
+
+See [1.2.0 release notes](docs/releases/v1.2.0.md).
+
 ## 1.1.0 — v1.1.0 · The right microphone, one click away
 
 - Add **Microphone** to the tray menu: **System default (name)** and every microphone, the one in use checked. A click makes it the microphone for the next recordings — the laptop's own while the headset for calls stays plugged in. It is the same setting as Settings → Recording → Microphone, saved at once, and the window follows.

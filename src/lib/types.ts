@@ -33,6 +33,8 @@ export interface AppSettings {
   engine: Engine;
   cloud_model: CloudModel;
   input_device: string | null;
+  /// The microphone level Utterform holds, in percent; `null` leaves it alone.
+  microphone_level: number | null;
   output_directory: string | null;
   copy_to_clipboard: boolean;
   save_to_file: boolean;
@@ -181,6 +183,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   engine: "open_ai",
   cloud_model: "gpt_transcribe",
   input_device: null,
+  microphone_level: null,
   output_directory: null,
   copy_to_clipboard: true,
   save_to_file: false,

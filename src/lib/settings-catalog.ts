@@ -14,7 +14,7 @@ export const SETTINGS_CATEGORIES: Array<{ id: SettingsCategory; label: string }>
 ];
 
 export type SettingsRowId =
-  | "microphone" | "shortcut" | "sounds"
+  | "microphone" | "mic-level" | "shortcut" | "sounds"
   | "engine" | "api-key" | "language" | "vocabulary" | "context" | "local-model"
   | "actions" | "text-provider" | "text-model"
   | "context-selection" | "context-clipboard" | "app-actions"
@@ -31,6 +31,7 @@ export interface SettingsRow {
 
 export const SETTINGS_ROWS: SettingsRow[] = [
   { id: "microphone", category: "recording", label: "Microphone", keywords: ["mic", "input", "device", "audio"] },
+  { id: "mic-level", category: "recording", label: "Level", keywords: ["volume", "gain", "loud", "quiet", "input level", "hold", "lock", "teams", "pegel"] },
   { id: "shortcut", category: "recording", label: "Shortcut", keywords: ["hotkey", "key", "keyboard", "dictation", "global"] },
   { id: "sounds", category: "recording", label: "Sounds", keywords: ["sound", "cue", "beep", "chime", "click", "test"] },
   { id: "engine", category: "transcription", label: "Engine", keywords: ["cloud", "live", "local", "whisper", "gpt", "transcribe", "mode", "offline"] },

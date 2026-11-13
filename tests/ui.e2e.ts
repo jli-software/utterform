@@ -81,6 +81,7 @@ test.beforeEach(async ({ page }) => {
             case "codex_status": return { signedIn: !Reflect.get(window, "__codexSignedOut"), models: [{ id: "gpt-6.1-sol", name: "GPT-6.1-Sol" }, { id: "gpt-6-luna", name: "GPT-6-Luna" }], defaultModel: "gpt-6-luna" };
             case "open_codex_setup": (Reflect.get(window, "__supportCalls") as string[]).push("codex-setup"); return;
             case "list_input_devices": return [{ id: "test-mic", name: "Studio microphone", isDefault: true }];
+            case "read_microphone_level": if (Reflect.get(window, "__levelUnavailable")) throw "neither wpctl (PipeWire) nor pactl (PulseAudio) answered"; return 63;
             case "list_local_models": return models;
             case "download_local_model": case "delete_local_model": {
               const model = models.find((model) => model.id === args.modelId);
@@ -925,6 +926,39 @@ test("text actions can run on the ChatGPT subscription, marked experimental", as
   await page.getByRole("combobox", { name: "ChatGPT model" }).click();
   await expect(page.getByRole("option", { name: "GPT-6.1-Sol" })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("ai-chatgpt-model.png") });
+});
+
+test("the microphone level is held from where it is, and moved with the slider", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const hold = page.getByRole("switch", { name: "Hold the microphone level" });
+  await expect(hold).not.toBeChecked();
+  await expect(page.getByRole("slider")).toHaveCount(0);
+  await hold.click();
+  const level = () => page.evaluate(() => (Reflect.get(window, "__savedSettings") as { microphone_level?: number | null } | null)?.microphone_level);
+  await expect.poll(level).toBe(63);
+  const slider = page.getByRole("slider", { name: "Level" });
+  await expect(slider).toHaveValue("63");
+  await slider.fill("80");
+  await expect.poll(level).toBe(80);
+  await expect(page.getByText("80%")).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: testInfo.outputPath("microphone-level.png") });
+  await hold.click();
+  await expect.poll(level).toBeNull();
+  await expect(page.getByRole("slider")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("where the level cannot be set, the switch stays off and says why", async ({ page }) => {
+  await page.addInitScript(() => Object.assign(window, { __levelUnavailable: true }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const hold = page.getByRole("switch", { name: "Hold the microphone level" });
+  await hold.click();
+  await expect(page.getByRole("alert")).toContainText("cannot set the microphone level");
+  await expect(hold).not.toBeChecked();
+  expect(await page.evaluate(() => (Reflect.get(window, "__savedSettings") as { microphone_level?: number | null } | null)?.microphone_level ?? null)).toBeNull();
 });
 
 test("the Context action's sources are switched in their own category, at once", async ({ page }, testInfo) => {

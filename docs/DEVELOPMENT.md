@@ -19,7 +19,19 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 1.1.0 Microphone in the tray
+## Current handoff — 1.2.0 Hold the microphone level
+
+Branch `work/utterform-1.2.0-hold-mic-level`. Jonas asked on 2026-11-13 for the
+microphone to stay set (a RØDE NT-USB on Windows; its knobs only change the headphone
+mix) without a separate tool, on Windows and Linux alike. Settings → Recording → Level
+holds a level while Utterform runs. Design in
+[ARCHITECTURE.md → Microphone level](ARCHITECTURE.md#microphone-level-120). Released
+directly as 1.2.0 like 1.1.0. CBZIT007 has no Visual C++ Build Tools: the Windows code was
+compiled by `Desktop builds`, the frontend and its Playwright tests ran locally (Edge via
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE`). Open: a real check with the NT-USB and Teams running,
+and Linux on a PipeWire desktop.
+
+## Previous handoff — 1.1.0 Microphone in the tray
 
 Branch `work/utterform-1.1.0-tray-microphone`. Jonas asked on 2026-11-13 for a quick
 microphone switch in the tray (headset plugged in for calls, but dictating into the

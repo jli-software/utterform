@@ -1,6 +1,6 @@
 # Verify the NSIS setup before opening it; no elevation or forced app shutdown.
 param(
-    [string]$Version = 'v1.1.0',
+    [string]$Version = 'v1.2.0',
     [switch]$VerifyOnly
 )
 

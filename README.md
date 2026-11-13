@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> **1.1.0 — The right microphone, one click away** switches the microphone from the tray menu and brings everything since 0.8.0: a first-run assistant, Settings with search, ChatGPT text actions, Context, an action per app and audio files. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v1.1.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v1.1.0).
+> **1.2.0 — The microphone stays where you put it** holds the microphone level you choose, even when Teams or another app turns it up or down. 1.1.0 brought the microphone in the tray menu and everything since 0.8.0: a first-run assistant, Settings with search, ChatGPT text actions, Context, an action per app and audio files. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v1.2.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v1.2.0).
 
 ## How it works
 
@@ -333,6 +333,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - A vocabulary of your own terms, and a reasoning effort for the text step
 - Clipboard, TXT, Markdown, or combined output
 - Selectable microphone with a system-default fallback, in Settings and in the tray menu
+- Hold the microphone level, so other apps cannot change how loud you record
 - Global dictation with a reserved key combination on Windows, macOS and X11, or a compositor binding on Wayland: either way without raising the window
 - Optional typing of the finished text into the focused window, next to clipboard and file, as one paste or as keystrokes (Linux and Windows)
 - A dictation key recorded by pressing it, read by physical key so the layout cannot change it

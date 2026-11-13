@@ -9,7 +9,7 @@ describe("the settings catalog", () => {
   });
 
   it("shows a category's own rows when nothing is searched", () => {
-    expect([...visibleRows("recording", "  ")]).toEqual(["microphone", "shortcut", "sounds"]);
+    expect([...visibleRows("recording", "  ")]).toEqual(["microphone", "mic-level", "shortcut", "sounds"]);
   });
 
   it("finds rows across categories by label, keyword or category, ignoring case", () => {
