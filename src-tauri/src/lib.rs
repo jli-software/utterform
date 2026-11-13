@@ -15,6 +15,7 @@ mod hotkey;
 mod live;
 #[cfg(target_os = "macos")]
 mod macos;
+mod mic_level;
 mod models;
 mod output;
 mod platform;
@@ -271,6 +272,7 @@ fn setup(app: &mut tauri::App, startup_intent: Intent) -> Result<(), Box<dyn std
     }
     tray::install(app.handle()).map_err(setup_stage("tray"))?;
     tray_microphones::init(app.handle());
+    mic_level::init(app.handle());
     Ok(())
 }
 
@@ -319,6 +321,7 @@ pub fn run() {
         .manage(feedback::DoneCues::default())
         .manage(tray::TrayState::default())
         .manage(tray_microphones::MicrophoneMenu::default())
+        .manage(mic_level::MicLevel::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
         .manage(Onboarding::default())
@@ -371,6 +374,7 @@ pub fn run() {
             commands::save_settings,
             commands::complete_onboarding,
             commands::list_input_devices,
+            commands::read_microphone_level,
             commands::start_recording,
             commands::get_recording_status,
             commands::get_live_status,

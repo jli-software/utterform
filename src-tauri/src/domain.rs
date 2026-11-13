@@ -143,6 +143,9 @@ pub struct AppSettings {
     pub engine: TranscriptionEngine,
     pub cloud_model: CloudModel,
     pub input_device: Option<String>,
+    /// The microphone level to hold, in percent; `None` leaves it to the
+    /// operating system. See `mic_level`.
+    pub microphone_level: Option<u8>,
     pub output_directory: Option<String>,
     pub copy_to_clipboard: bool,
     pub save_to_file: bool,
@@ -227,6 +230,7 @@ impl Default for AppSettings {
             engine: TranscriptionEngine::OpenAi,
             cloud_model: CloudModel::GptTranscribe,
             input_device: None,
+            microphone_level: None,
             output_directory: None,
             copy_to_clipboard: true,
             save_to_file: false,

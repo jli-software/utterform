@@ -61,6 +61,8 @@ export const api = {
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   saveSettings: (value: AppSettings) => invoke<void>("save_settings", { value }),
   listInputDevices: () => invoke<AudioDevice[]>("list_input_devices"),
+  // The microphone's level now, in percent; rejects where it cannot be held.
+  readMicrophoneLevel: (device: string | null) => invoke<number>("read_microphone_level", { device }),
   startRecording: (
     inputDevice: string | null,
     engine: Engine,

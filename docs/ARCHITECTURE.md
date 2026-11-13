@@ -294,6 +294,33 @@ Linux has no such hover event; there the list follows the window.
 **Diagnostics.** `tray.microphone_chosen` (`default` or `device`) and
 `tray.microphones_failed` (step). Device names are not logged.
 
+## Microphone level (1.2.0)
+
+**What it holds.** `settings.microphone_level`: a percentage, or `None` to leave the
+level to the operating system (the default, and what an older settings file reads as).
+`mic_level.rs` runs one thread, started in `setup`, that receives the target over a
+channel — from `init` (the settings file), `save_settings`, `complete_onboarding` and the
+tray's microphone choice — and, while a level is set, reads it every two seconds and
+writes it back when it is more than one point away (rounding in the system moves it by
+one). Nothing is read or written while no level is set.
+
+**Per system.** Windows: `IMMDeviceEnumerator::GetDevice` with the endpoint id from the
+cpal id `wasapi:<id>`, else the default capture endpoint, then
+`IAudioEndpointVolume::{Get,Set}MasterVolumeLevelScalar` — the Sound settings slider;
+COM is initialised once on the thread. Linux: `wpctl get-volume/set-volume
+@DEFAULT_AUDIO_SOURCE@`, else `pactl get-source-volume/set-source-volume
+@DEFAULT_SOURCE@`; the ALSA ids Utterform records from do not map to PipeWire nodes, so it
+is always the default source. macOS: `osascript` `input volume of (get volume settings)` /
+`set volume input volume`, the default input.
+
+**Settings.** Recording → Level: the switch reads the current level
+(`read_microphone_level`) and starts there; if that fails the switch stays off and the
+reason is shown. The slider saves after 300 ms.
+
+**Diagnostics.** `mic_level.target` (level or `off`), `mic_level.restored` (from, to; at
+most once a minute), `mic_level.failed` once until it works again,
+`mic_level.read_failed`. No device names.
+
 ## First-run assistant (0.14.0)
 
 **Who sees it.** `settings.onboarding_completed`. `AppSettings::default()` — what `load`

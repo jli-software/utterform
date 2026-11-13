@@ -114,6 +114,7 @@ pub fn save_settings(app: AppHandle, value: AppSettings) -> Result<(), String> {
             app.state::<crate::Onboarding>()
                 .set(!value.onboarding_completed);
             crate::tray_microphones::set_selected(&app, value.input_device.clone());
+            crate::mic_level::set(&app, value.microphone_level, value.input_device.clone());
             diagnostics::info!(
                 "settings.saved",
                 engine = value.engine.as_str(),
@@ -152,6 +153,7 @@ pub fn complete_onboarding(
     }
     app.state::<crate::Onboarding>().set(false);
     crate::tray_microphones::set_selected(&app, value.input_device.clone());
+    crate::mic_level::set(&app, value.microphone_level, value.input_device.clone());
     if skipped {
         diagnostics::info!("onboarding.skipped");
     } else {
@@ -176,6 +178,16 @@ pub fn list_input_devices(app: AppHandle) -> Result<Vec<AudioDeviceInfo>, String
     // The window has just looked; the tray's Microphone menu shows the same.
     crate::tray_microphones::set_devices(&app, devices.clone());
     Ok(devices)
+}
+
+/// The microphone's level now, in percent, for Settings → Recording → Level
+/// to start from. An error says why this system cannot hold the level.
+#[tauri::command]
+pub fn read_microphone_level(device: Option<String>) -> Result<u8, String> {
+    crate::mic_level::read(device.as_deref()).map_err(|error| {
+        diagnostics::warning!("mic_level.read_failed", error = error);
+        error
+    })
 }
 
 /// Open the microphone and play the start cue.

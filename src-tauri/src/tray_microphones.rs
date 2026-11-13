@@ -182,14 +182,19 @@ pub fn refresh(app: &AppHandle, throttled: bool) {
 pub fn choose(app: &AppHandle, selected: Option<String>) {
     let saved = settings::load(app).and_then(|mut value| {
         value.input_device = selected.clone();
-        settings::save(app, &value)
+        settings::save(app, &value).map(|()| value.microphone_level)
     });
-    if let Err(failure) = saved {
-        diagnostics::warning!("tray.microphone_choice_failed", class = failure.class());
-        // Show the choice that is still in force.
-        update(app, |_| {});
-        return;
-    }
+    let level = match saved {
+        Ok(level) => level,
+        Err(failure) => {
+            diagnostics::warning!("tray.microphone_choice_failed", class = failure.class());
+            // Show the choice that is still in force.
+            update(app, |_| {});
+            return;
+        }
+    };
+    // A held level follows the microphone to the one now chosen.
+    crate::mic_level::set(app, level, selected.clone());
     diagnostics::info!(
         "tray.microphone_chosen",
         microphone = if selected.is_some() {

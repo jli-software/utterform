@@ -64,6 +64,7 @@
 
   /// How long a text field waits after the last keystroke before it is written.
   const TYPING_SAVE_DELAY_MS = 500;
+  const LEVEL_SAVE_DELAY_MS = 300;
   const ENGINES: Array<{ mode: TranscriptionMode; label: string; title: string }> = [
     { mode: "gpt_transcribe", label: "Cloud", title: "GPT Transcribe: finished text, audio is sent to OpenAI" },
     { mode: "gpt_live_transcribe", label: "Live", title: "GPT Live Transcribe: text appears at the cursor while you speak" },
@@ -119,6 +120,7 @@
   // appears and then turns out to be dead is worse than one that arrives late.
   let hotkeySupport: HotkeySupport = { supported: false, default: "Ctrl+Alt+D", explanation: "", failure: null };
   let hotkeyError = "";
+  let levelMessage = "";
   /// While the recorder is listening, the key it is listening for must not be
   /// held by the operating system on Utterform's behalf, or pressing it would
   /// start a recording instead of being read. Released for that moment only,
@@ -1007,6 +1009,23 @@
 
   /// Put a change into effect and write it. `delay` is for text fields: the
   /// write waits for a pause in typing, and the next change restarts the wait.
+  /// Holding starts at the level the microphone has now, so switching it on
+  /// changes nothing you hear until the slider moves.
+  async function toggleMicrophoneLevel(toggle: HTMLInputElement) {
+    levelMessage = "";
+    if (!toggle.checked) {
+      change({ microphone_level: null });
+      return;
+    }
+    try {
+      const level = await api.readMicrophoneLevel(settings.input_device);
+      change({ microphone_level: Math.max(0, Math.min(100, Math.round(level))) });
+    } catch (error) {
+      levelMessage = `Utterform cannot set the microphone level here: ${String(error)}`;
+      toggle.checked = false;
+    }
+  }
+
   function change(patch: Partial<AppSettings>, delay = 0) {
     settings = { ...settings, ...patch };
     scheduleSave(delay);
@@ -1657,6 +1676,20 @@
       {#if shownRows.has("microphone")}
         <div class="setting-row">{@render rowHead("microphone", "Microphone")}
           <div class="row-control wide"><SelectMenu id="microphone" label="Microphone" value={settings.input_device ?? ""} options={deviceOptions} onchange={(value) => change({ input_device: value || null })} /></div></div>
+      {/if}
+      {#if shownRows.has("mic-level")}
+        <div class="setting-row" title="Utterform keeps the microphone at this level while it runs, also when Teams or another app changes it.">{@render rowHead("mic-level", "Level", settings.microphone_level !== null ? "mic-level" : null)}
+          <div class="row-control">
+            {#if settings.microphone_level !== null}
+              <input id="mic-level" class="level-slider" type="range" min="0" max="100" step="1" value={settings.microphone_level}
+                oninput={(event) => change({ microphone_level: Number(event.currentTarget.value) }, LEVEL_SAVE_DELAY_MS)} />
+              <span class="row-note level-value">{settings.microphone_level}%</span>
+            {/if}
+            <input type="checkbox" role="switch" class="switch" aria-label="Hold the microphone level" checked={settings.microphone_level !== null}
+              onchange={(event) => toggleMicrophoneLevel(event.currentTarget)} />
+          </div>
+          {#if levelMessage}<p class="setting-error row-message" role="alert">{levelMessage}</p>{/if}
+        </div>
       {/if}
       {#if shownRows.has("shortcut")}
         <div class="setting-row" title="Press once to record, again to finish. Works in other apps.">{@render rowHead("shortcut", "Shortcut")}
