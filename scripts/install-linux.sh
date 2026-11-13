@@ -2,7 +2,7 @@
 
 set -eu
 
-version="${UTTERFORM_VERSION:-v1.0.0-rc.1}"
+version="${UTTERFORM_VERSION:-v1.1.0}"
 release_base="${UTTERFORM_RELEASE_BASE_URL:-https://github.com/jli-software/utterform/releases/download/${version}}"
 asset="utterform-linux-x86_64-system.tar.gz"
 prefix="${UTTERFORM_PREFIX:-${HOME}/.local}"
