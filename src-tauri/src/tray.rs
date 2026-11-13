@@ -12,11 +12,12 @@ use std::{sync::Mutex, time::Duration};
 use tauri::{
     AppHandle, Manager, Runtime,
     image::Image,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    tray::{TrayIconBuilder, TrayIconEvent},
 };
 
 use crate::activation::{opens_main_window, reveal_main_window};
+use crate::tray_microphones::{self, Entry};
 use crate::{audio, diagnostics};
 
 /// The id Tauri's tray is registered under, so it can be found again when the
@@ -324,7 +325,7 @@ fn quit<R: Runtime>(app: &AppHandle<R>) {
 
 /// Install the tray icon, preferring the implementation that gives this
 /// platform a working click.
-pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+pub fn install(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     match status_notifier_item::install(app) {
         Ok(()) => {
@@ -349,11 +350,10 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 }
 
 /// Tauri's own tray. Left click and double click open the window where the
-/// platform reports them.
-fn native<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit_item])?;
+/// platform reports them; the pointer arriving on the icon reads the
+/// microphones again, so the menu it is about to open is current.
+fn native(app: &AppHandle) -> tauri::Result<()> {
+    let menu = native_menu(app, &tray_microphones::current(app))?;
     let mut tray = TrayIconBuilder::with_id(NATIVE_TRAY)
         .menu(&menu)
         .show_menu_on_left_click(false);
@@ -363,9 +363,16 @@ fn native<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     tray.on_menu_event(|app, event| match event.id.as_ref() {
         "show" => reveal_main_window(app, "tray_menu"),
         "quit" => quit(app),
-        _ => {}
+        id => {
+            if let Some(choice) = tray_microphones::choice(id) {
+                tray_microphones::choose(app, choice);
+            }
+        }
     })
     .on_tray_icon_event(|tray, event| {
+        if matches!(event, TrayIconEvent::Enter { .. }) {
+            tray_microphones::refresh(tray.app_handle(), true);
+        }
         if opens_main_window(&event) {
             reveal_main_window(tray.app_handle(), "tray_click");
         }
@@ -374,30 +381,105 @@ fn native<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Show Utterform, Microphone (submenu), Quit.
+fn native_menu<R: Runtime>(app: &AppHandle<R>, microphones: &[Entry]) -> tauri::Result<Menu<R>> {
+    let show = MenuItem::with_id(app, "show", "Show Utterform", true, None::<&str>)?;
+    let lines = microphones
+        .iter()
+        .map(|entry| {
+            CheckMenuItem::with_id(
+                app,
+                entry.id.as_str(),
+                native_label(&entry.label),
+                entry.enabled,
+                entry.checked,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let lines: Vec<&dyn IsMenuItem<R>> = lines
+        .iter()
+        .map(|line| line as &dyn IsMenuItem<R>)
+        .collect();
+    let microphone = Submenu::with_items(app, "Microphone", true, &lines)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    Menu::with_items(app, &[&show, &microphone, &separator, &quit_item])
+}
+
+/// Windows reads `&` in a menu label as an access key; a device called
+/// "Mic & Line" must keep its ampersand.
+fn native_label(label: &str) -> String {
+    if cfg!(windows) {
+        label.replace('&', "&&")
+    } else {
+        label.to_owned()
+    }
+}
+
+/// Redraw the Microphone submenu from what [`tray_microphones`] knows.
+pub fn show_microphones(app: &AppHandle) {
+    let queued = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let entries = tray_microphones::current(&queued);
+            #[cfg(target_os = "linux")]
+            if status_notifier_item::set_microphones(&queued, entries.clone()) {
+                return;
+            }
+            let Some(tray) = queued.tray_by_id(NATIVE_TRAY) else {
+                return;
+            };
+            match native_menu(&queued, &entries) {
+                Ok(menu) => {
+                    if tray.set_menu(Some(menu)).is_err() {
+                        diagnostics::warning!("tray.microphones_failed", step = "set_menu");
+                    }
+                }
+                Err(_) => diagnostics::warning!("tray.microphones_failed", step = "build_menu"),
+            }
+        })
+        .is_err()
+    {
+        diagnostics::warning!("tray.microphones_failed", step = "queue");
+    }
+}
+
 #[cfg(target_os = "linux")]
 mod status_notifier_item {
-    use ksni::{Icon, MenuItem, blocking::TrayMethods, menu::StandardItem};
+    use ksni::{
+        Icon, MenuItem,
+        blocking::TrayMethods,
+        menu::{CheckmarkItem, StandardItem, SubMenu},
+    };
     use tauri::{AppHandle, Manager, Runtime};
 
     use super::Status;
     use crate::activation::reveal_main_window;
+    use crate::tray_microphones::{self, Entry};
 
     /// What the tray can ask Utterform to do. Keeping this behind a trait lets
     /// the D-Bus behaviour be tested without a running desktop application.
     pub trait TrayActions: Send + 'static {
         fn show(&self);
         fn quit(&self);
+        /// `None` is the system default.
+        fn choose_microphone(&self, microphone: Option<String>);
     }
 
-    struct AppActions<R: Runtime>(AppHandle<R>);
+    struct AppActions(AppHandle);
 
-    impl<R: Runtime> TrayActions for AppActions<R> {
+    impl TrayActions for AppActions {
         fn show(&self) {
             reveal_main_window(&self.0, "tray");
         }
 
         fn quit(&self) {
             super::quit(&self.0);
+        }
+
+        fn choose_microphone(&self, microphone: Option<String>) {
+            tray_microphones::choose(&self.0, microphone);
         }
     }
 
@@ -408,6 +490,7 @@ mod status_notifier_item {
         success_icon: Vec<Icon>,
         failed_icon: Vec<Icon>,
         status: Status,
+        microphones: Vec<Entry>,
     }
 
     impl<A: TrayActions> ksni::Tray for UtterformTray<A> {
@@ -448,6 +531,12 @@ mod status_notifier_item {
                     ..Default::default()
                 }
                 .into(),
+                SubMenu {
+                    label: "Microphone".into(),
+                    submenu: self.microphones.iter().map(microphone_item).collect(),
+                    ..Default::default()
+                }
+                .into(),
                 MenuItem::Separator,
                 StandardItem {
                     label: "Quit".into(),
@@ -457,6 +546,24 @@ mod status_notifier_item {
                 .into(),
             ]
         }
+    }
+
+    /// One microphone line. DBusMenu reads `_` as an access key, so a device
+    /// name keeps its underscores by doubling them.
+    fn microphone_item<A: TrayActions>(entry: &Entry) -> MenuItem<UtterformTray<A>> {
+        let choice = tray_microphones::choice(&entry.id);
+        CheckmarkItem {
+            label: entry.label.replace('_', "__"),
+            checked: entry.checked,
+            enabled: entry.enabled,
+            activate: Box::new(move |tray: &mut UtterformTray<A>| {
+                if let Some(choice) = choice.clone() {
+                    tray.actions.choose_microphone(choice);
+                }
+            }),
+            ..Default::default()
+        }
+        .into()
     }
 
     /// Convert Tauri's RGBA icon bytes to the ARGB32 network byte order that the
@@ -483,6 +590,7 @@ mod status_notifier_item {
             success_icon,
             failed_icon,
             status: Status::Idle,
+            microphones: tray_microphones::entries(&[], None),
         }
         .spawn()
     }
@@ -495,7 +603,7 @@ mod status_notifier_item {
         }]
     }
 
-    pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), ksni::Error> {
+    pub fn install(app: &AppHandle) -> Result<(), ksni::Error> {
         let (icon, recording_icon, success_icon, failed_icon) = app
             .default_window_icon()
             .map(|image| {
@@ -536,13 +644,32 @@ mod status_notifier_item {
     /// Swap the icon; `update` has ksni tell the host it changed. False when
     /// this session fell back to the native tray instead.
     pub(super) fn set_status<R: Runtime>(app: &AppHandle<R>, status: Status) -> bool {
-        let Some(handle) = app.try_state::<ksni::blocking::Handle<UtterformTray<AppActions<R>>>>()
+        let Some(handle) = app.try_state::<ksni::blocking::Handle<UtterformTray<AppActions>>>()
         else {
             return false;
         };
         if handle.update(|tray| tray.status = status).is_none() {
             // The tray service has stopped; the native tray does not exist here.
             crate::diagnostics::warning!("tray.update_failed", step = "status_notifier_item",);
+        }
+        true
+    }
+
+    /// Replace the Microphone submenu. False when this session fell back to
+    /// the native tray instead.
+    pub(super) fn set_microphones(app: &AppHandle, microphones: Vec<Entry>) -> bool {
+        let Some(handle) = app.try_state::<ksni::blocking::Handle<UtterformTray<AppActions>>>()
+        else {
+            return false;
+        };
+        if handle
+            .update(|tray| tray.microphones = microphones)
+            .is_none()
+        {
+            crate::diagnostics::warning!(
+                "tray.update_failed",
+                step = "status_notifier_microphones"
+            );
         }
         true
     }
@@ -567,6 +694,8 @@ mod status_notifier_item {
             }
 
             fn quit(&self) {}
+
+            fn choose_microphone(&self, _microphone: Option<String>) {}
         }
 
         /// The smallest watcher a StatusNotifierItem needs to find: it only has

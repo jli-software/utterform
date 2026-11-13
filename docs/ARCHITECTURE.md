@@ -266,6 +266,34 @@ Ghostty); macOS uses the localized name.
 `recording.app_action` (action) when a rule takes over. The application is never logged:
 which program someone dictates into says as much as a window title.
 
+## Microphone in the tray (1.1.0)
+
+**One setting, two places.** The tray's **Microphone** submenu writes
+`settings.input_device`, the field Settings → Recording → Microphone writes; `None` is the
+system default. `tray_microphones::choose` loads `settings.json`, changes only that field,
+saves it, and then emits `microphone-chosen` with the id. The window copies it into its
+settings without saving; a pending or later save already carries it. The backend saves
+first so the choice holds even if no window ever loaded. A recording that is running
+keeps its microphone; the choice applies to the next `start_recording`.
+
+**The menu.** `tray_microphones::entries` turns the known devices and the choice into
+lines: **System default (name of the default device)**, then every device, exactly one
+checked. A chosen id that is not connected gets a greyed, checked line "Chosen microphone
+(not connected, using system default)", because `audio::select_device` falls back to the
+default then. Menu ids are `microphone:default` and `microphone:device:<cpal id>`.
+Windows and macOS rebuild Tauri's native menu with `tray.set_menu` (labels escape `&`);
+Linux updates the `SubMenu` of its own StatusNotifierItem through the ksni handle (labels
+escape `_`).
+
+**Staying current.** The devices are read at startup (off the event loop), whenever the
+window calls `list_input_devices` (its copy is reused), and on Windows and macOS on
+`TrayIconEvent::Enter`, at most every two seconds, so a microphone plugged in since shows
+up before the menu opens. `save_settings` and `complete_onboarding` move the checkmark.
+Linux has no such hover event; there the list follows the window.
+
+**Diagnostics.** `tray.microphone_chosen` (`default` or `device`) and
+`tray.microphones_failed` (step). Device names are not logged.
+
 ## First-run assistant (0.14.0)
 
 **Who sees it.** `settings.onboarding_completed`. `AppSettings::default()` — what `load`

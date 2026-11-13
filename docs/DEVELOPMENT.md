@@ -19,7 +19,22 @@ proposals are in [plans/v1.0-roadmap.md](plans/v1.0-roadmap.md). The plan of 202
 (reliability, assistant, finish) is superseded; 0.7.13 shipped, 0.7.14
 (`feat/simple-settings`) was rejected and will not be merged.
 
-## Current handoff — 1.0.0 Finish
+## Current handoff — 1.1.0 Microphone in the tray
+
+Branch `work/utterform-1.1.0-tray-microphone`. Jonas asked on 2026-11-13 for a quick
+microphone switch in the tray (headset plugged in for calls, but dictating into the
+laptop's microphone), Windows first, then macOS and Linux, released directly as 1.1.0
+without a release candidate; nobody else uses Utterform yet. He chose "release 1.1.0
+straight away" over first releasing 1.0.0: 1.1.0 is the first stable release since
+0.8.0 and contains all of 1.0.0-rc.1. Design in
+[ARCHITECTURE.md → Microphone in the tray](ARCHITECTURE.md#microphone-in-the-tray-110).
+CBZIT007 (Windows) has no Visual C++ Build Tools; Rust was compiled and tested by the
+`Desktop builds` workflow, the frontend locally. Open after the release: a real check of
+the tray submenu on each desktop, the open points of
+[plans/v1.0-acceptance.md](plans/v1.0-acceptance.md), and a new WinGet submission
+(PR #27 is the last one, at 0.7.11).
+
+## Previous handoff — 1.0.0 Finish
 
 Stage 1.0.0 of [the roadmap](plans/v1.0-roadmap.md), branch `work/utterform-1.0.0-finish`.
 Jonas decided on 2026-11-08 to accept a real signed prerelease: the app is 1.0.0, the

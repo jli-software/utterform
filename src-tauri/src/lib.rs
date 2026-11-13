@@ -23,6 +23,7 @@ mod secrets;
 mod settings;
 mod transcription;
 mod tray;
+mod tray_microphones;
 mod typing;
 
 use tauri::Manager;
@@ -269,6 +270,7 @@ fn setup(app: &mut tauri::App, startup_intent: Intent) -> Result<(), Box<dyn std
         }
     }
     tray::install(app.handle()).map_err(setup_stage("tray"))?;
+    tray_microphones::init(app.handle());
     Ok(())
 }
 
@@ -316,6 +318,7 @@ pub fn run() {
         .manage(commands::FileBusy::default())
         .manage(feedback::DoneCues::default())
         .manage(tray::TrayState::default())
+        .manage(tray_microphones::MicrophoneMenu::default())
         .manage(live::LiveState::default())
         .manage(StartupIntent::default())
         .manage(Onboarding::default())

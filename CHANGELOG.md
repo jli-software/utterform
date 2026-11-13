@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 — v1.1.0 · The right microphone, one click away
+
+- Add **Microphone** to the tray menu: **System default (name)** and every microphone, the one in use checked. A click makes it the microphone for the next recordings — the laptop's own while the headset for calls stays plugged in. It is the same setting as Settings → Recording → Microphone, saved at once, and the window follows.
+- Read the microphones again as they come and go: at startup, when the window lists them, and on Windows and macOS when the pointer reaches the tray icon. A chosen microphone that is unplugged stays in the menu greyed out; recordings use the system default until it is back.
+- On Linux the same submenu is served through Utterform's own StatusNotifierItem.
+- The first stable release since 0.8.0: everything of 1.0.0-rc.1 (stages 0.9.0 to 0.14.0) ships with it. 1.0.0 was not released separately.
+- App version 1.1.0; the installers install v1.1.0 by default.
+
+See [1.1.0 release notes](docs/releases/v1.1.0.md).
+
 ## 1.0.0-rc.1 — v1.0.0-rc.1 · Say it, it's done (prerelease)
 
 - First installed build of everything since 0.8.0: the stages 0.9.0 to 0.14.0 below — Settings with search and no Save button, text actions on the ChatGPT subscription, the Context action, an action per application, audio files and the first-run assistant.

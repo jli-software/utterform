@@ -28,7 +28,7 @@ Utterform records a short voice clip, transcribes it with **OpenAI GPT Transcrib
 the cursor. The window can stay out of the way while a global shortcut controls the
 whole flow.
 
-> Utterform is under active development. **0.8.0 — Omarchy's dictation key** makes Utterform a dictation backend for Omarchy: choose it in Setup → Defaults → Dictation, then press Alt + Space or hold Right Alt. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v0.8.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v0.8.0). **1.0.0 release candidate 1** brings everything since — first-run assistant, Settings with search, ChatGPT text actions, Context, an action per app and audio files — and waits for acceptance on all three platforms: [release notes](docs/releases/v1.0.0-rc.1.md), [downloads](https://github.com/jli-software/utterform/releases/tag/v1.0.0-rc.1).
+> **1.1.0 — The right microphone, one click away** switches the microphone from the tray menu and brings everything since 0.8.0: a first-run assistant, Settings with search, ChatGPT text actions, Context, an action per app and audio files. The Apple-Silicon build is Developer ID signed and notarized; Windows remains unsigned. See the [release notes](docs/releases/v1.1.0.md) and [downloads](https://github.com/jli-software/utterform/releases/tag/v1.1.0).
 
 ## How it works
 
@@ -332,7 +332,7 @@ Push/PR CI runs Linux validation without release compilation. For a test binary 
 - An action per app for the dictation key: Email in the mail client, Plain in the terminal
 - A vocabulary of your own terms, and a reasoning effort for the text step
 - Clipboard, TXT, Markdown, or combined output
-- Selectable microphone with a system-default fallback
+- Selectable microphone with a system-default fallback, in Settings and in the tray menu
 - Global dictation with a reserved key combination on Windows, macOS and X11, or a compositor binding on Wayland: either way without raising the window
 - Optional typing of the finished text into the focused window, next to clipboard and file, as one paste or as keystrokes (Linux and Windows)
 - A dictation key recorded by pressing it, read by physical key so the layout cannot change it
