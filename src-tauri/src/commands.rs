@@ -113,6 +113,7 @@ pub fn save_settings(app: AppHandle, value: AppSettings) -> Result<(), String> {
         Ok(()) => {
             app.state::<crate::Onboarding>()
                 .set(!value.onboarding_completed);
+            crate::tray_microphones::set_selected(&app, value.input_device.clone());
             diagnostics::info!(
                 "settings.saved",
                 engine = value.engine.as_str(),
@@ -150,6 +151,7 @@ pub fn complete_onboarding(
         ));
     }
     app.state::<crate::Onboarding>().set(false);
+    crate::tray_microphones::set_selected(&app, value.input_device.clone());
     if skipped {
         diagnostics::info!("onboarding.skipped");
     } else {
@@ -168,9 +170,12 @@ pub fn complete_onboarding(
 }
 
 #[tauri::command]
-pub fn list_input_devices() -> Result<Vec<AudioDeviceInfo>, String> {
-    audio::list_input_devices()
-        .map_err(|failure| diagnostics::failure!("audio.devices_failed", &failure))
+pub fn list_input_devices(app: AppHandle) -> Result<Vec<AudioDeviceInfo>, String> {
+    let devices = audio::list_input_devices()
+        .map_err(|failure| diagnostics::failure!("audio.devices_failed", &failure))?;
+    // The window has just looked; the tray's Microphone menu shows the same.
+    crate::tray_microphones::set_devices(&app, devices.clone());
+    Ok(devices)
 }
 
 /// Open the microphone and play the start cue.

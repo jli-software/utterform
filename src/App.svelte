@@ -348,6 +348,11 @@
     });
     unlistenFiles = await Promise.all([
       listen("file-waiting", () => { filesWaiting = true; }),
+      // The tray has already saved the choice; only this copy has to agree,
+      // so the next save or recording does not undo it.
+      listen<string | null>("microphone-chosen", (event) => {
+        settings = { ...settings, input_device: event.payload };
+      }),
       listen<{ paths: string[] }>("tauri://drag-enter", (event) => {
         dragActive = canTakeFile && event.payload.paths.length > 0;
       }),

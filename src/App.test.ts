@@ -1941,3 +1941,28 @@ describe("first-run assistant", () => {
     expect(view.queryByRole("dialog")).not.toBeNull();
   });
 });
+
+describe("the tray's Microphone menu", () => {
+  it("records the next dictation with the microphone chosen in the tray, and never saves the old one back", async () => {
+    vi.mocked(api.startRecording).mockResolvedValue(undefined);
+    render(App);
+    await waitFor(() => expect(listeners.has("microphone-chosen")).toBe(true));
+    // The backend has already written the choice to settings.json.
+    listeners.get("microphone-chosen")!({ payload: "laptop-microphone" });
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.startRecording).mock.calls[0][0]).toBe("laptop-microphone");
+    for (const [saved] of vi.mocked(api.saveSettings).mock.calls) expect(saved.input_device).toBe("laptop-microphone");
+  });
+
+  it("goes back to the system default when the tray says so", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({ ...structuredClone(DEFAULT_SETTINGS), input_device: "headset" });
+    vi.mocked(api.startRecording).mockResolvedValue(undefined);
+    render(App);
+    await waitFor(() => expect(listeners.has("microphone-chosen")).toBe(true));
+    listeners.get("microphone-chosen")!({ payload: null });
+    await remoteIntent("toggle");
+    await waitFor(() => expect(api.startRecording).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.startRecording).mock.calls[0][0]).toBeNull();
+  });
+});
